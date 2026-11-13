@@ -30,9 +30,9 @@ import struct
 from dataclasses import dataclass
 from typing import Tuple
 
-from m8loader.m8fw import M8Firmware
-from m8loader.m8mod import Mod, ModPatch
-from m8loader.core import abi
+from dirtyloader.m8fw import M8Firmware
+from dirtyloader.m8mod import Mod, ModPatch
+from dirtyloader.core import abi
 
 try:
     import keystone as _ks

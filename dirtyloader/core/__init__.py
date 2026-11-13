@@ -16,6 +16,6 @@ trampolines) is assembled into a reserved code cave -- see docs/CORE.md.
 Status: design + provisional ABI. Hook addresses are bound after the Ghidra
 function map lands and must be validated on hardware before real use.
 """
-from m8loader.core import abi
+from dirtyloader.core import abi
 
 __all__ = ["abi"]

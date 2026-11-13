@@ -1,5 +1,5 @@
 # Reverse-engineering / Core-builder tools only.
-# The core patcher (m8loader.m8fw / m8mod / linker / cli) needs NONE of these --
+# The core patcher (dirtyloader.m8fw / m8mod / linker / cli) needs NONE of these --
 # it is pure standard library. Install these only to work on the Core or RE:
 capstone>=5.0        # disassembly (re.boot, re.trace, core.test_core)
 keystone-engine>=0.9 # assembly  (core.builder)

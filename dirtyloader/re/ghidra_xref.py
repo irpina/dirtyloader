@@ -5,7 +5,7 @@ scans miss). Used to locate the parameter-descriptor / modulation-apply code by
 anchoring on the destination and send name strings.
 
 Usage:
-    python -m m8loader.re.ghidra_xref <stock.bin> <workdir>
+    python -m dirtyloader.re.ghidra_xref <stock.bin> <workdir>
 """
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ import json
 import os
 import sys
 
-from m8loader.m8fw import M8Firmware
-from m8loader.re.ghidra_export import DEFAULT_GHIDRA, LANGUAGE, BINARY_LOADER
+from dirtyloader.m8fw import M8Firmware
+from dirtyloader.re.ghidra_export import DEFAULT_GHIDRA, LANGUAGE, BINARY_LOADER
 
 # label -> absolute address (from the 6.6.2A parameter-label region)
 ANCHORS = {

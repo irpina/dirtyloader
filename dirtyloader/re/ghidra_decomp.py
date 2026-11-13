@@ -7,15 +7,15 @@ each function's callers, and the caller chains up to `loop()`/`setup()` (or an
 uncalled root such as an interrupt handler) within a few levels.
 
 Usage:
-    python -m m8loader.re.ghidra_decomp <stock.bin> <workdir> 0x6005ED66 0x60025718 ...
+    python -m dirtyloader.re.ghidra_decomp <stock.bin> <workdir> 0x6005ED66 0x60025718 ...
 """
 from __future__ import annotations
 
 import os
 import sys
 
-from m8loader.m8fw import M8Firmware
-from m8loader.re.ghidra_export import DEFAULT_GHIDRA, LANGUAGE, BINARY_LOADER
+from dirtyloader.m8fw import M8Firmware
+from dirtyloader.re.ghidra_export import DEFAULT_GHIDRA, LANGUAGE, BINARY_LOADER
 
 KNOWN = {0x60081BD4: "loop", 0x60082374: "setup", 0x600AE04C: "main", 0x600B4DC0: "yield"}
 

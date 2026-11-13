@@ -6,10 +6,10 @@ Public API:
     link, diff_payloads           -- combine mods onto stock firmware (linker)
     registry                      -- known stock-firmware identification
 """
-from m8loader.m8fw import M8Firmware, Patch, M8FWError, crc32
-from m8loader.m8mod import Mod, ModPatch, M8MOD_FORMAT
-from m8loader.linker import link, diff_payloads, ConflictError
-from m8loader import registry
+from dirtyloader.m8fw import M8Firmware, Patch, M8FWError, crc32
+from dirtyloader.m8mod import Mod, ModPatch, M8MOD_FORMAT
+from dirtyloader.linker import link, diff_payloads, ConflictError
+from dirtyloader import registry
 
 __all__ = [
     "M8Firmware", "Patch", "M8FWError", "crc32",

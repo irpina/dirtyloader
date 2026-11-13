@@ -8,7 +8,7 @@ exports the discovered functions/strings to JSON via export_functions.py.
 The Ghidra install is found via $GHIDRA_INSTALL_DIR, else a machine default.
 
 Usage:
-    python -m m8loader.re.ghidra_run <stock.bin> <workdir> [base_hex]
+    python -m dirtyloader.re.ghidra_run <stock.bin> <workdir> [base_hex]
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import os
 import subprocess
 import sys
 
-from m8loader.m8fw import M8Firmware
+from dirtyloader.m8fw import M8Firmware
 
 DEFAULT_GHIDRA = r"C:\Users\zacha\Documents\smbd-recompilation\build\deps\ghidra_12.1.4_PUBLIC"
 PROCESSOR = "ARM:LE:32:Cortex"

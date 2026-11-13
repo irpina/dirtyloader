@@ -1,7 +1,7 @@
 # Baseline: what dirtyloader core 0.1.0 gives a mod on the M8 (Model:02, firmware 6.6.2A)
 
-The one sheet every reader rates against. Written by hand from `docs/CORE.md`, `m8loader/core/abi.py` and
-`m8loader/core/bindings/m8_6.6.2A_model02.json` on branch core-ghidra. Software-verified only; nothing has run
+The one sheet every reader rates against. Written by hand from `docs/CORE.md`, `dirtyloader/core/abi.py` and
+`dirtyloader/core/bindings/m8_6.6.2A_model02.json` on branch core-ghidra. Software-verified only; nothing has run
 on hardware yet.
 
 ## Events (code a mod's handler runs)

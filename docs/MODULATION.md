@@ -1,6 +1,6 @@
 # Modulation system & the "extended LFO destinations" mod
 
-Reverse-engineered from the 6.6.2A parameter-label region (`m8loader.re` + string
+Reverse-engineered from the 6.6.2A parameter-label region (`dirtyloader.re` + string
 analysis). This is the groundwork for mod #1 (extended LFO destinations) and
 feeds mod #2 (KAOSS master-track mode).
 
@@ -63,7 +63,7 @@ Open RE questions for tomorrow (need the Teensy-independent Ghidra pass):
 ## Tie-in to "2 mods, 1 hook"
 
 The multi-handler event bus is already built and verified
-(`m8loader.core.test_hooks`): the linker auto-allocates a Core table slot per
+(`dirtyloader.core.test_hooks`): the linker auto-allocates a Core table slot per
 mod, so several mods share one event. In Path B, we define `MOD_APPLY` and the
 extended-LFO-destinations mod registers a handler on it; a second modulation mod
 can register on the same event with zero coordination — exactly the mechanism
@@ -79,7 +79,7 @@ the destination and send name strings:
 2. Ghidra `getReferencesTo` on each interior string (resolves Thumb `movw/movt`
    address loads) → **none**.
 3. Ghidra region scan: every referenced address in `0x601E3C00..0x601E5E00`
-   (`m8loader.re.ghidra_xref`) → **zero referenced addresses in the region.**
+   (`dirtyloader.re.ghidra_xref`) → **zero referenced addresses in the region.**
 
 Conclusion: the parameter/label tables are reached through **computed or
 RAM-indirected addressing** — a base pointer held in a global (likely copied

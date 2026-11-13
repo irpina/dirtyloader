@@ -7,17 +7,17 @@ mod so all three handlers (Core's bundled demo + the two mods) coexist and run
 each frame, instead of the last mod winning a single call site.
 
 Software-only (no hardware). Run:
-    python -m m8loader.core.test_hooks [stock.bin]
+    python -m dirtyloader.core.test_hooks [stock.bin]
 """
 import json
 import os
 import struct
 import sys
 
-from m8loader.m8fw import M8Firmware, M8FWError
-from m8loader.linker import link
-from m8loader import registry
-from m8loader.core import abi, builder
+from dirtyloader.m8fw import M8Firmware, M8FWError
+from dirtyloader.linker import link
+from dirtyloader import registry
+from dirtyloader.core import abi, builder
 
 STOCK = sys.argv[1] if len(sys.argv) > 1 else \
     r"C:\Users\zacha\Downloads\M8Firmware_V6_6_2\Firmware\Model02\M8_V6_6_2A_MODEL02.bin"

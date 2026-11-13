@@ -6,15 +6,15 @@ The M8 payload is densely packed (only ~2% 0xFF), so caves are scarce and mostly
 live in the alignment gaps around the boot headers. This tool ranks them.
 
 Usage:
-    python -m m8loader.re.caves <stock.bin> [--fill 0xFF] [--min 64]
+    python -m dirtyloader.re.caves <stock.bin> [--fill 0xFF] [--min 64]
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import List
 
-from m8loader.m8fw import M8Firmware
-from m8loader.re.boot import LOAD
+from dirtyloader.m8fw import M8Firmware
+from dirtyloader.re.boot import LOAD
 
 
 @dataclass

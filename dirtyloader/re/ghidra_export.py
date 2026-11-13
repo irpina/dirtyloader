@@ -9,7 +9,7 @@ functions / a string sample. Needs `pip install pyghidra` and a Ghidra install
 (via $GHIDRA_INSTALL_DIR).
 
 Usage:
-    python -m m8loader.re.ghidra_export <stock.bin> <workdir> [base_hex]
+    python -m dirtyloader.re.ghidra_export <stock.bin> <workdir> [base_hex]
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ import json
 import os
 import sys
 
-from m8loader.m8fw import M8Firmware
+from dirtyloader.m8fw import M8Firmware
 
 DEFAULT_GHIDRA = r"C:\Users\zacha\Documents\smbd-recompilation\build\deps\ghidra_12.1.4_PUBLIC"
 LANGUAGE = "ARM:LE:32:Cortex"

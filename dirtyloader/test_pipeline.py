@@ -9,15 +9,15 @@ End-to-end proof of the mod pipeline against the real stock firmware:
   * conflict detection and target pinning reject bad inputs
 
 The stock firmware is only read. Pass its path as argv[1], or rely on the
-default below. Run:  python -m m8loader.test_pipeline  [stock.bin]
+default below. Run:  python -m dirtyloader.test_pipeline  [stock.bin]
 """
 import os
 import sys
 
-from m8loader.m8fw import M8Firmware, M8FWError
-from m8loader.m8mod import Mod, ModPatch
-from m8loader.linker import link, diff_payloads, ConflictError
-from m8loader import registry
+from dirtyloader.m8fw import M8Firmware, M8FWError
+from dirtyloader.m8mod import Mod, ModPatch
+from dirtyloader.linker import link, diff_payloads, ConflictError
+from dirtyloader import registry
 
 STOCK = sys.argv[1] if len(sys.argv) > 1 else \
     r"C:\Users\zacha\Downloads\M8Firmware_V6_6_2\Firmware\Model02\M8_V6_6_2A_MODEL02.bin"

@@ -1,10 +1,10 @@
 """
 dirtyloader command-line interface.
 
-    python -m m8loader.cli info     <stock.bin>
-    python -m m8loader.cli verify   <stock.bin>
-    python -m m8loader.cli build    <stock.bin> -m a.m8mod -m b.m8mod -o out.bin
-    python -m m8loader.cli make-mod <stock.bin> <modified.bin> -o mod.m8mod --id my-mod
+    python -m dirtyloader.cli info     <stock.bin>
+    python -m dirtyloader.cli verify   <stock.bin>
+    python -m dirtyloader.cli build    <stock.bin> -m a.m8mod -m b.m8mod -o out.bin
+    python -m dirtyloader.cli make-mod <stock.bin> <modified.bin> -o mod.m8mod --id my-mod
 
 `build` never touches your device: it writes a patched .bin you flash the normal
 way (M8 SD-card firmware update, or TyTools). `make-mod` is the author tool:
@@ -15,10 +15,10 @@ from __future__ import annotations
 import argparse
 import sys
 
-from m8loader.m8fw import M8Firmware, M8FWError
-from m8loader.m8mod import Mod
-from m8loader.linker import link, diff_payloads
-from m8loader import registry
+from dirtyloader.m8fw import M8Firmware, M8FWError
+from dirtyloader.m8mod import Mod
+from dirtyloader.linker import link, diff_payloads
+from dirtyloader import registry
 
 
 def _load_stock(path: str, verify: bool = True):
@@ -100,7 +100,7 @@ def cmd_make_mod(args) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        prog="m8loader",
+        prog="dirtyloader",
         description="Elekloader-style mod patcher for Dirtywave M8 firmware.",
     )
     sub = ap.add_subparsers(dest="cmd", required=True)

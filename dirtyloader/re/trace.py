@@ -11,15 +11,15 @@ per-frame functions main's loop calls -- the Core's hook sites. Only capstone is
 needed, so it runs in a second and is easy to re-point at a new firmware build.
 
 Usage:
-    python -m m8loader.re.trace <stock.bin>
+    python -m dirtyloader.re.trace <stock.bin>
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
-from m8loader.m8fw import M8Firmware
-from m8loader.re.boot import LOAD, parse_boot
+from dirtyloader.m8fw import M8Firmware
+from dirtyloader.re.boot import LOAD, parse_boot
 
 try:
     import capstone

@@ -11,7 +11,7 @@ Runs the same PyGhidra analysis as ghidra_export, then queries references and th
 call graph. Output: <workdir>/ghidra_hooks.json
 
 Usage:
-    python -m m8loader.re.ghidra_hooks <stock.bin> <workdir>
+    python -m dirtyloader.re.ghidra_hooks <stock.bin> <workdir>
 """
 from __future__ import annotations
 
@@ -20,8 +20,8 @@ import os
 import sys
 from collections import deque
 
-from m8loader.m8fw import M8Firmware
-from m8loader.re.ghidra_export import DEFAULT_GHIDRA, LANGUAGE, BINARY_LOADER
+from dirtyloader.m8fw import M8Firmware
+from dirtyloader.re.ghidra_export import DEFAULT_GHIDRA, LANGUAGE, BINARY_LOADER
 
 # (label, absolute flash address) -- unique UI strings located earlier.
 ANCHORS = [

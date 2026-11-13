@@ -8,16 +8,16 @@ Verify the Core builder end to end against real firmware:
 
 Software-only: it proves the bytes are right, not that they run (that needs a
 Teensy). The stock firmware is read-only. Run:
-    python -m m8loader.core.test_core [stock.bin]
+    python -m dirtyloader.core.test_core [stock.bin]
 """
 import json
 import os
 import sys
 
-from m8loader.m8fw import M8Firmware
-from m8loader.linker import link
-from m8loader import registry
-from m8loader.core import abi, builder
+from dirtyloader.m8fw import M8Firmware
+from dirtyloader.linker import link
+from dirtyloader import registry
+from dirtyloader.core import abi, builder
 
 import capstone
 

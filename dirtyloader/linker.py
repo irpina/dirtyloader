@@ -16,9 +16,9 @@ from __future__ import annotations
 import struct
 from typing import List
 
-from m8loader.m8fw import M8Firmware, Patch, M8FWError
-from m8loader.m8mod import Mod, ModPatch
-from m8loader.core import abi
+from dirtyloader.m8fw import M8Firmware, Patch, M8FWError
+from dirtyloader.m8mod import Mod, ModPatch
+from dirtyloader.core import abi
 
 
 class ConflictError(M8FWError):

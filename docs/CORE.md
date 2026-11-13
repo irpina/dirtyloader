@@ -23,7 +23,7 @@ mods set `requires: ["core"]` (the linker already enforces that).
 
 ## What we already know (6.6.2A Model02)
 
-Established by the RE pass (`m8loader.re.boot`, `m8loader.re.caves`):
+Established by the RE pass (`dirtyloader.re.boot`, `dirtyloader.re.caves`):
 
 | Fact | Value | Why it matters for the Core |
 |---|---|---|
@@ -36,14 +36,14 @@ Established by the RE pass (`m8loader.re.boot`, `m8loader.re.caves`):
 | Total free | ~12 KB across 12 caves ≥256 B | **tight** — code budget is the main constraint |
 
 The provisional memory layout and event ids are in
-[`m8loader/core/abi.py`](../m8loader/core/abi.py).
+[`dirtyloader/core/abi.py`](../dirtyloader/core/abi.py).
 
 ## Hook map (6.6.2A Model02)
 
 Ghidra mapped 1630 functions but the image is **stripped** (no symbols) and UI
 strings are reached by computed index (no static xref), so hook points are found
 structurally by following the deterministic reset path with
-[`m8loader.re.trace`](../m8loader/re/trace.py) (capstone, no Ghidra needed):
+[`dirtyloader.re.trace`](../dirtyloader/re/trace.py) (capstone, no Ghidra needed):
 
 ```
 IVT.entry 0x60001649 → startup 0x60001430 → main 0x600AE04C
@@ -59,7 +59,7 @@ main(): setup(); while (1) { loop(); yield(); }
 First hook sites (in `main`): patch `bl loop` at **`0x600AE052`** for a per-frame
 TICK, or `bl setup` at **`0x600AE04E`** for a one-time BOOT. Addresses for this
 exact build are recorded in
-[`m8loader/core/bindings/m8_6.6.2A_model02.json`](../m8loader/core/bindings/m8_6.6.2A_model02.json);
+[`dirtyloader/core/bindings/m8_6.6.2A_model02.json`](../dirtyloader/core/bindings/m8_6.6.2A_model02.json);
 RENDER/AUDIO/INPUT events require descending into `loop()`'s ~15 per-frame
 subsystem calls in Ghidra (the next RE step).
 
@@ -107,12 +107,12 @@ the empty table.
 ## Build order
 
 1. **Function map & hook points** — *done.* 1630 functions via Ghidra
-   (`m8loader.re.ghidra_export`); `main`/`setup`/`loop`/`yield` pinned via
-   `m8loader.re.trace`. See the hook map above.
-2. **First hook + dispatcher** — *done.* `m8loader.core.builder` assembles the
+   (`dirtyloader.re.ghidra_export`); `main`/`setup`/`loop`/`yield` pinned via
+   `dirtyloader.re.trace`. See the hook map above.
+2. **First hook + dispatcher** — *done.* `dirtyloader.core.builder` assembles the
    dispatcher + trampoline + event table (keystone) into `0x60000200`, detours
    the `TICK` site at `0x600AE052`, and emits `mods/core.m8mod`. CRCs recompute
-   via `m8fw`; `m8loader.core.test_core` disassembles the installed bytes to
+   via `m8fw`; `dirtyloader.core.test_core` disassembles the installed bytes to
    confirm every instruction. Ships a bundled no-op demo handler on TICK.
 3. **Validate on a spare Teensy 4.1 + M8 Headless firmware** — *next; hardware
    ordered.* Never on a real M8 until proven. Re-run `re.trace` on the Headless
@@ -122,7 +122,7 @@ the empty table.
    to the display via a `loop()` subsystem) once hooks there are mapped.
 5. **Generalise** — *slot allocation is done:* a mod declares `hooks: [{event,
    handler}]` and the linker auto-assigns a free Core table slot per hook, so
-   several mods share one event (`m8loader.core.test_hooks` proves 3 handlers on
+   several mods share one event (`dirtyloader.core.test_hooks` proves 3 handlers on
    TICK). `requires: ["core"]` is enforced. Remaining: a mod-author macro for
    "register handler for event X", and resizable images for larger mods.
 

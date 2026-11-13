@@ -35,7 +35,7 @@ recompile-free binary modding viable.
 | `0x200` | N | payload | flat IMXRT1062 flash image mapped at load_addr |
 
 Both CRCs are standard zlib CRC-32 (poly `0xEDB88320`). Repacking = patch payload
-→ recompute both CRCs → concatenate. `m8loader/m8fw.py` does exactly this and a
+→ recompute both CRCs → concatenate. `dirtyloader/m8fw.py` does exactly this and a
 no-op rebuild is byte-identical to the stock file.
 
 ## Install / requirements
@@ -46,17 +46,17 @@ Pure Python standard library, **no third-party deps.** Python 3.10+.
 
 ```bash
 # inspect a firmware .bin
-python -m m8loader.cli info   M8_V6_6_2A_MODEL02.bin
+python -m dirtyloader.cli info   M8_V6_6_2A_MODEL02.bin
 
 # confirm it is valid, recognised stock firmware
-python -m m8loader.cli verify M8_V6_6_2A_MODEL02.bin
+python -m dirtyloader.cli verify M8_V6_6_2A_MODEL02.bin
 
 # apply mods -> patched .bin (repeat -m for more mods)
-python -m m8loader.cli build  M8_V6_6_2A_MODEL02.bin \
+python -m dirtyloader.cli build  M8_V6_6_2A_MODEL02.bin \
     -m mods/demo-rename-scale.m8mod -o M8_patched.bin
 
 # author tool: hand-edit a copy of the firmware, then diff it into a mod
-python -m m8loader.cli make-mod stock.bin my-edited.bin \
+python -m dirtyloader.cli make-mod stock.bin my-edited.bin \
     -o mods/my-mod.m8mod --id my-mod --name "My mod" --author you
 ```
 
@@ -93,7 +93,7 @@ A `.m8mod` is a small JSON document. Each patch is guarded by the stock bytes it
 ## Project layout
 
 ```
-m8loader/
+dirtyloader/
   m8fw.py          M8FW container: parse / verify / patch / rebuild (+ CRCs)
   m8mod.py         .m8mod mod package format
   registry.py      known stock firmware (sha256 -> identity)
@@ -108,8 +108,8 @@ mods/
 Run the tests (point them at your stock `.bin`):
 
 ```bash
-python -m m8loader.test_roundtrip  path/to/stock.bin
-python -m m8loader.test_pipeline   path/to/stock.bin
+python -m dirtyloader.test_roundtrip  path/to/stock.bin
+python -m dirtyloader.test_pipeline   path/to/stock.bin
 ```
 
 ## Roadmap

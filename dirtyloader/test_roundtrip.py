@@ -12,7 +12,7 @@ Pass the stock .bin path as argv[1].
 import sys
 import hashlib
 
-from m8loader.m8fw import M8Firmware, Patch, crc32, HEADER_SIZE
+from dirtyloader.m8fw import M8Firmware, Patch, crc32, HEADER_SIZE
 
 SRC = sys.argv[1] if len(sys.argv) > 1 else \
     r"C:\Users\zacha\Downloads\M8Firmware_V6_6_2\Firmware\Model02\M8_V6_6_2A_MODEL02.bin"

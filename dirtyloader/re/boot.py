@@ -10,7 +10,7 @@ mapped at 0x60000000:
     ...         ResetHandler + ARM vector table + application code & data
 
 Usage:
-    python -m m8loader.re.boot <stock.bin>
+    python -m dirtyloader.re.boot <stock.bin>
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ import struct
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
-from m8loader.m8fw import M8Firmware
+from dirtyloader.m8fw import M8Firmware
 
 LOAD = 0x60000000
 IVT_OFF = 0x1000

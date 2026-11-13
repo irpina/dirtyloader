@@ -36,7 +36,7 @@ import json
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-from m8loader.m8fw import M8Firmware, Patch, M8FWError
+from dirtyloader.m8fw import M8Firmware, Patch, M8FWError
 
 M8MOD_FORMAT = 1
 

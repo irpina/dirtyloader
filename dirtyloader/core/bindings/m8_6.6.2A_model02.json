@@ -2,7 +2,7 @@
   "firmware": "M8 firmware 6.6.2A (Model02)",
   "stock_sha256": "fbc15296886a278bd72a0040ce07b13d17c7928c1850721299ba5dd4eaf30326",
   "load_addr": "0x60000000",
-  "derived_by": "m8loader.re.trace (entry -> startup -> main -> loop/yield)",
+  "derived_by": "dirtyloader.re.trace (entry -> startup -> main -> loop/yield)",
   "symbols": {
     "entry":   "0x60001649",
     "startup": "0x60001430",
