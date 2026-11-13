@@ -23,6 +23,9 @@ extracted/
 firmware/
 stock/
 
+# Dirtywave's manual and its text dump: local research only, never committed
+manuals/
+
 # OS / editor
 .DS_Store
 Thumbs.db

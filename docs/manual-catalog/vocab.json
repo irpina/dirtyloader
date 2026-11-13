@@ -1,0 +1,40 @@
+{
+ "_about": "The M8 vocabulary, adapted from the Elekloader manual-catalog kit (digitaktresearch/notes/manual-catalog/vocab.json). Elektron slugs are kept wherever the M8 has the same thing, so counts compare across devices. Added for the M8: fx-commands. Dropped: sysex, cv (the M8 has neither). A reader never invents a layer; add it here.",
+ "kinds": ["observe", "veto", "replace", "re-range", "extend", "draw"],
+ "coverage": ["full", "partial", "raw-only", "none"],
+ "layers": [
+  {"slug": "ui-input", "label": "UI input", "what": "the eight keys, key combinations, the modes and views keys enter, navigation between views"},
+  {"slug": "ui-screen", "label": "Screen", "what": "views, pages, lists, pop-ups, the naming screen, scopes, what is drawn"},
+  {"slug": "ui-leds", "label": "Indicators", "what": "any LED or status indicator"},
+  {"slug": "param-edit", "label": "Parameter editing", "what": "the path from an edit key press to a stored value: step size, coarse/fine, reset, value text, hex entry"},
+  {"slug": "param-tables", "label": "Parameter tables", "what": "a parameter's range, default, enum list, curve; destination, type, shape and model lists"},
+  {"slug": "sequencer-fire", "label": "Row fire", "what": "what happens as a phrase or table row plays: the note, the instrument, volume, and the commands it fires"},
+  {"slug": "sequencer-timing", "label": "Tick timing", "what": "groove, ticks per step, delay and retrigger at play time, table tick rate"},
+  {"slug": "sequencer-transport", "label": "Transport, song, chains, phrases", "what": "play/stop, tempo and clock, song rows, chains, phrase advance, live mode queueing and launching"},
+  {"slug": "sequencer-edit", "label": "Sequencer editing", "what": "entering notes, instruments and commands; clone, deep clone, selection, copy/paste/delete of song, chain, phrase and table data"},
+  {"slug": "fx-commands", "label": "FX commands", "what": "the effect-command set used in phrases and tables: which commands exist, their value ranges, what each does when it fires, relative vs absolute; adding a command", "devices": ["m8"]},
+  {"slug": "notes", "label": "Notes", "what": "the note path between a source and a voice: transpose, scales, the keyjazz/note entry, voice behaviour per track"},
+  {"slug": "render-voice", "label": "Voice render", "what": "per-instrument DSP: the engines (wavsynth, macrosynth, sampler, FM, hypersynth), filter, amp, the four modulators (envelopes, LFOs, trackers)"},
+  {"slug": "render-fx", "label": "Send effects", "what": "chorus/modfx, delay, reverb and their sends"},
+  {"slug": "render-master", "label": "Mixer and master", "what": "the mixer, EQ, limiter, inputs, routing, the outputs"},
+  {"slug": "midi-in", "label": "MIDI in", "what": "what the unit does with incoming MIDI, MIDI mapping"},
+  {"slug": "midi-out", "label": "MIDI out", "what": "what the unit sends: MIDI out and external instruments, CC/program changes, clock and transport out"},
+  {"slug": "storage", "label": "Storage", "what": "projects, songs, instruments, tables, themes, the microSD card, the file browser"},
+  {"slug": "sampling", "label": "Sampling", "what": "recording audio, the sample editor, slicing, render and selection-to-sample", "devices": ["m8"]},
+  {"slug": "settings/boot", "label": "Settings and boot", "what": "system settings, themes as settings, startup, firmware update"},
+  {"slug": "usb", "label": "USB", "what": "USB audio and MIDI, display/headless and host features"},
+  {"slug": "performance", "label": "Performance controls", "what": "live mode, mute and solo, performance-oriented mixer controls", "devices": ["m8"]}
+ ],
+ "layer_aliases": {
+  "midi-clock/transport": "sequencer-transport",
+  "midi-clock": "sequencer-transport",
+  "sequencer-fx": "fx-commands"
+ },
+ "lenses": {
+  "panel": "Panel, UI and controls. The bar for detail is the key: a mod author may want to change what a key or key combination does in each view, how values step when edited (fine, coarse, hex), what moving between views does. Every key combination, every view and the way into it, every pop-up, every list and naming rule, every stated limit (counts, ranges, timings) is a candidate.",
+  "sequencer": "The tracker. For each operation consider who starts it (key, live mode, MIDI, song), what state it reads, when it takes effect (now, next row, next phrase, end of chain), what it writes, and what it shows. Song rows, chains and their transpose, phrases and their rows (note, volume, instrument, the three FX columns), tables and their tick rate, groove, scales, live-mode queueing and launching, cloning and selection operations, and every sequencer FX command (what it does, its range, relative or absolute).",
+  "params": "Instruments, modulation, the mixer and effects. For EVERY parameter consider: its range and value text, its default, its curve, whether a modulator can target it, whether an FX command can set it, and where in the audio path it acts (could a mod replace that stage?). For every enum (engine models, filter types, shapes, modulator types and destinations, waves, algorithms) consider adding an entry and replacing the DSP of one. For modulators: types, destinations, amounts, trigger and reset rules. For effects: times and sync, feedback, the algorithm, sends and routing. For the mixer: levels, EQ, limiter, routing.",
+  "sampling": "Recording and sample handling. Sources and monitoring, how recording is armed, started and stopped, lengths and memory limits, what happens to the take, trimming, loop and slice points, slicing, normalising and other edits, render and selection-to-sample, file operations.",
+  "system": "Settings, storage, MIDI, USB and the system. Every menu row is a candidate (its options, its default, when it takes effect). Project, song, instrument and theme management and their confirmations; file browsing; MIDI sync, ports, channels, mapping, what each incoming and outgoing message does; USB modes; display and theme options; startup, firmware update, technical limits. Also the panel material in this range: key combinations, navigation, hex entry."
+ }
+}

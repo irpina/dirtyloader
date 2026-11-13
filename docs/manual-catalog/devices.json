@@ -1,0 +1,64 @@
+{
+ "_about": "The M8 manual-catalog pass, set up like the Elekloader kit's devices.json. The M8 manual has no numbered headings, so every part gives explicit ranges (lines of manuals/m8.txt, pdftotext -layout of the v20260421 manual).",
+ "release": {"tag": "dirtyloader core 0.1.0 (branch core-ghidra)"},
+ "devices": {
+  "m8": {
+   "name": "Dirtywave M8 (Model:02)",
+   "device": "m8",
+   "os": "6.5.2",
+   "manual": "m8_operation_manual_v20260421.pdf",
+   "rated": {"against": "dirtyloader core 0.1.0", "readers": "Claude Sonnet, 4 parts in parallel"},
+   "notes": "The M8 is a tracker: eight monophonic tracks, a Song > Chain > Phrase hierarchy, tables, three FX-command columns per row, instruments with four modulators each, and a mixer with send effects. The manual describes OS 6.5.2; the firmware the mods target is 6.6.2.",
+   "parts": {
+    "A": {
+     "title": "Panel, navigation, system, storage, MIDI, USB, sampling",
+     "lens": "system",
+     "covers": "panel, key shortcuts, project, settings, theme, MIDI, render, sample editor, USB",
+     "focus": "Also read the panel material here as the panel lens would: every key combination and navigation rule, hex entry, and the troubleshooting behaviours. The Sample Editor and Render/Selection-to-Sample are sampling targets: use the sampling layer for them.",
+     "ranges": [
+      [330, 610, "Conventions; Overview; Physical layout; Power; Audio out; microSD; Getting started; Navigation; Key shortcuts; Hexadecimal; Firmware updates; Demo song"],
+      [1598, 1944, "Project; System Settings; Theme; MIDI Mapping; MIDI Settings; Time Stats; Render; Selection to Sample; Effect Command Help"],
+      [2152, 2236, "Sample Editor"],
+      [2480, 2660, "USB Features; Troubleshooting; Key Shortcuts appendix"],
+      [3965, 4052, "Hexadecimal Table; Specifications"]
+     ]
+    },
+    "B": {
+     "title": "The tracker: song, live mode, chains, phrases, tables, groove, scales, sequencer FX commands",
+     "lens": "sequencer",
+     "covers": "song, live mode, chain, phrase, instrument pool, table, groove, scale views and the sequencer FX commands",
+     "focus": "The FX-command appendix is the M8's main extension surface: one row per command (or per distinct behaviour), using the fx-commands layer, and say for each whether adding a sibling command is a natural extend.",
+     "ranges": [
+      [611, 833, "Views; Song View; Live Mode; Chain View; Phrase View"],
+      [1062, 1303, "Instrument Pool; Table View; Groove View; Scale View"],
+      [2661, 2872, "Relative and Absolute FX Commands; Sequencer FX Commands"],
+      [3295, 3341, "Common Groove Examples"]
+     ]
+    },
+    "C": {
+     "title": "Instruments, modulation and the synth engines",
+     "lens": "params",
+     "covers": "instrument and modulation views, wavsynth, macrosynth, sampler, FM, hypersynth, external instrument, MIDI out, instrument FX commands",
+     "focus": "The modulation view is the priority: modulator types, the destination list per engine, amounts, triggers and ranges; extending the destination list (for example to the mixer sends) is a key extend target. The Macrosynth Models and Wavsynth wave table index are long lists: one row per list, not per entry.",
+     "ranges": [
+      [834, 1061, "Instrument View; Instrument Modulation View"],
+      [1945, 2151, "Wavsynth; Macrosynth; Sampler"],
+      [2237, 2479, "FM Synth; Hypersynth; External Instrument; MIDI Out"],
+      [2988, 3294, "Instrument FX Commands; Macrosynth Models"],
+      [3342, 3964, "Wavsynth wave table index (a list)"]
+     ]
+    },
+    "D": {
+     "title": "Mixer, EQ, limiter and send effects",
+     "lens": "params",
+     "covers": "mixer, EQ editor, limiter and mix scope, effect settings, mixer and effects FX commands",
+     "focus": "The send effects (chorus/modfx, delay, reverb) and the master path are the targets for performance mods that apply effects to the master: list every send, every effect parameter and every master-stage control as its own decision point.",
+     "ranges": [
+      [1304, 1597, "Mixer View; EQ Editor; Limiter & Mix Scope; Effect Settings"],
+      [2873, 2987, "Mixer & Effects Commands"]
+     ]
+    }
+   }
+  }
+ }
+}

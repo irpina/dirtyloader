@@ -1,0 +1,136 @@
+{
+ "device": "m8",
+ "total": 600,
+ "cov": {
+  "none": 592,
+  "partial": 8
+ },
+ "layers": {
+  "UI input": {
+   "full": 0,
+   "partial": 0,
+   "raw-only": 0,
+   "none": 41
+  },
+  "Screen": {
+   "full": 0,
+   "partial": 2,
+   "raw-only": 0,
+   "none": 33
+  },
+  "Indicators": {
+   "full": 0,
+   "partial": 0,
+   "raw-only": 0,
+   "none": 2
+  },
+  "Parameter editing": {
+   "full": 0,
+   "partial": 0,
+   "raw-only": 0,
+   "none": 30
+  },
+  "Parameter tables": {
+   "full": 0,
+   "partial": 2,
+   "raw-only": 0,
+   "none": 41
+  },
+  "Row fire": {
+   "full": 0,
+   "partial": 0,
+   "raw-only": 0,
+   "none": 16
+  },
+  "Tick timing": {
+   "full": 0,
+   "partial": 0,
+   "raw-only": 0,
+   "none": 24
+  },
+  "Transport, song, chains, phrases": {
+   "full": 0,
+   "partial": 0,
+   "raw-only": 0,
+   "none": 29
+  },
+  "Sequencer editing": {
+   "full": 0,
+   "partial": 0,
+   "raw-only": 0,
+   "none": 52
+  },
+  "FX commands": {
+   "full": 0,
+   "partial": 0,
+   "raw-only": 0,
+   "none": 69
+  },
+  "Notes": {
+   "full": 0,
+   "partial": 0,
+   "raw-only": 0,
+   "none": 22
+  },
+  "Voice render": {
+   "full": 0,
+   "partial": 0,
+   "raw-only": 0,
+   "none": 34
+  },
+  "Send effects": {
+   "full": 0,
+   "partial": 0,
+   "raw-only": 0,
+   "none": 23
+  },
+  "Mixer and master": {
+   "full": 0,
+   "partial": 2,
+   "raw-only": 0,
+   "none": 25
+  },
+  "MIDI in": {
+   "full": 0,
+   "partial": 0,
+   "raw-only": 0,
+   "none": 26
+  },
+  "MIDI out": {
+   "full": 0,
+   "partial": 0,
+   "raw-only": 0,
+   "none": 14
+  },
+  "Storage": {
+   "full": 0,
+   "partial": 1,
+   "raw-only": 0,
+   "none": 25
+  },
+  "Sampling": {
+   "full": 0,
+   "partial": 1,
+   "raw-only": 0,
+   "none": 47
+  },
+  "Settings and boot": {
+   "full": 0,
+   "partial": 0,
+   "raw-only": 0,
+   "none": 18
+  },
+  "USB": {
+   "full": 0,
+   "partial": 0,
+   "raw-only": 0,
+   "none": 9
+  },
+  "Performance controls": {
+   "full": 0,
+   "partial": 0,
+   "raw-only": 0,
+   "none": 12
+  }
+ }
+}
