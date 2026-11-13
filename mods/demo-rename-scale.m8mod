@@ -1,0 +1,23 @@
+{
+  "m8mod_format": 1,
+  "id": "demo-rename-scale",
+  "name": "Rename Harmonic Major scale",
+  "author": "dirtyloader",
+  "version": "1.0.0",
+  "description": "Example mod: renames the HARMONIC MAJOR scale label to DIRTYWAVE MAJ. Same-length string swap; purely cosmetic and fully reversible by reflashing stock.",
+  "target": {
+    "model": 2,
+    "firmware_version": "6.6.2A",
+    "stock_sha256": "fbc15296886a278bd72a0040ce07b13d17c7928c1850721299ba5dd4eaf30326"
+  },
+  "requires": [],
+  "conflicts": [],
+  "patches": [
+    {
+      "note": "scale name label",
+      "addr": "0x601D0E62",
+      "expect": "4841524d4f4e4943204d414a4f52",
+      "data": "444952545957415645204d414a20"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Build outputs / patched firmware (never commit firmware images)
+build/
+out/
+*.bin
+*.hex
+!mods/**/*.bin
+
+# Reverse-engineering workspaces (large / regenerable)
+ghidra_projects/
+*.gpr
+*.rep/
+*.gzf
+extracted/
+
+# Stock firmware must never be committed (user supplies their own)
+firmware/
+stock/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
