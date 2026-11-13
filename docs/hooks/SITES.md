@@ -41,3 +41,25 @@ vtable.
 | site | event / call | conf | notes | report |
 |---|---|---|---|---|
 | 0x600287A4 | `ev_fx_command`: a global/track command fires | S1 | detour the executor entry; handler gets the command id (r8/r2) before the 78-way `tbh`. observe / veto / re-range / extend. Exact `bl` detour site pends confirming 0x60029270→0x600287A4. [static-m8-fxcmd.md](static-m8-fxcmd.md) | (HW pending) |
+
+## `loop()` per-frame subsystems ([static-m8-loop.md](static-m8-loop.md))
+
+`main()` (0x600AE04C) confirmed: `setup(); while(1){ loop(); yield(); }`. `loop()` (0x60081BD4) is a
+cooperative scheduler — subsystem groups behind timing gates, not a flat list.
+
+### Data and calls (not sites)
+
+| what | address | conf | notes |
+|---|---|---|---|
+| main engine (TICK-rate) | 0x600A5E60 | S2 | unconditional each frame; 24 subsystem calls. Sequencer / transport / voice-follow; subtree unmapped (row-fire/transport live here) |
+| ~5 ms service group | 0x60081A90 | S2 | 6 subsystems (0x6007CBFC, 0x6007D23C, 0x6007C9E4, 0x6007BFB8, 0x60079A7C, 0x60039964) |
+| UI-frame gate | 0x6008196C | S2 | returns a byte behind a ~10 ms gate; `loop()` branches on it for the UI frame |
+| µs/elapsed read | 0x6007BBB4 | S2 | tiny, 1 peripheral ref (a micros()-style timer) |
+| view draw vtable slot | +0xA0 | S2 | per-view render method, called from the display driver's 8-item loop |
+
+### Sites
+
+| site | event / call | conf | notes | report |
+|---|---|---|---|---|
+| 0x6004B514 | `ev_render`: display refresh (whole frame) | S2 | the display driver: NVIC-guarded framebuffer (ISER/ICER 0xE000E100/180), per-view vtable `+0xA0` draw, ~15 ms gate. Detour `bl 0x6004B514` in `loop()`, or wrap the view `+0xA0` for a per-view hook. [static-m8-loop.md](static-m8-loop.md) | (HW pending) |
+| 0x6004C6C8 | `ev_input`: UI event / view-update | S3 | runs just before the flush; event code in r1 (`==0xE4`), key/state at ctx+0x15, bitmask dispatch. Input-routing vs. view-build not yet certain | (HW pending) |
