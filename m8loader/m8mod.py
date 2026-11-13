@@ -108,6 +108,9 @@ class Mod:
     target: dict = field(default_factory=dict)      # model / firmware_version / stock_sha256
     requires: List[str] = field(default_factory=list)
     conflicts: List[str] = field(default_factory=list)
+    # Core hook registrations: [{"event": int, "handler": int}]. The linker
+    # allocates a free Core hook-table slot per entry (needs requires: ["core"]).
+    hooks: List[dict] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, d: dict) -> "Mod":
@@ -126,6 +129,8 @@ class Mod:
             target=dict(d.get("target") or {}),
             requires=list(d.get("requires", [])),
             conflicts=list(d.get("conflicts", [])),
+            hooks=[{"event": _as_int(h["event"]), "handler": _as_int(h["handler"])}
+                   for h in d.get("hooks", [])],
         )
 
     def to_dict(self) -> dict:
@@ -139,6 +144,8 @@ class Mod:
             "target": self.target,
             "requires": self.requires,
             "conflicts": self.conflicts,
+            "hooks": [{"event": h["event"], "handler": f"0x{h['handler']:08X}"}
+                      for h in self.hooks],
             "patches": [p.to_dict() for p in self.patches],
         }
 

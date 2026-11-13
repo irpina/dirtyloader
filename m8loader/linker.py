@@ -13,10 +13,12 @@ hand-modified .bin into a set of guarded patches.
 """
 from __future__ import annotations
 
+import struct
 from typing import List
 
 from m8loader.m8fw import M8Firmware, Patch, M8FWError
 from m8loader.m8mod import Mod, ModPatch
+from m8loader.core import abi
 
 
 class ConflictError(M8FWError):
@@ -69,7 +71,34 @@ def link(stock: M8Firmware, stock_sha256: str, mods: List[Mod]) -> M8Firmware:
             patches.append(p)
 
     fw.apply_all(patches)  # overlap + expected-byte checks happen here
+
+    hooks = [(m.id, h) for m in mods for h in m.hooks]
+    if hooks:
+        _install_hooks(fw, hooks)
     return fw
+
+
+def _install_hooks(fw: M8Firmware, hooks) -> None:
+    """Register each declared hook into a free Core hook-table slot. Requires the
+    Core to be installed (its magic present at CORE_REGION_ADDR). This is what
+    lets several mods hook one event -- each gets its own slot, so they coexist
+    instead of overwriting one call site."""
+    region_off = abi.CORE_REGION_ADDR - fw.load_addr
+    if bytes(fw.payload[region_off:region_off + len(abi.CORE_MAGIC)]) != abi.CORE_MAGIC:
+        raise M8FWError("hooks declared but the Core is not installed; add the 'core' mod")
+    table_off = region_off + 0x10
+
+    def free_slot() -> int:
+        for i in range(abi.MAX_HOOKS):
+            ev, _fl, hn = struct.unpack_from(abi.HOOK_ENTRY_FMT, fw.payload, table_off + i * abi.HOOK_ENTRY_SIZE)
+            if ev == 0 and hn == 0:
+                return i
+        raise ConflictError("Core hook table is full")
+
+    for mid, h in hooks:
+        slot = free_slot()
+        struct.pack_into(abi.HOOK_ENTRY_FMT, fw.payload, table_off + slot * abi.HOOK_ENTRY_SIZE,
+                         int(h["event"]), abi.FLAG_ENABLED, int(h["handler"]))
 
 
 def diff_payloads(stock: bytes, modified: bytes, gap: int = 8) -> List[ModPatch]:

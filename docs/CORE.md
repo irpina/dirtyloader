@@ -120,8 +120,11 @@ the empty table.
    stall on a bare board). The HalfKay bootloader is untouched, so stock recovers.
 4. **A real handler** — replace the no-op demo with a visible effect (e.g. draw
    to the display via a `loop()` subsystem) once hooks there are mapped.
-5. **Generalise** — multi-handler slot allocation across mods, `requires: ["core"]`
-   wiring, and a mod-author macro for "register handler for event X".
+5. **Generalise** — *slot allocation is done:* a mod declares `hooks: [{event,
+   handler}]` and the linker auto-assigns a free Core table slot per hook, so
+   several mods share one event (`m8loader.core.test_hooks` proves 3 handlers on
+   TICK). `requires: ["core"]` is enforced. Remaining: a mod-author macro for
+   "register handler for event X", and resizable images for larger mods.
 
 ## Open risks
 - **Code budget.** ~12 KB of caves total; the dispatcher must be compact and
