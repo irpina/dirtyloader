@@ -1,0 +1,34 @@
+{
+  "firmware": "M8 firmware 6.6.2A (Model02)",
+  "stock_sha256": "fbc15296886a278bd72a0040ce07b13d17c7928c1850721299ba5dd4eaf30326",
+  "load_addr": "0x60000000",
+  "derived_by": "m8loader.re.trace (entry -> startup -> main -> loop/yield)",
+  "symbols": {
+    "entry":   "0x60001649",
+    "startup": "0x60001430",
+    "main":    "0x600AE04C",
+    "setup":   "0x60082374",
+    "loop":    "0x60081BD4",
+    "yield":   "0x600B4DC0"
+  },
+  "hook_sites": {
+    "BOOT": {
+      "patch_at": "0x600AE04E",
+      "instruction": "bl setup (0x60082374)",
+      "strategy": "detour the call; run BOOT handlers after setup() returns, once",
+      "note": "fires a single time, right before the main loop begins"
+    },
+    "TICK": {
+      "patch_at": "0x600AE052",
+      "instruction": "bl loop (0x60081BD4)",
+      "strategy": "detour the call; run TICK handlers each frame, then call loop()",
+      "note": "entire M8 application frame; descend into loop() for RENDER/INPUT"
+    }
+  },
+  "loop_subsystems_partial": ["0x6007BBB4", "0x6007C6C0"],
+  "notes": [
+    "yield (0x600B4DC0) is a long-branch veneer to the real yield().",
+    "UI strings are accessed by computed index with no static xref; RENDER/AUDIO",
+    "hooks require descending into loop()'s subsystems in Ghidra, not string xrefs."
+  ]
+}

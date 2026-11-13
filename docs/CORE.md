@@ -38,6 +38,31 @@ Established by the RE pass (`m8loader.re.boot`, `m8loader.re.caves`):
 The provisional memory layout and event ids are in
 [`m8loader/core/abi.py`](../m8loader/core/abi.py).
 
+## Hook map (6.6.2A Model02)
+
+Ghidra mapped 1630 functions but the image is **stripped** (no symbols) and UI
+strings are reached by computed index (no static xref), so hook points are found
+structurally by following the deterministic reset path with
+[`m8loader.re.trace`](../m8loader/re/trace.py) (capstone, no Ghidra needed):
+
+```
+IVT.entry 0x60001649 → startup 0x60001430 → main 0x600AE04C
+main(): setup(); while (1) { loop(); yield(); }
+```
+
+| Symbol | Address | Role | Core event |
+|---|---|---|---|
+| `setup` | `0x60082374` | one-time init | **BOOT** |
+| `loop`  | `0x60081BD4` | whole M8 application frame | **TICK** (→ RENDER/INPUT) |
+| `yield` | `0x600B4DC0` | Teensy USB/event service (a veneer) | — |
+
+First hook sites (in `main`): patch `bl loop` at **`0x600AE052`** for a per-frame
+TICK, or `bl setup` at **`0x600AE04E`** for a one-time BOOT. Addresses for this
+exact build are recorded in
+[`m8loader/core/bindings/m8_6.6.2A_model02.json`](../m8loader/core/bindings/m8_6.6.2A_model02.json);
+RENDER/AUDIO/INPUT events require descending into `loop()`'s ~15 per-frame
+subsystem calls in Ghidra (the next RE step).
+
 ## Design
 
 ### 1. Reserved region & table
@@ -81,10 +106,11 @@ the empty table.
 
 ## Build order
 
-1. **Function map** — Ghidra headless (`m8loader.re.ghidra_run`) → candidate
-   hook targets: main loop, display render, audio block, input handler. *(running)*
-2. **Pick the first hook** — simplest useful event (likely `RENDER` or `TICK`)
-   and a trivial demo handler (e.g. draw a marker / toggle a byte).
+1. **Function map & hook points** — *done.* 1630 functions via Ghidra
+   (`m8loader.re.ghidra_export`); `main`/`setup`/`loop`/`yield` pinned via
+   `m8loader.re.trace`. See the hook map above.
+2. **Pick the first hook** — `TICK` at `0x600AE052` (`bl loop`) with a trivial
+   demo handler (e.g. toggle a byte / draw a marker), proving the dispatcher path.
 3. **Assemble the dispatcher** in Thumb (keystone) into `0x60000200`; patch one
    call site to detour through it; recompute CRCs via `m8fw`.
 4. **Validate on a spare Teensy 4.1 + M8 Headless firmware** — never on a real M8
