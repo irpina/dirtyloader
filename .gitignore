@@ -37,3 +37,12 @@ Thumbs.db
 mods/**/*.m8mod
 examples/**/*.m8mod
 !tests/fixtures/**
+
+# The published catalog site/mods/*.m8mod IS tracked (built locally, carries only
+# hashes + author bytes -- it is the distributable unit). But the site's generated
+# outputs are not: make_site.py / the pages workflow rebuild them.
+site/engine/
+site/catalog.json
+
+# Local editor / harness config
+.claude/

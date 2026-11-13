@@ -1,0 +1,32 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # The core patcher is pure stdlib; keystone is only needed for the one
+      # assembler test (mkmod). The firmware-dependent suites never run here --
+      # the stock .bin is never committed.
+      - name: Install keystone (for the assembler test)
+        run: pip install keystone-engine==0.9.2
+
+      - name: Firmware-free test suite
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Site builds (engine zip + catalog)
+        run: python site/make_site.py

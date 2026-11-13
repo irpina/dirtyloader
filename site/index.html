@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dirtyloader — M8 firmware mod builder</title>
+<meta name="description" content="Build a custom Dirtywave M8 firmware in your browser. Pick your stock .bin and some mods; nothing is uploaded.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🎛️</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="wrap">
+  <h1>dirtyloader</h1>
+  <p class="tagline">An Elekloader-style mod builder for <strong>Dirtywave&nbsp;M8</strong> firmware. Pick your
+  stock firmware and some mods; it patches a custom <code>.bin</code> <em>in your browser</em>.</p>
+</header>
+
+<main class="wrap">
+  <div id="offline" class="banner warn" hidden>
+    The build engine could not load (it needs the Pyodide CDN). You can still use the
+    <a href="https://github.com/irpina/dirtyloader#usage">command-line builder</a>.
+  </div>
+
+  <section class="card">
+    <h2><span class="step">1</span> Your stock firmware</h2>
+    <p class="muted">The official <code>.bin</code> from Dirtywave. It is read on your machine and
+      <strong>never uploaded</strong> — the same reason a mod only ever carries hashes of it.</p>
+    <label class="filepick">
+      <input type="file" id="stock" accept=".bin,application/octet-stream">
+      <span>Choose stock .bin…</span>
+    </label>
+    <div id="stockInfo" class="info" hidden></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="step">2</span> Mods</h2>
+    <p class="muted">The <strong>Core</strong> is the hook dispatcher every code mod needs; it is added
+      automatically when something requires it.</p>
+    <div id="mods" class="mods">Loading catalog…</div>
+  </section>
+
+  <section class="card">
+    <h2><span class="step">3</span> Build</h2>
+    <button id="build" disabled>Build custom firmware</button>
+    <div id="result" class="info" hidden></div>
+    <pre id="log" class="log" hidden></pre>
+  </section>
+
+  <section class="banner warn">
+    <strong>Flash at your own risk.</strong> This is unofficial and unaffiliated with Dirtywave, and
+    <strong>nothing here has been tested on real hardware yet</strong>. Try a patched image on a spare
+    Teensy&nbsp;4.1 first. The HalfKay bootloader is never touched, so reflashing stock recovers the device.
+  </section>
+</main>
+
+<footer class="wrap muted">
+  <span id="engineVer">engine loading…</span> ·
+  <a href="https://github.com/irpina/dirtyloader">source</a> ·
+  <a href="https://github.com/irpina/dirtyloader/blob/main/docs/FORMAT.md">.m8mod format</a>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

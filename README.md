@@ -1,5 +1,8 @@
 # dirtyloader
 
+[![tests](https://github.com/irpina/dirtyloader/actions/workflows/tests.yml/badge.svg)](https://github.com/irpina/dirtyloader/actions/workflows/tests.yml)
+[![pages](https://github.com/irpina/dirtyloader/actions/workflows/pages.yml/badge.svg)](https://github.com/irpina/dirtyloader/actions/workflows/pages.yml)
+
 An **Elekloader-style mod patcher for Dirtywave M8 firmware.** You supply the
 stock firmware `.bin` that Dirtywave publishes, pick one or more mods, and
 dirtyloader builds a custom `.bin` on your machine that you flash the normal way.
@@ -9,9 +12,23 @@ plus the stock bytes each edit expects to overwrite.
 > Status: **patcher + Core dispatcher built.** The container, `.m8mod` format,
 > linker, and CLI are tested against real 6.6.2A firmware, and the Core hook
 > dispatcher / event-bus (`mods/core.m8mod`) is assembled and byte-verified
-> against it. A GUI and a visible on-device handler are still to come, and
-> **nothing has run on hardware yet.** See [Roadmap](#roadmap) and
+> against it. There's a CLI and an in-browser builder; a visible on-device
+> handler is still to come, and **nothing has run on hardware yet.** See
+> [Roadmap](#roadmap) and
 > [docs/CORE.md](docs/CORE.md). **Read the warning before flashing.**
+
+## Build it in your browser
+
+The easiest path — no install. The GitHub Pages site runs the whole builder in
+your browser (the engine is CPython compiled to WebAssembly via Pyodide):
+
+**→ https://irpina.github.io/dirtyloader/**
+
+Pick your stock `.bin` and some mods, and it hands you a patched `.bin` to flash.
+Your firmware is read locally and **never uploaded** — exactly like the CLI, and
+the same reason a mod only ever carries hashes of the stock bytes. The site is in
+[`site/`](site/); it serves pre-built `.m8mod` files (built with `mkmod`, which
+needs the firmware once) and applies them client-side.
 
 ## Why this is possible
 
@@ -86,17 +103,28 @@ dirtyloader/
   mkmod.py         a mod source folder -> .m8mod (assembles with keystone)
   lint.py          check / link .m8mod files
   cli.py           info / verify / build / make-mod / mkmod / lint / list
+  web.py           in-browser builder glue (used by the Pages site via Pyodide)
   core/            the hook dispatcher + event bus (builder, abi, bindings)
 mods/core/         the Core mod's source folder
 examples/hello-tick/   the smallest handler mod (mod.json + hello.s)
+site/              the GitHub Pages in-browser builder (index.html, app.js, make_site.py)
+tests/             firmware-free unit tests (synthetic image; run in CI)
 docs/FORMAT.md     the .m8mod specification
 ```
 
-Run the tests (point them at your stock `.bin`):
+Tests come in two kinds. The **firmware-free** suite uses a synthetic image and
+runs in CI (no stock `.bin`):
+
+```bash
+python -m unittest discover -s tests -p "test_*.py"
+```
+
+The **against-real-firmware** scripts need your own stock `.bin` (never committed):
 
 ```bash
 python -m dirtyloader.test_roundtrip  path/to/stock.bin
 python -m dirtyloader.test_pipeline   path/to/stock.bin
+python -m dirtyloader.test_tools      path/to/stock.bin
 ```
 
 ## Roadmap
@@ -109,7 +137,7 @@ python -m dirtyloader.test_pipeline   path/to/stock.bin
 3. **Code-cave injection + hook core mod** — find free flash, inject Thumb code
    (keystone), and an event-bus "core mod" so several mods can hook one function.
 4. **Resizable patches** and a mod repository format.
-5. **GUI** (pick stock + mods, build).
+5. ~~**GUI** (pick stock + mods, build).~~ Done: the in-browser builder in [`site/`](site/).
 
 ## ⚠️ Warning & scope
 
