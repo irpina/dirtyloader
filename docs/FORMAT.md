@@ -87,6 +87,46 @@ every mod's target, `requires`, `conflicts`, `core`, resources and site overlaps
 the subscriptions, recomputes both M8FW CRCs and re-reads the result before writing it. Flash the output as
 any firmware update: copy it to the SD card and use PROJECT > SYSTEM SETTINGS > FIRMWARE UPDATE.
 
+## Source folders
+
+You don't write a `.m8mod` by hand. A mod is a folder with a `mod.json` and its assembly sources, and
+`mkmod` compiles it against your stock firmware:
+
+```
+python -m dirtyloader mkmod examples/hello-tick --stock stock.bin -o hello-tick.m8mod
+```
+
+`examples/hello-tick/` and `mods/core/` are the worked examples. A `mod.json`:
+
+```json
+{
+ "m8mod_source": 1,
+ "id": "hello-tick", "version": "1.0.0", "title": "Hello tick",
+ "category": "Examples", "license": "GPL-2.0-or-later", "author": "you",
+ "description": "...",
+ "device": "m8-model02", "firmware": "6.6.2A",
+ "requires": ["core"], "core": "0.1",
+ "cave": "0x60000460",
+ "handlers": [{"event": "TICK", "source": "hello.s", "order": 60}]
+}
+```
+
+- `cave` is the base of this mod's code in a free code cave (`docs/CORE.md` lists them).
+- Each `handlers[]` entry names a Thumb assembly file (keystone syntax; `//`, `@` and `/* */` comments are
+  stripped). `mkmod` assembles it at the next free spot in the cave, makes a hash-guarded `code` site for it,
+  and adds a `subscribe` entry whose `handler` is that address. A handler gets the event id in `r0` and must
+  preserve r4-r11.
+- The core's folder sets `"build": "core"` instead of `cave`/`handlers`: it is built by
+  `dirtyloader.core.builder` from the firmware's bindings file.
+
+`lint` checks a built `.m8mod` (and, with `--stock`, links it with the core):
+
+```
+python -m dirtyloader lint hello-tick.m8mod --stock stock.bin --with core.m8mod
+```
+
+Built `.m8mod` files are artifacts and are not committed; the sources are. Regenerate with `mkmod`.
+
 ## Format 1
 
 The first format (`"m8mod_format": 1`) stored the stock bytes themselves in each patch's `expect`. It still

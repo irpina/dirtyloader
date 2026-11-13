@@ -97,6 +97,50 @@ def cmd_make_mod(args) -> int:
     return 0
 
 
+def cmd_mkmod(args) -> int:
+    import os
+    from dirtyloader.mkmod import build_from_source
+    try:
+        mod = build_from_source(args.src_dir, args.stock)
+    except M8FWError as e:
+        print("mkmod failed:", e, file=sys.stderr)
+        return 1
+    out = args.output or os.path.join(args.src_dir, f"{mod.id}.m8mod")
+    mod.save(out)
+    print(f"wrote {out}: {mod.id} {mod.version}, {len(mod.sites)} site(s), "
+          f"{len(mod.subscribe)} subscription(s)")
+    return 0
+
+
+def cmd_lint(args) -> int:
+    from dirtyloader.lint import _main as lint_main
+    argv = list(args.files)
+    if args.stock:
+        argv += ["--stock", args.stock]
+    for w in args.with_:
+        argv += ["--with", w]
+    return lint_main(argv)
+
+
+def cmd_list(args) -> int:
+    import glob
+    import os
+    from dirtyloader.m8mod import Mod
+    print("Known stock firmware:")
+    for sha, info in registry.KNOWN_FIRMWARES.items():
+        print(f"  {info['name']:32} model {info['model']}  sha {sha[:12]}...")
+    files = sorted(glob.glob(os.path.join(args.path, "**", "*.m8mod"), recursive=True))
+    print(f"\n.m8mod files in {args.path}: {len(files)}")
+    for f in files:
+        try:
+            m = Mod.load(f)
+            tgt = (m.target or {}).get("device", "?")
+            print(f"  {os.path.relpath(f):40} {m.id} {m.version}  [{tgt}]  {m.title}")
+        except Exception as e:
+            print(f"  {os.path.relpath(f):40} (unreadable: {e})")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="dirtyloader",
@@ -134,6 +178,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--gap", type=int, default=8,
                    help="coalesce diff runs separated by fewer than N identical bytes")
     p.set_defaults(func=cmd_make_mod)
+
+    p = sub.add_parser("mkmod", help="build a .m8mod from a mod source folder (mod.json + .s)")
+    p.add_argument("src_dir", help="folder with mod.json")
+    p.add_argument("--stock", required=True, help="stock .bin to pin against")
+    p.add_argument("-o", "--output", help="output .m8mod (default: <id>.m8mod beside the source)")
+    p.set_defaults(func=cmd_mkmod)
+
+    p = sub.add_parser("lint", help="check .m8mod files, optionally link them against stock")
+    p.add_argument("files", nargs="+")
+    p.add_argument("--stock", help="stock .bin: also run the full link")
+    p.add_argument("--with", dest="with_", action="append", default=[], help="another .m8mod to link with")
+    p.set_defaults(func=cmd_lint)
+
+    p = sub.add_parser("list", help="list known firmware and the .m8mod files in a folder")
+    p.add_argument("path", nargs="?", default="mods", help="folder to scan for .m8mod (default: mods)")
+    p.set_defaults(func=cmd_list)
 
     return ap
 

@@ -1,0 +1,13 @@
+{
+ "m8mod_source": 1,
+ "id": "core",
+ "version": "0.1.0",
+ "title": "dirtyloader Core",
+ "category": "Core",
+ "license": "GPL-2.0-or-later",
+ "author": "dirtyloader",
+ "description": "The hook dispatcher and event-bus table. It installs a dispatcher and a 64-slot handler table in the FCFB-page code cave and detours the main loop so TICK handlers run each frame. Other mods require it and subscribe to its events.",
+ "device": "m8-model02",
+ "firmware": "6.6.2A",
+ "build": "core"
+}

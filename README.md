@@ -45,19 +45,23 @@ Pure Python standard library, **no third-party deps.** Python 3.10+.
 ## Usage
 
 ```bash
-# inspect a firmware .bin
-python -m dirtyloader.cli info   M8_V6_6_2A_MODEL02.bin
+# inspect / verify a firmware .bin
+python -m dirtyloader info   M8_V6_6_2A_MODEL02.bin
+python -m dirtyloader verify M8_V6_6_2A_MODEL02.bin
 
-# confirm it is valid, recognised stock firmware
-python -m dirtyloader.cli verify M8_V6_6_2A_MODEL02.bin
+# build .m8mod files from their source folders (mod.json + .s)
+python -m dirtyloader mkmod mods/core        --stock M8_V6_6_2A_MODEL02.bin -o core.m8mod
+python -m dirtyloader mkmod examples/hello-tick --stock M8_V6_6_2A_MODEL02.bin -o hello-tick.m8mod
 
-# apply mods -> patched .bin (repeat -m for more mods)
-python -m dirtyloader.cli build  M8_V6_6_2A_MODEL02.bin \
-    -m mods/demo-rename-scale.m8mod -o M8_patched.bin
+# check them, and link them together against stock
+python -m dirtyloader lint core.m8mod hello-tick.m8mod --stock M8_V6_6_2A_MODEL02.bin
+
+# apply mods -> patched .bin (repeat -m for more mods; core first)
+python -m dirtyloader build M8_V6_6_2A_MODEL02.bin \
+    -m core.m8mod -m hello-tick.m8mod -o M8_patched.bin
 
 # author tool: hand-edit a copy of the firmware, then diff it into a mod
-python -m dirtyloader.cli make-mod stock.bin my-edited.bin \
-    -o mods/my-mod.m8mod --id my-mod --name "My mod" --author you
+python -m dirtyloader make-mod stock.bin my-edited.bin -o my-mod.m8mod --id my-mod --name "My mod"
 ```
 
 Then flash the patched `.bin` the usual way: copy it to the M8 SD card and use
@@ -65,44 +69,27 @@ Then flash the patched `.bin` the usual way: copy it to the M8 SD card and use
 
 ## The `.m8mod` format
 
-A `.m8mod` is a small JSON document. Each patch is guarded by the stock bytes it
-`expect`s, so a mod physically cannot apply to firmware it wasn't built for.
-
-```json
-{
-  "m8mod_format": 1,
-  "id": "demo-rename-scale",
-  "name": "Rename Harmonic Major scale",
-  "target": { "model": 2, "stock_sha256": "fbc152..." },
-  "requires": [], "conflicts": [],
-  "patches": [
-    { "note": "scale name label", "addr": "0x601D0E62",
-      "expect": "4841524d4f4e4943204d414a4f52",
-      "data":   "444952545957415645204d414a20" }
-  ]
-}
-```
-
-- Each patch sets exactly one of `addr` (absolute flash address, as seen in a
-  disassembler) or `offset` (payload-relative).
-- `expect` and `data` must be equal length — **v1 is same-size replacement only**
-  (no code relocation yet).
-- The linker rejects unmet `requires`, declared `conflicts`, overlapping edits
-  between mods, a wrong `stock_sha256`/`model`, and any `expect` mismatch.
+A `.m8mod` ships only the mod author's bytes and a sha256 of the stock bytes each
+change replaces — never Dirtywave's bytes — so a mod cannot apply to firmware it
+wasn't built for, and mods are freely shareable. You write a mod as a **source
+folder** (`mod.json` + Thumb `.s` files) and `mkmod` compiles it. The full
+specification, including the source-folder layout, is **[docs/FORMAT.md](docs/FORMAT.md)**.
 
 ## Project layout
 
 ```
 dirtyloader/
   m8fw.py          M8FW container: parse / verify / patch / rebuild (+ CRCs)
-  m8mod.py         .m8mod mod package format
+  m8mod.py         .m8mod format 2 (Mod, Site); loads format 1 too
   registry.py      known stock firmware (sha256 -> identity)
-  linker.py        combine mods onto stock + diff_payloads (make-mod)
-  cli.py           info / verify / build / make-mod
-  test_roundtrip.py   container proof vs real firmware
-  test_pipeline.py    end-to-end mod pipeline proof
-mods/
-  demo-rename-scale.m8mod   worked example (cosmetic, reversible)
+  linker.py        combine mods onto stock; checks; diff_payloads (make-mod)
+  mkmod.py         a mod source folder -> .m8mod (assembles with keystone)
+  lint.py          check / link .m8mod files
+  cli.py           info / verify / build / make-mod / mkmod / lint / list
+  core/            the hook dispatcher + event bus (builder, abi, bindings)
+mods/core/         the Core mod's source folder
+examples/hello-tick/   the smallest handler mod (mod.json + hello.s)
+docs/FORMAT.md     the .m8mod specification
 ```
 
 Run the tests (point them at your stock `.bin`):

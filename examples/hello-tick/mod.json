@@ -1,0 +1,18 @@
+{
+ "m8mod_source": 1,
+ "id": "hello-tick",
+ "version": "1.0.0",
+ "title": "Hello tick",
+ "category": "Examples",
+ "license": "GPL-2.0-or-later",
+ "author": "you",
+ "description": "The smallest mod that runs code on the M8: a handler called every frame. The handler does nothing yet; replace hello.s with your own and rebuild. A template to copy (docs/FORMAT.md).",
+ "device": "m8-model02",
+ "firmware": "6.6.2A",
+ "requires": ["core"],
+ "core": "0.1",
+ "cave": "0x60000460",
+ "handlers": [
+  {"event": "TICK", "source": "hello.s", "order": 60}
+ ]
+}

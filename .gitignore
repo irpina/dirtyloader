@@ -31,3 +31,9 @@ manuals/
 Thumbs.db
 .idea/
 .vscode/
+
+# Built mods are artifacts (mkmod rebuilds them from mods/<name>/ and examples/<name>/).
+# The sources (mod.json, *.s) are tracked; the compiled .m8mod are not, except test fixtures.
+mods/**/*.m8mod
+examples/**/*.m8mod
+!tests/fixtures/**
