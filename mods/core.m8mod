@@ -1,0 +1,28 @@
+{
+  "m8mod_format": 1,
+  "id": "core",
+  "name": "dirtyloader Core",
+  "author": "dirtyloader",
+  "version": "0.1.0",
+  "description": "Hook dispatcher + event-bus table in the FCFB-page cave; detours the main-loop call through a TICK trampoline. Ships a bundled no-op demo handler pre-registered on TICK.",
+  "target": {
+    "model": 2,
+    "stock_sha256": "fbc15296886a278bd72a0040ce07b13d17c7928c1850721299ba5dd4eaf30326"
+  },
+  "requires": [],
+  "conflicts": [],
+  "patches": [
+    {
+      "note": "Core region: magic + hook table + dispatcher",
+      "addr": "0x60000200",
+      "expect": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "data": "444c434f5245000101004000000000001000010053040060000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0b540f21024c6f2000440252688002e0bd0864209d1668816f0010f05d06768002f02d031b4b84731bc0834013dedd1f0bd00b51020fff7e3ff5df804eb81f0c1bb7047"
+    },
+    {
+      "note": "detour main-loop bl loop -> tramp_tick @0x60000442",
+      "addr": "0x600AE052",
+      "expect": "d3f7bffd",
+      "data": "52f7f6f9"
+    }
+  ]
+}

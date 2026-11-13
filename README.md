@@ -6,10 +6,12 @@ dirtyloader builds a custom `.bin` on your machine that you flash the normal way
 It never redistributes Dirtywave's firmware — mods carry only the author's bytes
 plus the stock bytes each edit expects to overwrite.
 
-> Status: **working foundation.** Container read/write, the `.m8mod` format, the
-> linker, and a CLI are built and tested against real 6.6.2 firmware. Code-cave
-> injection, a hook/event-bus core mod, and a GUI are not built yet. See
-> [Roadmap](#roadmap). **Untested on real hardware — read the warning.**
+> Status: **patcher + Core dispatcher built.** The container, `.m8mod` format,
+> linker, and CLI are tested against real 6.6.2A firmware, and the Core hook
+> dispatcher / event-bus (`mods/core.m8mod`) is assembled and byte-verified
+> against it. A GUI and a visible on-device handler are still to come, and
+> **nothing has run on hardware yet.** See [Roadmap](#roadmap) and
+> [docs/CORE.md](docs/CORE.md). **Read the warning before flashing.**
 
 ## Why this is possible
 

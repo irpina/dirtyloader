@@ -109,13 +109,18 @@ the empty table.
 1. **Function map & hook points** — *done.* 1630 functions via Ghidra
    (`m8loader.re.ghidra_export`); `main`/`setup`/`loop`/`yield` pinned via
    `m8loader.re.trace`. See the hook map above.
-2. **Pick the first hook** — `TICK` at `0x600AE052` (`bl loop`) with a trivial
-   demo handler (e.g. toggle a byte / draw a marker), proving the dispatcher path.
-3. **Assemble the dispatcher** in Thumb (keystone) into `0x60000200`; patch one
-   call site to detour through it; recompute CRCs via `m8fw`.
-4. **Validate on a spare Teensy 4.1 + M8 Headless firmware** — never on a real M8
-   until proven. The HalfKay bootloader is untouched, so stock always recovers.
-5. **Generalise** — multi-handler table, slot allocation, the `requires: ["core"]`
+2. **First hook + dispatcher** — *done.* `m8loader.core.builder` assembles the
+   dispatcher + trampoline + event table (keystone) into `0x60000200`, detours
+   the `TICK` site at `0x600AE052`, and emits `mods/core.m8mod`. CRCs recompute
+   via `m8fw`; `m8loader.core.test_core` disassembles the installed bytes to
+   confirm every instruction. Ships a bundled no-op demo handler on TICK.
+3. **Validate on a spare Teensy 4.1 + M8 Headless firmware** — *next; hardware
+   ordered.* Never on a real M8 until proven. Re-run `re.trace` on the Headless
+   build for its addresses (the Model02 `.bin` expects full M8 hardware and will
+   stall on a bare board). The HalfKay bootloader is untouched, so stock recovers.
+4. **A real handler** — replace the no-op demo with a visible effect (e.g. draw
+   to the display via a `loop()` subsystem) once hooks there are mapped.
+5. **Generalise** — multi-handler slot allocation across mods, `requires: ["core"]`
    wiring, and a mod-author macro for "register handler for event X".
 
 ## Open risks
