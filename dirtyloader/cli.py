@@ -16,7 +16,7 @@ import argparse
 import sys
 
 from dirtyloader.m8fw import M8Firmware, M8FWError
-from dirtyloader.m8mod import Mod
+from dirtyloader.m8mod import Mod, make_target
 from dirtyloader.linker import link, diff_payloads
 from dirtyloader import registry
 
@@ -76,25 +76,24 @@ def cmd_build(args) -> int:
 def cmd_make_mod(args) -> int:
     stock, stock_data = _load_stock(args.stock, verify=True)
     modfw, _ = _load_stock(args.modified, verify=False)
-    patches = diff_payloads(bytes(stock.payload), bytes(modfw.payload), gap=args.gap)
-    if not patches:
+    sites = diff_payloads(bytes(stock.payload), bytes(modfw.payload), gap=args.gap,
+                          load_addr=stock.load_addr)
+    if not sites:
         print("no differences found between the two firmwares", file=sys.stderr)
         return 1
+    sha = registry.sha256_bytes(stock_data)
+    ident = registry.identify(sha)
     mod = Mod(
-        id=args.id,
-        name=args.name or args.id,
-        author=args.author,
-        version=args.modversion,
-        description=args.description,
-        target={"model": stock.model, "stock_sha256": registry.sha256_bytes(stock_data)},
-        patches=patches,
+        id=args.id, version=args.modversion, title=args.name or args.id, author=args.author,
+        description=args.description, license=args.license,
+        target=make_target(stock, sha, ident["version"] if ident else ""),
+        sites=sites,
     )
     mod.save(args.output)
-    changed = sum(len(p.data) for p in patches)
-    print(f"wrote {args.output}")
-    print(f"  patches      : {len(patches)}")
-    print(f"  bytes changed: {changed}")
-    print(f"  pinned to    : model {stock.model}, stock {mod.target['stock_sha256'][:12]}...")
+    print(f"wrote {args.output} (format 2: stock bytes are hashed, never shipped)")
+    print(f"  sites        : {len(sites)}")
+    print(f"  bytes changed: {sum(s.len for s in sites)}")
+    print(f"  target       : {mod.target['device']} {mod.target['firmware'] or '?'}, stock {sha[:12]}...")
     return 0
 
 
@@ -131,6 +130,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--author", default="", help="mod author")
     p.add_argument("--modversion", default="1.0.0", help="mod version")
     p.add_argument("--description", default="", help="mod description")
+    p.add_argument("--license", default="", help="SPDX licence of your bytes, e.g. GPL-2.0-or-later")
     p.add_argument("--gap", type=int, default=8,
                    help="coalesce diff runs separated by fewer than N identical bytes")
     p.set_defaults(func=cmd_make_mod)

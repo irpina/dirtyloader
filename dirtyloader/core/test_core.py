@@ -56,7 +56,8 @@ loop_addr = int(b["symbols"]["loop"], 16)                    # 0x60081BD4
 print(f"stock: {b['firmware']}  hook_site=0x{hook_site:08X} loop=0x{loop_addr:08X}\n")
 
 mod = builder.build_core_mod(fw, sha, hook_site, loop_addr)
-ok("core mod built with 2 patches", len(mod.patches) == 2)
+ok("core mod built with 2 sites", len(mod.sites) == 2)
+ok("core provides TICK", mod.events == ["TICK"])
 
 patched = link(fw, sha, [mod])
 built = patched.build()

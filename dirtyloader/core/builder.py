@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from typing import Tuple
 
 from dirtyloader.m8fw import M8Firmware
-from dirtyloader.m8mod import Mod, ModPatch
+from dirtyloader.m8mod import Mod, Site, make_target
 from dirtyloader.core import abi
 
 try:
@@ -144,37 +144,41 @@ def build_core_mod(fw: M8Firmware, stock_sha256: str, hook_site: int, loop_addr:
     if len(detour) != 4:
         raise RuntimeError(f"detour is {len(detour)} bytes, expected 4")
 
-    patches = [
-        ModPatch(addr=REGION, expect=expect_region, data=img.blob,
-                 note="Core region: magic + hook table + dispatcher"),
-        ModPatch(addr=hook_site, expect=orig, data=detour,
-                 note=f"detour main-loop bl loop -> tramp_tick @0x{img.tramp_tick:08X}"),
+    sites = [
+        Site.from_bytes(REGION, expect_region, img.blob, "code",
+                        "Core region: magic + hook table + dispatcher"),
+        Site.from_bytes(hook_site, orig, detour, "code",
+                        f"detour main-loop bl loop -> tramp_tick @0x{img.tramp_tick:08X}"),
     ]
     return Mod(
-        id="core", name="dirtyloader Core", author="dirtyloader", version="0.1.0",
+        id="core", version=CORE_VERSION, title="dirtyloader Core", author="dirtyloader",
+        category="Core", license="GPL-2.0-or-later",
         description=("Hook dispatcher + event-bus table in the FCFB-page cave; "
                      "detours the main-loop call through a TICK trampoline. Ships "
                      "a bundled no-op demo handler pre-registered on TICK."),
-        target={"model": fw.model, "stock_sha256": stock_sha256},
-        patches=patches,
+        target=make_target(fw, stock_sha256), events=["TICK"], sites=sites,
+        resources={"names": ["core:hook-table", "core:region"]},
     )
 
 
+CORE_VERSION = "0.1.0"
+
+
 def build_handler_mod(fw: M8Firmware, stock_sha256: str, mod_id: str, name: str,
-                      cave_addr: int, event: int, handler_asm: str = "bx lr") -> Mod:
-    """A minimal mod that drops a handler into a free cave slot and declares a
-    hook on `event`. The linker auto-allocates a Core table slot, so several of
-    these coexist on one event -- the whole point of the Core."""
+                      cave_addr: int, event, handler_asm: str = "bx lr", order: int = 50) -> Mod:
+    """A minimal mod that drops a handler into a free cave slot and subscribes it to `event`. The linker
+    gives each subscription its own Core table slot, so several of these coexist on one event -- the whole
+    point of the Core."""
+    from dirtyloader.m8mod import event_name
     code = _asm(handler_asm, cave_addr)
     off = cave_addr - fw.load_addr
-    expect = bytes(fw.payload[off:off + len(code)])
-    if set(expect) not in ({0xFF}, set()):
+    stock = bytes(fw.payload[off:off + len(code)])
+    if set(stock) not in ({0xFF}, set()):
         raise RuntimeError(f"{mod_id}: cave 0x{cave_addr:08X} is not empty (0xFF)")
     return Mod(
-        id=mod_id, name=name, author="dirtyloader", version="0.1.0",
-        description=f"Demo handler on event 0x{event:04X}.",
-        target={"model": fw.model, "stock_sha256": stock_sha256},
-        requires=["core"],
-        patches=[ModPatch(addr=cave_addr, expect=expect, data=code, note=f"{mod_id} handler")],
-        hooks=[{"event": event, "handler": cave_addr | 1}],
+        id=mod_id, version="0.1.0", title=name, author="dirtyloader", category="Examples",
+        license="GPL-2.0-or-later", description=f"Demo handler on {event_name(event)}.",
+        target=make_target(fw, stock_sha256), requires=["core"], core="0.1",
+        sites=[Site.from_bytes(cave_addr, stock, code, "code", f"{mod_id} handler")],
+        subscribe=[{"event": event_name(event), "handler": cave_addr | 1, "order": order}],
     )

@@ -55,6 +55,8 @@ class Patch:
     new: bytes
     expected: Optional[bytes] = None
     note: str = ""
+    # format 2: a hash of the stock bytes instead of the bytes themselves
+    expected_sha256: Optional[str] = None
 
     def __post_init__(self):
         if self.expected is not None and len(self.expected) != len(self.new):
@@ -162,6 +164,14 @@ class M8Firmware:
                     f"patch @0x{patch.offset:X} expected {patch.expected.hex()} "
                     f"but found {actual.hex()}"
                     + (f" ({patch.note})" if patch.note else "")
+                )
+        if patch.expected_sha256 is not None:
+            got = hashlib.sha256(bytes(self.payload[patch.offset:end])).hexdigest()
+            if got != patch.expected_sha256.lower():
+                raise M8FWError(
+                    f"patch @0x{patch.offset:X}: stock bytes do not match the mod's stock_sha256"
+                    + (f" ({patch.note})" if patch.note else "")
+                    + " -- this mod was made for different firmware"
                 )
         self.payload[patch.offset:end] = patch.new
 
