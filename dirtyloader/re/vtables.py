@@ -37,15 +37,38 @@ class VTable:
         return self.slots[off // 4]
 
 
+def _itcm_range(fw: M8Firmware):
+    """(runtime start, runtime end, load start) of the ITCM code image, if the startup copy can be
+    recovered (needs capstone)."""
+    try:
+        from dirtyloader.re.memmap import recover
+        c = recover(fw).itcm
+        return (c.dest + 0x100, c.end, c.src) if c else None
+    except Exception:
+        return None
+
+
 def find_vtables(fw: M8Firmware, min_slots: int = 1) -> List[VTable]:
+    """Slots may point into flash *or* into ITCM (FASTRUN methods such as AudioStream::update)."""
     p = bytes(fw.payload)
     base, end = fw.load_addr, fw.load_addr + len(fw.payload)
+    itcm = _itcm_range(fw)
 
     def word(i):
         return struct.unpack_from("<I", p, i * 4)[0]
 
+    def itcm_code(a):
+        # small integers (0x101, 0x10001, ...) in data look like ITCM pointers; demand a real
+        # function start at the target: push {..,lr}, push.w, or bx lr
+        if itcm is None or not (itcm[0] <= a < itcm[1]):
+            return False
+        o = itcm[2] - base + (a - (itcm[0] - 0x100))
+        h = struct.unpack_from("<H", p, o)[0]
+        return (h & 0xFF00) == 0xB500 or h == 0xE92D or h == 0x4770 or (h & 0xFF00) == 0xB400
+
     def code(v):
-        return bool(v & 1) and base + 0x1000 <= (v & ~1) < end
+        a = v & ~1
+        return bool(v & 1) and (base + 0x1000 <= a < end or itcm_code(a))
 
     out, n, i = [], len(p) // 4, 2
     while i < n:

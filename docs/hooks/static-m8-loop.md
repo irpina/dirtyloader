@@ -15,8 +15,8 @@ and tagging peripheral-register and table refs (`dirtyloader.re`, in-process Ghi
 
 | order | call | size | what it is | conf |
 |---|---|---|---|---|
-| µs gate | `0x6007BBB4` (+`0x6007C6C0`) | 26 / 342 | a micros()/elapsed read (1 peripheral ref) + its user | S2 |
-| every frame | `0x60081A90` | 78 | ~5 ms service group: 6 subsystems (`0x6007CBFC`, `0x6007D23C`, `0x6007C9E4`, `0x6007BFB8`, `0x60079A7C`, `0x60039964`) | S2 |
+| gate | `0x6007BBB4` (+`0x6007C6C0`) | 26 / 342 | a **GPIO6 read** (a button/pin state) + its user — *corrected: first read as a µs timer* | S2 |
+| every frame | `0x60081A90` | 78 | ~5 ms **key-scan / service group**: 6 subsystems (`0x6007CBFC`, `0x6007D23C`, `0x6007C9E4` = GPIO7/8 read, `0x6007BFB8`, `0x60079A7C`, `0x60039964`) | S2 |
 | every frame | **`0x600A5E60`** | 558 | **the touch / gesture engine** — unconditional each loop; dispatches touch deltas and x/y to per-view handlers ([static-m8-ui.md](static-m8-ui.md)). *Corrected: first read as a sequencer engine.* | S2 |
 | every frame | `0x60062944` | 64 | small 2-call service | S3 |
 | UI gate | **`0x6008196C`** | 238 | returns a byte (`bVar ^ 1`) behind a ~10 ms gate; `loop()` uses it to decide the UI frame | S2 |
@@ -29,16 +29,18 @@ The UI branch in `loop()` is, in order: `0x6004C6C8(_DAT_60081d48, …)` → `0x
 `0x6004B514(_DAT_60081d4c)` — i.e. **process events, then refresh the display**, both on the UI context
 objects `_DAT_60081d48` / `_DAT_60081d4c`.
 
-## RENDER — `0x6004B514` (display driver)
+## RENDER — `0x6004B514` (UI frame refresh)
 
-Strong evidence this is the screen refresh:
+Evidence this is the per-frame UI refresh:
 
-- It brackets its critical section with **NVIC registers**: reads `_DAT_e000e108` (NVIC ISER, `0xE000E100`),
-  writes `_DAT_e000e188` (NVIC ICER, `0xE000E180`) to **mask IRQ #0x40 while touching the framebuffer**, then
-  restores it — the classic "don't let the display DMA/SPI interrupt fire mid-draw" pattern.
 - It runs a **loop of 8** (tracks/columns), queries the **active view's** vtable `+0x1C` / `+0x18`, and calls
   slot `+0xA0` on the object held at `DAT_6004b734`.
-- Gated at ~15 ms (`0xf < elapsed`) → the frame timer.
+- Gated at ~15 ms (`0xf < elapsed`) → the frame timer; it is the last step of `loop()`'s UI branch.
+- *Correction:* its NVIC bracket (`ICER[2]`/`ISER[2]` at `0xE000E188`/`0xE000E108`, bit `0x40`) is **not** a
+  display-IRQ mask. Bit `0x40` of `ISER[2]` is IRQ 70, Teensy's `IRQ_SOFTWARE` — the **audio update** — so this
+  is `AudioNoInterrupts()`/`AudioInterrupts()` protecting state shared with the audio thread (~105 functions do
+  the same). The pixels reach the panel through the **LPSPI4 driver `0x6008D920`**
+  ([../FIRMWARE-MAP.md](../FIRMWARE-MAP.md) §7).
 
 *Correction:* that `+0xA0` is **not** a view method. The base `View` vtable has only 8 slots
 ([static-m8-ui.md](static-m8-ui.md)); `+0xA0` belongs to one of the large parameter-object classes (46–109

@@ -126,6 +126,21 @@ the empty table.
    TICK). `requires: ["core"]` is enforced. Remaining: a mod-author macro for
    "register handler for event X", and resizable images for larger mods.
 
+## ITCM hook sites need a different detour
+
+About 174 KB of the firmware — the whole audio graph and the sequencer, including the FX-command executor — is
+ITCM code: it sits in flash at `0x60001680..0x6002CF50` but is copied at boot to and *runs at*
+`0x00000000..0x0002B8D0` ([FIRMWARE-MAP.md](FIRMWARE-MAP.md) §1). Two consequences for the Core:
+
+- A patched instruction there executes at its **run** address, so a `bl` must be encoded relative to the run
+  address, and from `0x0002xxxx` the flash cave at `0x60000200` is **out of `bl` range** (±16 MB). Use the
+  linker's own long-branch form — `ldr.w pc, [pc, #-0]` + a literal (8 bytes) — or place hook code in **free
+  ITCM** (~18 KB above `0x2B8D0`), which needs copying at boot (extend the startup copy, or copy from a flash
+  cave in BOOT before the audio graph starts).
+- That code runs **inside the audio interrupt** (IRQ 70): handlers there must be fast and must not call UI code.
+
+The existing BOOT/TICK sites (`0x600AE04E`/`0x600AE052`, in `main`) are flash code and unaffected.
+
 ## Open risks
 - **Code budget.** ~12 KB of caves total; the dispatcher must be compact and
   per-mod code has to fit. Resizable images (growing the payload) are a possible

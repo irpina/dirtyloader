@@ -1,9 +1,10 @@
 # Firmware mapping backlog (M8 6.6.2A Model02)
 
-What is mapped, what is left, and in what order to attack it. A living companion to
-[SITES.md](SITES.md) (the site log) and [../manual-catalog/m8/SUMMARY.md](../manual-catalog/m8/SUMMARY.md)
-(the 600-target manual catalog and its 7 high-value primitives). Addresses are flash addresses (image base
-`0x60000000`). Re-derive per firmware version — every address here moves between releases.
+What is mapped, what is left, and in what order to attack it. **The whole-firmware picture is
+[../FIRMWARE-MAP.md](../FIRMWARE-MAP.md)** — read that first; this file tracks hook-relevant progress against
+[SITES.md](SITES.md) and [../manual-catalog/m8/SUMMARY.md](../manual-catalog/m8/SUMMARY.md) (the 600-target
+manual catalog and its 7 high-value primitives). Addresses are load addresses in the flash image unless marked
+"run". Re-derive per firmware version — every address here moves between releases.
 
 ## A. The skeleton — solid ground
 
@@ -26,30 +27,31 @@ Every remaining target sits behind one of two walls, and which one decides wheth
 - **Structural wall — tractable, software-only.** Dispatch / switch code, found by following the call graph
   and table-branches (`tbh`/`tbb`). This is how the FX executor fell ([static-m8-fxcmd.md](static-m8-fxcmd.md)).
   Everything in the "ready now" list below lives here.
-- **Data-indirection wall — blocked.** The parameter / label / modulation tables are reached through a
-  RAM-copied base pointer plus a computed offset, so byte-scans and Ghidra's static xrefs both return nothing
-  (four passes confirmed this; see [MODULATION.md](../MODULATION.md)). Bridging it needs *interactive* Ghidra
-  (define the base global by hand and follow the value) or *hardware* (poke and observe). No amount of one-shot
-  scripting crosses it.
+- ~~**Data-indirection wall — blocked.**~~ **Resolved: it was a relocation.** The parameter / label tables
+  live in `.data`, which Teensy copies to DTCM at boot, so they are referenced only by `0x2000xxxx` run-time
+  addresses; translated, they have ordinary references ([../FIRMWARE-MAP.md](../FIRMWARE-MAP.md) §1,
+  [static-m8-params.md](static-m8-params.md)). The same mistake hid the ITCM code (the sequencer and audio
+  graph run at `0x0000xxxx`). Lesson: get the run-time memory map right before concluding anything is
+  unreachable.
 
 ## C. The 7 high-value primitives (catalog priority list)
 
 | # | Primitive | Status | Anchor / lead | Unlocks | Wall |
 |---|---|---|---|---|---|
 | 1 | FX command dispatch | 🟢 executor **mapped** (`0x600287A4`, caller `0x60029270` confirmed); 2nd processor `0x60025ED4` | pitch helper `0x60029BDC`; mixer cmds not switch-dispatched | FX commands **69** | structural |
-| 2 | Parameter descriptor table + change event | 🟡 **new lead: virtual interface** | 7 + 5 parameter-object classes share `+0x88/+0x90/+0x94`; labels still indirected | param tables 43, param edit 30 | structural? |
+| 2 | Parameter descriptor table + change event | 🟢 **tables mapped** (8 tables, 254 params); change event open | [static-m8-params.md](static-m8-params.md); instrument parameter interface `+0x88/+0x90/+0x94` | param tables 43, param edit 30 | structural |
 | 3 | Key/input event + view context | 🟢 **mapped** | router `0x6004C6C8`; **per-view vtable `+0x08`** (19 handlers); `set_view` `0x6004C13C`; view id at `ui+0x15` | UI input 41, performance 12 | structural |
 | 4 | Draw hook per view (RENDER) | 🟢 frame driver mapped; per-view slot open | `0x6004B514`; view `+0x0C`/`+0x10`; text `0x60030ECC`, values `0x600785C0` | screen 33, draw 33 | structural |
-| 5 | Modulator dest table + apply | 🟡 labels only; lead via instrument vtables | dest enum `0x601E3D24`, names `0x601E4214`; 7 instrument-class vtables | the **LFO mod**; voice render 34 | indirection → maybe structural |
+| 5 | Modulator dest table + apply | 🟡 DEST field + send descriptors mapped; dest lists + apply next | DEST = byte `+0x02` per modulator; dest-name table has 12 refs at run time `0x200061F4`; voices in ITCM | the **LFO mod**; voice render 34 | structural |
 | 6 | Master-chain + touch-axis | 🟡 **touch mapped**; master chain unmapped | touch engine `0x600A5E60` (x/y/dominant axis, per view) | the **KAOSS mod** | structural |
-| 7 | Row-fire / tick / transport / MIDI / storage | 🟡 BOOT+TICK; sequencer off-loop | scan loop → executor not reached from `loop()` → audio-update IRQ (runtime-attached) | ~130 rows across areas | structural (+ runtime IRQ) |
+| 7 | Row-fire / tick / transport / MIDI / storage | 🟢 **sequencer mapped**: clock node `0x22720`, row fire `0x24DE0`, per-tick executor (run addrs) — all in the audio IRQ | transport/MIDI/storage partly ([../FIRMWARE-MAP.md](../FIRMWARE-MAP.md) §3, §5) | ~130 rows across areas | structural (ITCM, audio thread) |
 
 ## D. `loop()` — decomposed ([static-m8-loop.md](static-m8-loop.md))
 
 `loop()` (`0x60081BD4`) turned out to be a **cooperative scheduler**: subsystem groups behind timing gates,
 not a flat list. Mapped this pass:
 
-- **RENDER = `0x6004B514`** — the display driver (NVIC-guarded framebuffer, ~15 ms gate). S2.
+- **RENDER = `0x6004B514`** — the UI frame refresh (~15 ms gate; pixels leave via LPSPI4 `0x6008D920`). S2.
 - **INPUT router = `0x6004C6C8`**, feeding the current view's vtable `+0x08`. S2 / S1.
 - **TOUCH = `0x600A5E60`** — the touch/gesture engine (*not* a sequencer engine, as first logged). S2.
 - Scheduler scaffolding: `0x60081A90` (~5 ms service group, 6 callees), `0x6008196C` (UI-frame gate),

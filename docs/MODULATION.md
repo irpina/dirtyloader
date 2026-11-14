@@ -69,7 +69,30 @@ extended-LFO-destinations mod registers a handler on it; a second modulation mod
 can register on the same event with zero coordination — exactly the mechanism
 proven today on `TICK`.
 
-## RE findings: static analysis hits a wall here
+## Update: the wall was a relocation — resolved
+
+The four failed passes below were all looking in the wrong address space. On Teensy 4, `.rodata` is copied
+into DTCM with `.data` at boot, so every label in `0x601DE020..0x601EA2E0` is referenced by its **run-time**
+address `0x20000000 + (flash − 0x601DE020)` and never by its flash address
+([FIRMWARE-MAP.md](FIRMWARE-MAP.md) §1). Translated:
+
+| label | flash | run time | code/data references |
+|---|---|---|---|
+| destination-name table | `0x601E4214` | `0x200061F4` | **12** |
+| DEST enum label | `0x601E3D24` | `0x20005D04` | 6 |
+| LFO DESTINATION | `0x601E3E2C` | `0x20005E0C` | 1 |
+| SEND DELAY / REVERB / MODFX | `0x601E4558` / `457C` / `4534` | `0x20006538` / `655C` / `6514` | 6 each |
+
+The SEND references are **parameter descriptor records** — 28-byte entries in plain flash (id, name, label,
+code, help, flags, min/max/field offset), one table per engine plus a modulator table. They are mapped in
+[hooks/static-m8-params.md](hooks/static-m8-params.md): the modulator `DEST` field is byte `+0x02` of each
+modulator slot, and every engine's MODFX/DELAY/REVERB send has a descriptor and a field offset.
+
+**What is left for the LFO mod:** follow the 12 references to the destination-name table (`0x200061F4`) to the
+per-engine destination lists and their counts, then the code that maps a DEST value to a field (the apply
+step, which runs in the audio thread). Both are now ordinary static work.
+
+## RE findings (historical): static analysis hits a wall here
 
 Four passes tried to locate the modulation-apply / parameter code by anchoring on
 the destination and send name strings:
@@ -111,6 +134,7 @@ one-shot scripts.
 
 - Modulation data model: **mapped.**
 - Sends confirmed as parameters outside the destination enum: **done.**
-- Apply function / dest→param table: **blocked on interactive RE or hardware** —
-  automated static analysis cannot reach it.
-- Mod itself: **design ready**, path (A vs B) pending that confirmation.
+- Parameter descriptor tables (incl. the modulator DEST field, the sends): **mapped** (static-m8-params.md).
+- Apply function / dest→param table: **unblocked** — the destination-name table has 12 references once
+  translated to DTCM; next static pass. (Superseded: "blocked on interactive RE or hardware".)
+- Mod itself: **design ready**, path (A vs B) pending that pass.

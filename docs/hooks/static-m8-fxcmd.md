@@ -1,8 +1,26 @@
 # `ev_fx_command` — the FX-command executor (static hunt, M8 6.6.2A Model02)
 
 Where an FX command actually *fires on a track*. This is the M8's single biggest hook surface
-(`docs/manual-catalog/m8/SUMMARY.md`: 69 fx-command rows, named by all four manual readers). Addresses are
-flash addresses (image base `0x60000000`); file offset = address − `0x60000000` + `0x200`.
+(`docs/manual-catalog/m8/SUMMARY.md`: 69 fx-command rows, named by all four manual readers). Addresses in this
+doc are **load** addresses in the flash image (file offset = address − `0x60000000` + `0x200`).
+
+> **All of this is ITCM code.** It sits in the ITCM image (`0x60001680..0x6002CF50`) and runs at
+> `load − 0x60001680` — the executor runs at **`0x00027124`**, the scan loop at `0x00028424`
+> ([../FIRMWARE-MAP.md](../FIRMWARE-MAP.md) §1). Patch it at the load address; but a detour from here cannot
+> `bl` to the flash cave (out of range from `0x0002xxxx`) — use a long veneer or free ITCM. And it all runs
+> **inside the audio interrupt**: the sequencer is an `AudioStream` node (clock `0x22720`), so a handler here
+> runs in the audio thread with its time budget.
+
+| role | load | run |
+|---|---|---|
+| sequencer clock node (`update()`) | `0x60023DA0` | `0x22720` |
+| row fire / note trigger | `0x60026460` | `0x24DE0` |
+| **row-fire FX applier**, FX columns 0..2 (72-case, cmds `0x00..0x47`) | `0x60025ED4` | `0x24854` |
+| per-tick track update | `0x600276A8` | `0x26028` |
+| per-slot scan loop | `0x60029AA4` | `0x28424` |
+| dispatch wrapper | `0x60029270` | `0x27BF0` |
+| **per-tick executor** (78-case) | `0x600287A4` | `0x27124` |
+| ratchet / retrigger tick | `0x60028700` | `0x27080` |
 
 **Confidence S1.** The executor's 78-way table branch, its `cmp #0x4D` bound, and the decoded jump table all
 agree, and the command count `0x4E` (78) independently matches the name table (`0x601D6FD8`), the value
@@ -90,8 +108,10 @@ id + a cave handler the dispatcher routes to.
      a sibling executor;
    - **no** switch in the image is biased by `0x1C` / bounded at 37 cases, so the mixer/send commands
      (`0x1C..0x40`) are not switch-dispatched — most likely data-indexed;
-   - **`0x60025ED4`** is a second command processor (72-case switch, ids `0x00..0x47`, per-slot state at
-     track `+0x1A4..`; RND and REP re-dispatch the stored slot command) — likely the per-tick/continuous side.
+   - **`0x60025ED4`** (run `0x24854`) is the **row-fire FX applier**: row fire `0x24DE0` calls it once per FX
+     column (0, 1, 2) with the column's command and value (72-case switch, ids `0x00..0x47`; per-slot state at
+     track `+0x1A4..`; RND and REP re-dispatch the stored command). *Corrected:* first guessed to be the
+     per-tick side; it is the opposite — the 78-case executor is the per-tick slot processor.
    Next: decompile the executor's default path (`0x60028BCA`) and `0x60025ED4`'s cases.
 3. Decode a couple of the in-function handlers (e.g. `ARP 0x60028EDA`, `DEL 0x60028F2C`) to confirm the arg
    layout a handler would receive.

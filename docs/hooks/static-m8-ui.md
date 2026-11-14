@@ -120,24 +120,32 @@ per-view handlers call parameter-object virtuals `+0x88/+0x90/+0x94` (next secti
 **Hook (draw):** wrap `0x60030ECC` for a text overlay, or `0x600785C0` to re-format parameter values (a
 re-range mod showing new units).
 
-## Lead: parameter-object classes (a way around the indirection wall)
+## Instrument classes (confirmed)
 
-Twelve large vtables share **the same base methods at `+0x88`, `+0x90`, `+0x94`** (`0x6009B994`,
-`0x6009B99C`, `0x6009B9A0`) and each overrides `+0xA0`:
+Large vtables share **the same base methods at `+0x88`, `+0x90`, `+0x94`** (`0x6009B994`, `0x6009B99C`,
+`0x6009B9A0`) and each overrides `+0xA0`. Each of the seven big ones has a method returning its engine name, which
+names it (S1):
 
-- **7 classes of 102–109 slots** — `0x601DF97C`, `0x601DFBBC`, `0x601DFE18`, `0x601E0058`, `0x601E0220`,
-  `0x601E07EC`, `0x601E0A14`. The M8 has exactly **7 instrument types**, and `SITES.md` already records
-  instrument-command lookups through instrument-vtable slots `+0xA4/+0xC0/+0xC8/+0xD4/+0x118` — all of which need
-  a 70+-slot vtable. Hypothesis (S2 on "instruments", S3 on which is which): **the 7 instrument engines.**
-- **5 classes of 46 slots** — `0x601E0D20`, `0x601E0E34`, `0x601E0F18`, `0x601E103C`, `0x601E10FC` (two override
-  the `+0x88/90/94` base). Likely the FX/mixer parameter objects.
+| vtable | slots | engine |
+|---|---|---|
+| `0x601DFE18` | 104 | WAVSYNTH |
+| `0x601E0220` | 102 | MACROSYNTH |
+| `0x601E07EC` | 103 | SAMPLER |
+| `0x601DFBBC` | 109 | MIDI OUT |
+| `0x601DF97C` | 102 | FMSYNTH |
+| `0x601E0058` | 102 | HYPERSYNTH |
+| `0x601E0A14` | 109 | EXTERNAL |
+| `0x601E0E34` | 46 | NONE (empty instrument) |
 
-The touch handlers drive parameters through `+0x88/+0x90/+0x94`, so the **parameter interface is virtual
-methods on these objects** (get/set/range, by index). If that holds, parameter editing (primitive 2) and the
-per-engine modulation destinations (primitive 5, the LFO mod) are reachable **by vtable**, without crossing the
-RAM-indirected label tables. Next: decompile `0x6009B994/9C/A0` and one engine's `+0xA0`.
+The other 46-slot classes (`0x601E0D20`, `0x601E0F18`, `0x601E103C`, `0x601E10FC`) share the same base and are
+likely FX / mixer parameter objects. The touch handlers drive parameters through `+0x88/+0x90/+0x94`
+(get/set/range by index). The parameter **descriptor tables** themselves turned out to be plain data once the
+memory map was understood: [static-m8-params.md](static-m8-params.md).
 
-Related: a 128-entry table at `0x601E9A38` with every entry `0x600ADF45` looks like the **IRQ vector template**
-(one default ISR; real handlers attached at runtime). That would explain why the sequencer (FX scan loop →
-executor) is never reached from `loop()`: it most likely runs from the audio-update interrupt, attached at
-runtime.
+The instruments are the parameter/data model; the sound comes from separate `AudioStream` voice nodes whose
+`update()` runs in ITCM from the audio interrupt ([../FIRMWARE-MAP.md](../FIRMWARE-MAP.md) §3–4) — which is
+also why the sequencer is never reached from `loop()`: it is an audio-graph node too.
+
+*Correction:* a 128-entry table at `0x601E9A38` (every entry `0x600ADF45`) was first logged as the IRQ vector
+template. It is not: the RAM vector table is at **`0x2000C000`** (zero in the `.data` image, filled at boot).
+`0x601E9A38` is some 128-entry default-callback table (128 = MIDI note/CC count — unconfirmed).
