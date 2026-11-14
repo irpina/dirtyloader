@@ -108,11 +108,12 @@ are known, and they expose the per-track design:
 | 1 | `0x09328` (obj `0x20021F18`) | 3.3 KB / 561 | **REVERB**: the effects setter writes size, decay, mod depth, mod freq, width and shimmer to its `+0x98..+0xB0` | S1 |
 | 1 | `0x08CD8` (obj `0x2001DD14`) | | **MODFX**: MOD TYPE (chorus/phaser/flanger) lands at `+0x30`; depth/freq/width are globals at `0x20021BD4..0x20021BE4` | S2 |
 | 1 + 1 | `0x05C50` (obj `0x2001BF40`), `0x070D8` (obj `0x20021D4C`) | | **DELAY**: feedback and stereo width go to these two nodes; the delay time is set through the clock object (`0x6009A5F0`/`0x6009A69C`, next to `setTempo`), so the time is tempo-synced | S2 |
-| 1 | `0x0AEB0` (obj `0x2000C780`) | | **DJ FILTER**: effects `+1A` (resonance, via `0x6003D628`) and `+1B` (bipolar cutoff, via `0x6003D2DC`); the MIXER writes the same setters from its own fields. Part of the DJ filter, with `0x1FB44` below | S3 |
+| 1 | `0x0AEB0` (obj `0x2000C780`) | 112 B / 0 (calls `0x0A068`) | **OTT** (three-band compressor). Its amount setter `0x6003DB74` treats 0 as bypass (`+0x35`/`+0x40` flags). TIME (`0x6003D628`) sets an attack/release pair for each of three bands (`+0x88/+0x8C`, `+0xC8/+0xCC`, …). COLOR (`0x6003D2DC`) is a bipolar crossover tilt. Effects `+1A` TIME, `+1B` COLOR and `+1F` amount, edited on the LIMITER SCOPE screen. *Corrected:* first read as the DJ filter | S2 |
 | 2 | `0x041A8` (objs `0x20037840`, `0x20037C9C`) | 4.6 KB / 872 | receive the **MODFX→reverb and delay→reverb send** levels (effects `+06`, `+10`) | S3 |
 | 1 | `0x0AF20` (obj `0x2001D6DC`) | 952 B / 156 | **LIMITER**: its attack setter `0x6003A5FC` and release setter `0x6003A650` write `+0x80..+0x94`; release 0 sets the `+0xA8` flag (`LIM RELEASE:AUTO`). Called from the MIXER and LIMITER SCOPE screens | S1 |
-| 1 | `0x1FB44` (obj `0x2001D854`, parameters at `+0x164`) | 400 B / 21 | a master-chain stage driven by three MIXER fields through `0x60099BB4`: a 0–2 mode (DJ FILTER TYPE has three choices), a bipolar 0x80-centred value, and smoothing. So the DJ filter together with the biquad node `0x0AEB0` above; which node does which half is open | S3 |
-| 1 each | `0x061F4` (3.1 KB), `0x05E20`, `0x053AC`, `0x228C8`, `0x20B08` | | not yet named (soft clip, scope taps, and the bus EQs are what is left to place) | — |
+| 1 | `0x1FB44` (obj `0x2001D854`) | 400 B / 21 | the master-bus object that holds the **DJ FILTER** parameters at `+0x164` (`0x2001D9B8`): TYPE 0–2 (LP/HP, LP/BS, BS/HP), a 0x80-centred cutoff and resonance, set and smoothed by `0x60099BB4`. It also holds the **SOFT CLIP** block at `+0x1E0` (`0x2001DA34`): on/off at `+0x44` (`0x6003A6B8`), level via `0x60099D88`. Its `update()` is mostly a copy (`0x1BA1C`); the filter maths runs in the helpers `0x001A4`/`0x001B0` that the effect nodes call | S2 |
+| 1 | `0x228C8` (obj `0x2001D548`) | 700 B / 36 | the **scope tap**: the LIMITER SCOPE screen reads it 35 times (`+0x78..+0x15C`) for the MIX / LIMITER scopes | S2 |
+| 1 each | `0x061F4` (3.1 KB), `0x05E20`, `0x053AC`, `0x20B08` | | not yet named: internal stages (the bus EQs and the input path's processing are what is left to place) | — |
 | 1 each | `0x1E9C8`, `0x22510` | < 200 B / 0 | receive-only taps; `0x22510` is the **audio-input** path (`USB INPUT DISABLED`, `DUAL MONO INPUT MODE`) | S3 |
 | 1 | `0x600A5C24` (flash) | 26 B | the **USB-audio** interface object (84 users, USB-input settings) | S3 |
 
@@ -272,7 +273,7 @@ the touch engine serves.
   - The INPUT EQ rows pick EQs `0x81`, `0x82` and `0x83`, so the song holds 4 bus EQs after its 128 user EQs.
   - The song upgrader at `0x6008B074` converts old songs' delay and reverb filter bytes (`+0A`/`+0B`,
     `+12`/`+13`) into EQ bands, and copies EQs `0x80..0x83` into `0x20..0x23`.
-  - Effects bytes `+1A`/`+1B` belong to the master chain: the **DJ FILTER** resonance and cutoff (§4). That
+  - Effects bytes `+1A`/`+1B` belong to the master chain: **OTT** TIME and COLOR, with `+1F` its amount (§4). That
     is why the MIXER and LIMITER SCOPE screens read them, and the EFFECT SETTINGS screen does not show them.
   - The effects setter `0x60050ADC` also takes ids `0xC8..0xE0`. These drive the input sends (per-bus send
     functions `0x60039144` MODFX, `0x6003938C` DELAY, `0x60038DE4` REVERB, matching the MX/DE/RE columns,
@@ -296,11 +297,10 @@ MACROSYNTH and wavetable data are consistent with Braids-style oscillator tables
 Everything below is leaf level: each subsystem, thread, class family, screen, data block and engine has a place
 in the map. What remains is naming the last few nodes and data blocks, and checking S2/S3 readings on hardware.
 
-- **Master-chain nodes still unnamed or S3:**
-  - OTT, and the DJ filter's split between `0x1FB44` and `0x0AEB0` (the LIMITER is `0x0AF20`)
-  - soft clip, the scope taps and the bus EQs: among `0x061F4`, `0x05E20`, `0x053AC`, `0x228C8`, `0x20B08`
-
-  REVERB, MODFX, DELAY and DJ FILTER are named (§4). The per-node CPU counters on hardware settle the rest.
+- **Audio nodes:** the whole master chain is named: LIMITER `0x0AF20`, OTT `0x0AEB0`, and the DJ FILTER and SOFT CLIP
+  blocks inside `0x2001D854`. Still unnamed are internal stages among `0x061F4`, `0x05E20`, `0x053AC`,
+  `0x228C8` (read by the LIMITER SCOPE screen: the scope tap) and `0x20B08`. The per-node CPU counters on
+  hardware confirm the S2 readings.
 - The engine↔voice mapping is S3 (by source order).
 - **Oscillator data:** the first, smooth block is WAVSYNTH's 60 named wavetables (§2). The remaining
   ~340 KB of 8-bit and ~145 KB of 16-bit data are unassigned.
@@ -319,7 +319,7 @@ in the map. What remains is naming the last few nodes and data blocks, and check
 - the EXTERNAL apply switch (`0x0B324`, §9)
 - the effects-settings layout, including `+1A`/`+1B` (§9)
 - the eight screens without strings (§8)
-- REVERB, MODFX, DELAY and the DJ filter nodes (§4)
+- the send effects and the whole master chain: REVERB, MODFX, DELAY, LIMITER, SOFT CLIP, DJ FILTER, OTT (§4)
 
 ## How this map was made (and how to redo it for a new firmware)
 
