@@ -9,8 +9,10 @@ M8 differs (no encoders, a touch screen, an audio-thread sequencer), it gets its
 the Octatrack do on the Elektron side.
 
 Firmware: **6.6.2A Model:02**. Every site and location below is pinned to that build; the evidence for each is
-in [FIRMWARE-MAP.md](FIRMWARE-MAP.md) and [hooks/](hooks/). **Status:** only `ev_tick` is implemented today
-(core 0.1); the rest is the design core 0.2 builds toward. Nothing has run on hardware yet.
+in [FIRMWARE-MAP.md](FIRMWARE-MAP.md) and [hooks/](hooks/). **Status:** on Model:02 6.6.2A only `ev_tick` is
+built (core 0.1). Core 0.2, with the argument-passing dispatcher, `order` and take semantics, is built for **M8
+Headless 6.6.4A** with `ev_boot`, `ev_tick` and `ev_tempo` ([CORE.md](CORE.md), "Core 0.2"). The rest is
+design. Nothing has run on hardware yet.
 
 ## Conventions
 

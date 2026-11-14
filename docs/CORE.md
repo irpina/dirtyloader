@@ -129,6 +129,42 @@ the empty table.
    TICK). `requires: ["core"]` is enforced. Remaining: a mod-author macro for
    "register handler for event X", and resizable images for larger mods.
 
+## Core 0.2 (first build: M8 Headless 6.6.4A)
+
+`builder.build_core02(fw, bindings)` assembles the hook bus of [CORE-EVENTS.md](CORE-EVENTS.md) from a
+firmware's `bindings/<fw>.json` `"core"` block. Region layout at `0x60000200`: magic `DLCORE\0\1`, u16 layout
+`2`, u16 slots `64`, u32 dispatcher address (Thumb), the 64-slot table (empty: the linker fills it in
+`(order, mod id)` order, so table order is call order), then the code.
+
+| piece | what it does |
+|---|---|
+| dispatcher | `ip` = event id \| `0x10000` if takeable; passes r0–r3 and s0 to every enabled handler of that event, in table order; for a takeable event, stops at the first nonzero return and returns it, else 0. Frames are 8-byte multiples |
+| `call_pre` site | a `bl target` → `bl stub`: handlers first, then `b.w target` (or return 0 if taken). TICK |
+| `call_post` site | a `bl target` → `bl stub`: `target()`, then the handlers. BOOT |
+| `entry` site | a function's first ≥ 4 bytes → `b.w stub`: handlers, then the **relocated prologue** and `b.w fn+n`. `relocate_prologue` copies plain instructions, turns `ldr rX,[pc,#imm]` into `movw/movt` of the literal, and refuses branches, other pc reads, and any branch back into the replaced bytes. TEMPO |
+
+The headless build is not the Model:02 6.6.2A build: `main` is at `0x600A28F8` (BOOT `bl setup` at
+`0x600A28FA`, TICK `bl loop` at `0x600A28FE`), and the clock is no longer a fixed global. `set_tempo` is
+`0x60090978`, which keeps bpm at `+0x3C0` of an object reached through the pointer at `0x2001E5C4`. Its
+bindings, including `millis` (`0x20040264`, from the SysTick ISR), are in
+[`bindings/m8_6.6.4A_headless.json`](../dirtyloader/core/bindings/m8_6.6.4A_headless.json). The headless
+firmware ships as Intel HEX: [`dirtyloader/ihex.py`](../dirtyloader/ihex.py) reads it into a flat image
+(model 0, device `m8-headless`) and writes a patched one back, including bytes in caves the stock file skipped.
+
+**Smoke test.** `python -m dirtyloader.core.build_headless <M8_V6_6_4A_HEADLESS.hex> <out>` builds
+`core.m8mod`, `led-heartbeat.m8mod` and a linked `.hex` (844 bytes changed). The LED mod lives in the
+`0x6000102C` cave: its `ev_boot` handler makes pin 13 (the onboard LED, GPIO7 bit 3, which this firmware does
+not use) an output and lights it, and its `ev_tick` handler double-blinks it from `millis` (two 128 ms flashes
+every 1.024 s). Reading the LED:
+
+- **heartbeat:** BOOT and TICK both work
+- **solid on:** BOOT ran but TICK did not
+- **dark:** the core never ran
+
+A Teensy fresh from the factory runs a plain 1 Hz blink sketch, so only the double-blink counts as a pass.
+`tests/test_core02.py` checks the three site kinds, the relocation and the handler order on a synthetic image.
+**Not yet run on hardware.**
+
 ## ITCM hook sites need a different detour
 
 About 174 KB of the firmware — the whole audio graph and the sequencer, including the FX-command executor — is

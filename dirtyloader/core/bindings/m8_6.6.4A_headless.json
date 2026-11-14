@@ -1,0 +1,40 @@
+{
+  "firmware": "M8 Headless 6.6.4A",
+  "device": "m8-headless",
+  "file": "M8_V6_6_4A_HEADLESS.hex",
+  "stock_sha256": "c0caa0a9ead3ae73ce97aad66ccb78dc430f0a94d5ab8d315a3d96f60941b679",
+  "load_addr": "0x60000000",
+  "derived_by": "dirtyloader.re.trace + memmap on the HEX image; transport by its NVIC-bracketed bpm store",
+  "memory": {
+    "itcm": "load 0x60001680..0x6002B1C0 -> run 0x00000000..0x00029B40",
+    "data": "load 0x601D0B40..0x601DC600 -> run 0x20000000..0x2000BAC0",
+    "vectors_ram": "0x2000B800",
+    "stack_top": "0x20050000"
+  },
+  "symbols": {
+    "entry": "0x6000164D",
+    "startup": "0x60001430",
+    "main": "0x600A28F8",
+    "setup": "0x6007F030",
+    "loop": "0x6007F02C",
+    "yield": "0x600A8E88",
+    "systick_isr": "0x600A42D4",
+    "set_tempo": "0x60090978"
+  },
+  "exports": {
+    "millis": "0x20040264"
+  },
+  "core": {
+    "BOOT":  {"kind": "call_post", "patch_at": "0x600A28FA", "target": "0x6007F030",
+              "note": "main(): bl setup; BOOT handlers run once after setup() returns"},
+    "TICK":  {"kind": "call_pre",  "patch_at": "0x600A28FE", "target": "0x6007F02C",
+              "note": "main(): bl loop; TICK handlers run before every loop()"},
+    "TEMPO": {"kind": "entry",     "patch_at": "0x60090978",
+              "note": "set_tempo(clock_owner, float bpm): bpm in s0, stored at [[0x60090A10]]+0x3C0 inside AudioNoInterrupts"}
+  },
+  "notes": [
+    "loop (0x6007F02C) is a b.w veneer to the real loop at 0x6007FC54.",
+    "Headless is a different build from Model:02 6.6.2A: the clock is no longer a fixed global (bpm sits at +0x3C0 of an object reached through a pointer), so 6.6.2A addresses do not carry over.",
+    "Pin 13 (GPIO7 bit 3, the Teensy LED) is not used by this firmware; it drives GPIO7 bit 10 (pin 6) in setup()."
+  ]
+}

@@ -19,7 +19,8 @@ from dirtyloader.core.abi import Event
 FORMAT = 2
 M8MOD_FORMAT = FORMAT          # kept for older imports
 KINDS = ("code", "data")
-DEVICES = {"m8-model02": 2, "m8-model01": 1}
+DEVICES = {"m8-model02": 2, "m8-model01": 1, "m8-headless": 0}   # device -> M8Firmware.model
+PRODUCTS = {2: "M8 Model:02", 1: "M8 Model:01", 0: "M8 Headless"}
 DEFAULT_ORDER = 50
 
 
@@ -241,6 +242,7 @@ class Mod:
 
 def make_target(fw: M8Firmware, bin_sha256: str, firmware: str = "") -> dict:
     """The `target` block for mods made against this stock firmware."""
-    return {"device": f"m8-model0{fw.model}", "product": f"M8 Model:0{fw.model}", "firmware": firmware,
+    device = next((d for d, m in DEVICES.items() if m == fw.model), f"m8-model0{fw.model}")
+    return {"device": device, "product": PRODUCTS.get(fw.model, f"M8 Model:0{fw.model}"), "firmware": firmware,
             "bin_sha256": bin_sha256, "payload_sha256": sha256(bytes(fw.payload)),
             "payload_len": len(fw.payload)}
