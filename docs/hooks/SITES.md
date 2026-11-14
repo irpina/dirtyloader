@@ -82,6 +82,9 @@ cooperative scheduler — subsystem groups behind timing gates, not a flat list.
 | text-draw wrapper | 0x60030ECC | S2 | → glyph renderer 0x6002E2A8 (ASCII 0x20..0x7A); second font 0x6002FDEC |
 | value formatter | 0x600785C0 | S2 | printf-style: format codes `'b'..'x'`, draws via 0x60030ECC |
 | instrument parameter interface | vtable `+0xBC` / `+0x0F8` / `+0x104` / `+0x108` / `+0x10C` | S1 | descriptor / LFO-dest name / LFO-dest count / default / value. [static-m8-params.md](static-m8-params.md) |
+| **song object** | 0x2025A570 (OCRAM) | S1 | the `.m8s` image (RAM = file − 0x82); accessors phrase 0x600A6142, chain 0x600A6130, instrument 0x600A617E, EQ 0x600A6190. [static-m8-song.md](static-m8-song.md) |
+| transport API | clock 0x2000D218 | S1 | setTempo 0x6009A6C0, setPlaying 0x6009A528, stop 0x6009A55C, getTicks 0x6009A51C; 192 sub-ticks/beat |
+| LFO apply switches | ITCM 0x0C9D0 / 0x0E552 / 0x1185A / 0x1439E / 0x171BA | S1 (WAV) / S2 | per-engine `switch(dest)` into `voice+0x8C`; default branch = hook point for new destinations |
 | receiver classes | 5 × 46 slots | S2 | NONE, Launchpad Pro, 3 MIDI-input modes; `+0x88/+0x90/+0x94` = shared event interface. *Supersedes "parameter-object classes"* |
 | RAM vector table | 0x2000C000 | S1 | 176 entries, filled at boot; IRQ 70 audio, 110 SD, 157 buttons, 92 watchdog attached at run time ([map](../FIRMWARE-MAP.md) §6). *Supersedes "IRQ vector template 0x601E9A38"* — that is a 128-entry callback table of unknown purpose |
 | instrument classes | 7 vtables (102–109 slots) | S1 | named by their own name methods: WAVSYNTH 0x601DFE18, MACROSYNTH 0x601E0220, SAMPLER 0x601E07EC, MIDI OUT 0x601DFBBC, FMSYNTH 0x601DF97C, HYPERSYNTH 0x601E0058, EXTERNAL 0x601E0A14 |

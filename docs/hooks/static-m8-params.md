@@ -90,6 +90,35 @@ data-level:
 2. repoint the name-table literal of `+0x0F8` at an extended copy of the table in a cave (the label strings
    `"DRY"`, `"MFX"`, `"DEL"`, `"REV"` already exist in DTCM; a flash pointer works too — `getModDestName` only
    loads and returns it);
-3. the **apply** step — where the audio thread turns a DEST index into a modulated parameter — is the one
-   piece still to locate (in or under the engine voice nodes, ITCM). New indices need handling there (a Core
-   hook in ITCM, see [../CORE.md](../CORE.md)), or an existing entry's slot can be repurposed.
+3. the **apply** step (below) needs the new indices: it is a switch, so they land in its default branch.
+
+## The apply step — per-engine `switch(dest)` in ITCM (Path B)
+
+Each engine applies modulation in the audio thread with `apply_mod(voice, modulator)`:
+
+```
+if (!mod->active()) return;            // vt +0x18
+mod->update();                          // vt +0x14
+out = mod->output(); amt = mod->amount();   // vt +0x04, +0x08 (floats); type = vt +0x0C
+float *slot = &voice->mod[ mod->dest() ];   // voice +0x8C: one float per destination; dest = vt +0x1C
+switch (dest) { case 1 /*VOLUME*/: *slot *= f(out, amt); ...  case 2 /*PITCH*/: *slot += ...; ... }
+```
+
+The destination index selects the slot directly; the switch only picks the combining rule (VOLUME
+multiplicative, PITCH additive with an LFO special case, the rest additive with a per-destination scale). The
+switches are `subs rX,#1; cmp rX,#N; tbb` — case 1 upward, OFF = 0 skipped — and their case counts equal the
+destination counts minus one:
+
+| engine | apply switch (run) | cases |
+|---|---|---|
+| FMSYNTH | `0x0C9D0` | 14 |
+| HYPERSYNTH | `0x0E552` | 14 |
+| MACROSYNTH | `0x1185A` | 14 |
+| SAMPLER | `0x1439E` | 13 |
+| WAVSYNTH | `0x171BA` (fn `0x17160`, confirmed by decompile) | 14 |
+| EXTERNAL | `0x0B384` or `0x1286C` (13 cases; not yet told apart) | 13 |
+
+**For the mod:** a destination index past the original count takes the switch's `bhi` (default) branch. A Core
+hook on that branch (an ITCM detour — [../CORE.md](../CORE.md)) can handle the new destinations. The sends are
+applied in the per-track send mixers (32 nodes, 8 tracks × 4 buses), not in the voice, so the handler writes
+the modulated level into that track's send-mixer gain rather than into `voice->mod[]`.

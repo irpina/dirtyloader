@@ -42,9 +42,9 @@ Every remaining target sits behind one of two walls, and which one decides wheth
 | 2 | Parameter descriptor table + change event | 🟢 **tables mapped** (8 tables, 254 params); change event open | [static-m8-params.md](static-m8-params.md); instrument interface `+0xBC` descriptor, `+0x108` default, `+0x10C` value | param tables 43, param edit 30 | structural |
 | 3 | Key/input event + view context | 🟢 **mapped** | router `0x6004C6C8`; **per-view vtable `+0x08`** (19 handlers); `set_view` `0x6004C13C`; view id at `ui+0x15` | UI input 41, performance 12 | structural |
 | 4 | Draw hook per view (RENDER) | 🟢 frame driver mapped; per-view slot open | `0x6004B514`; view `+0x0C`/`+0x10`; text `0x60030ECC`, values `0x600785C0` | screen 33, draw 33 | structural |
-| 5 | Modulator dest table + apply | 🟢 **dest lists + counts mapped** (all 7 engines); apply step open | `+0x104` count, `+0x0F8` name table; modulators at data `+0x30..+0x47`; voices in ITCM | the **LFO mod**; voice render 34 | structural |
+| 5 | Modulator dest table + apply | 🟢 **dest lists, counts and apply switches mapped** (Path B) | `+0x104` count, `+0x0F8` name table; modulators at data `+0x30..+0x47`; voices in ITCM | the **LFO mod**; voice render 34 | structural |
 | 6 | Master-chain + touch-axis | 🟡 **touch mapped**; master chain unmapped | touch engine `0x600A5E60` (x/y/dominant axis, per view) | the **KAOSS mod** | structural |
-| 7 | Row-fire / tick / transport / MIDI / storage | 🟢 **sequencer mapped**: clock node `0x22720`, row fire `0x24DE0`, per-tick executor (run addrs) — all in the audio IRQ | transport/MIDI/storage partly ([../FIRMWARE-MAP.md](../FIRMWARE-MAP.md) §3, §5) | ~130 rows across areas | structural (ITCM, audio thread) |
+| 7 | Row-fire / tick / transport / MIDI / storage | 🟢 **sequencer, transport API, song RAM layout, MIDI handlers mapped** | clock `0x2000D218` (setTempo/setPlaying/stop), song `0x2025A570`, track players `0x2000D270` ([static-m8-song.md](static-m8-song.md)) | ~130 rows across areas | structural |
 
 ## D. `loop()` — decomposed ([static-m8-loop.md](static-m8-loop.md))
 

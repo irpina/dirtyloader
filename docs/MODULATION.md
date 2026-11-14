@@ -94,9 +94,12 @@ constant: 14 or 15) and `getModDestName(dest)` at `+0x0F8` reading a per-engine 
 Every list is OFF, VOLUME, PITCH, four engine-specific targets, CUTOFF, RES, AMP, PAN and MOD AMT/RATE/BOTH/BINV
 — **no engine offers DRY, MODFX, DELAY or REVERB**, exactly the gap this mod fills.
 
-**What is left for the LFO mod:** the UI half is data-level — raise the count immediate (`+0x104`) and point
-`+0x0F8`'s table literal at an extended copy in a cave. What remains is the **apply** step, where the audio
-thread turns a DEST index into a modulated parameter (in or under the engine voice nodes, ITCM).
+**Path A vs B — answered: Path B.** The UI half is data-level — raise the count immediate (`+0x104`) and point
+`+0x0F8`'s table literal at an extended copy in a cave. The **apply** step is a per-engine `switch(dest)` in ITCM
+writing into a float array at `voice+0x8C` (FMSYNTH `0x0C9D0`, HYPERSYNTH `0x0E552`, MACROSYNTH `0x1185A`,
+SAMPLER `0x1439E`, WAVSYNTH `0x171BA`); new destinations fall to its default branch, where a Core hook takes
+over and writes the modulated send level into the track's send mixer. Details in
+[hooks/static-m8-params.md](hooks/static-m8-params.md).
 
 ## RE findings (historical): static analysis hits a wall here
 
@@ -142,5 +145,6 @@ one-shot scripts.
 - Sends confirmed as parameters outside the destination enum: **done.**
 - Parameter descriptor tables (incl. the modulator DEST field, the sends): **mapped** (static-m8-params.md).
 - Per-engine destination lists and counts: **mapped** (`+0x0F8`, `+0x104`).
-- Apply step (DEST index → modulated parameter, audio thread): **open** — next static pass, or hardware.
+- Apply step: **mapped** — per-engine `switch(dest)` in ITCM (Path B); the extended destinations need a Core
+  hook on its default branch.
 - Mod itself: **design ready**, path (A vs B) pending that pass.

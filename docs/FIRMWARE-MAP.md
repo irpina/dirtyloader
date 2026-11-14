@@ -5,6 +5,7 @@ connect. Built statically (nothing here has run on hardware) with the `dirtyload
 Detail docs: [hooks/MAPPING.md](hooks/MAPPING.md) (backlog), [hooks/SITES.md](hooks/SITES.md) (hook sites),
 [hooks/static-m8-ui.md](hooks/static-m8-ui.md), [hooks/static-m8-loop.md](hooks/static-m8-loop.md),
 [hooks/static-m8-fxcmd.md](hooks/static-m8-fxcmd.md), [hooks/static-m8-params.md](hooks/static-m8-params.md),
+[hooks/static-m8-song.md](hooks/static-m8-song.md),
 [hooks/static-m8-switches.md](hooks/static-m8-switches.md).
 
 Addresses: **load** = where the bytes sit in the flash image (what a mod patches; file offset = load −
@@ -105,7 +106,9 @@ are known, and they expose the per-track design:
 | 1 | `0x1F8F0` | 308 B / 0 | **I2S output** (receive + release only — a sink) | S2 |
 | 2 | `0x041A8` | 4.6 KB / 872 | a heavy stereo pair (reverb-like) | S3 |
 | 1 each | `0x09328` (3.3 KB), `0x061F4` (3.1 KB), `0x070D8`, `0x08CD8`, `0x0AF20`, `0x05E20`, `0x053AC`, `0x228C8`, `0x20B08`, `0x1FB44`, … | | send effects and master chain (MODFX, delay, reverb, EQ, limiter, OTT, DJ filter) — **not yet told apart** | — |
-| 1 each | `0x1E9C8`, `0x22510` | < 200 B / 0 | receive-only taps (scope / peak / record) | S3 |
+| 1 each | `0x1E9C8`, `0x22510` | < 200 B / 0 | receive-only taps; `0x22510` is the **audio-input** path (`USB INPUT DISABLED`, `DUAL MONO INPUT MODE`) | S3 |
+| 1 | `0x600A5C24` (flash) | 26 B | the **USB-audio** interface object (84 users, USB-input settings) | S3 |
+| 1 | `0x09328` | 3.3 KB / 561 | likely the **sample-audition player** (file browser: `Samples`, `Songs`, `Instruments`) | S3 |
 
 - The block-I/O helpers are `0x1BD50` (`receiveReadOnly`, called by 22 nodes), `0x1BCF4` (`release`) and
   `0x1BDBC`/`0x1BD0C` (`allocate`/`transmit`); the AudioStream base constructor is `0x600B4C78`
@@ -180,7 +183,7 @@ The display SPI driver is partly in ITCM too (`0x600222E8..0x600233B0`).
 | **Instrument** (7 engines) | WAVSYNTH `0x601DFE18`, MACROSYNTH `0x601E0220`, SAMPLER `0x601E07EC`, MIDI OUT `0x601DFBBC`, FMSYNTH `0x601DF97C`, HYPERSYNTH `0x601E0058`, EXTERNAL `0x601E0A14` (102–109 slots) | the parameter interface (`+0xBC` descriptor, `+0x0F8`/`+0x104` LFO destinations, `+0x108` default, `+0x10C` value — [hooks/static-m8-params.md](hooks/static-m8-params.md)); FX-command name `+0xA4`, count `+0xD4`, value text `+0xC8` |
 | **MIDI / controller receivers** | NONE `0x601E0E34`, Launchpad Pro `0x601E0D20`, three MIDI-input/record modes (`0x601E0F18`, `0x601E103C`, `0x601E10FC`) — 46 slots | the shared event interface the instruments also derive from (`+0x88/+0x90/+0x94` — *corrected*: first read as a parameter interface) |
 | **AudioStream nodes** | ~30 classes, 1–4 slots, ~105 instances | slot 0 = `update()` in ITCM (§4) |
-| track / phrase players | 3 × 38 slots | methods in the ITCM sequencer region |
+| **MIDI handlers** | 3 × 38 slots (objects `0x20013E10`, `0x20013ECC`, `0x200177D4`) | a 38-method MIDI-message interface; `0x20013ECC` is MIDI input with MIDI-map support (`ASSIGNED MIDIMAP`), built next to the `Serial1` user `0x600A6EC8` |
 | SD card | 1 × 26 slots (`0x601E1220`) | all ITCM |
 
 **Instruments are type singletons.** There is exactly one object per engine (SAMPLER `0x2000EAA0`, WAVSYNTH
@@ -220,6 +223,19 @@ x/y, the sample editor x/y + axis, the mixer gestures).
   OFF, VOLUME, PITCH, 4 engine-specific, CUTOFF, RES, AMP, PAN, MOD AMT/RATE/BOTH/BINV. **No engine offers the
   sends** — the extended-destinations mod's exact gap. (*Corrected:* "DEST is byte `+0x02`" was a misread of
   the UI grid slot.)
+- **The song** is one 109 KB object in OCRAM at **`0x2025A570`** laid out exactly like the `.m8s` file
+  (RAM offset = file offset − `0x82`): grooves, 256 × 8 song rows, 255 phrases × 16 × 9 B, 255 chains, 256
+  tables, **128 instruments × 215 B**, effects settings, MIDI mappings, 16 scales, 128 EQs. Accessors
+  `0x600A6142` (phrase), `0x600A6130` (chain), `0x600A617E` (instrument), `0x600A6190` (EQ). Details:
+  [hooks/static-m8-song.md](hooks/static-m8-song.md).
+- **Transport**: the clock object `0x2000D218` — `setTempo` `0x6009A6C0`, `setPlaying` `0x6009A528`, `stop`
+  `0x6009A55C`, `getTicks` `0x6009A51C`; **192 sub-ticks per beat at 44.1 kHz** (K = 192/(60·44100)); 8 track
+  players at `0x2000D270` (8 × 688 B).
+- **LFO apply**: per-engine `switch(dest)` in ITCM writing into a float array at `voice+0x8C` — **Path B**
+  (FMSYNTH `0x0C9D0`, HYPERSYNTH `0x0E552`, MACROSYNTH `0x1185A`, SAMPLER `0x1439E`, WAVSYNTH `0x171BA`).
+- **Effects architecture** (from the mixer/effects UI): MODFX = CHORUS / PHASER / FLANGER; send effects MODFX,
+  DELAY (time in steps), REVERB; **EQ banks** assignable per bus (`MIX EQ`, `MODFX EQ`, `DELAY EQ`, `REVERB EQ`);
+  master chain **LIMITER (+ scope) → SOFT CLIP → DJ FILTER (LP/HP, LP/BS, BS/HP) → OTT (time, color)**.
 - **FX commands**: 78 global (`0x00..0x4D`) + instrument commands (`0x80|n`, from the descriptor tables).
 - **Views**: 30 ids (`0x00..0x1D`, 7 unused), current at `ui+0x15` — named in §8.
 
@@ -235,9 +251,9 @@ MACROSYNTH and wavetable data are consistent with Braids-style oscillator tables
 - Which send-effect / master-chain node is which (MODFX, delay, reverb, EQ, limiter, OTT, DJ filter) — the
   KAOSS mod's targets. The graph is wired in run-time loops, so the fastest route is the per-node CPU counters
   on hardware (§4).
-- The **LFO apply step**: where the audio thread turns a DEST index into a modulated parameter (in or under the
-  engine voice nodes). The UI half of the extended-destinations mod is fully mapped
-  ([hooks/static-m8-params.md](hooks/static-m8-params.md)).
+- Which EXTERNAL apply switch is which (`0x0B384` vs `0x1286C`) — the other five engines are pinned.
+- The effects-settings struct field layout (reached through a passed pointer; the community parser documents
+  the file side).
 - The engine↔voice mapping is S3 (by source order).
 - The 950 KB oscillator data: which bank belongs to which engine (reached by computed offsets).
 - Eight screens without strings (`0x08 0x09 0x0C 0x0F 0x15 0x17 0x1A 0x1B`) and which view slot draws.
