@@ -110,7 +110,8 @@ are known, and they expose the per-track design:
 | 1 + 1 | `0x05C50` (obj `0x2001BF40`), `0x070D8` (obj `0x20021D4C`) | | **DELAY**: feedback and stereo width go to these two nodes; the delay time is set through the clock object (`0x6009A5F0`/`0x6009A69C`, next to `setTempo`), so the time is tempo-synced | S2 |
 | 1 | `0x0AEB0` (obj `0x2000C780`) | | **DJ FILTER**: effects `+1A` (resonance, via `0x6003D628`) and `+1B` (bipolar cutoff, via `0x6003D2DC`); the MIXER writes the same setters from its own fields | S2 |
 | 2 | `0x041A8` (objs `0x20037840`, `0x20037C9C`) | 4.6 KB / 872 | receive the **MODFX→reverb and delay→reverb send** levels (effects `+06`, `+10`) | S3 |
-| 1 each | `0x0AF20` (obj `0x2001D6DC`), `0x1FB44` (obj `0x2001D854`) | | touched by the MIXER field setter `0x6005C370` alongside the master-chain fields: the **limiter / OTT** candidates | S3 |
+| 1 | `0x0AF20` (obj `0x2001D6DC`) | 952 B / 156 | **LIMITER**: its attack setter `0x6003A5FC` and release setter `0x6003A650` write `+0x80..+0x94`; release 0 sets the `+0xA8` flag (`LIM RELEASE:AUTO`). Called from the MIXER and LIMITER SCOPE screens | S1 |
+| 1 | `0x1FB44` (obj `0x2001D854`, parameters at `+0x164`) | 400 B / 21 | a master-chain stage driven by three MIXER fields through `0x60099BB4`: a 0–2 mode (DJ FILTER TYPE has three choices), a bipolar 0x80-centred value, and smoothing. So the DJ filter together with the biquad node `0x0AEB0` above; which node does which half is open | S3 |
 | 1 each | `0x061F4` (3.1 KB), `0x05E20`, `0x053AC`, `0x228C8`, `0x20B08` | | not yet named (soft clip, scope taps, and the bus EQs are what is left to place) | — |
 | 1 each | `0x1E9C8`, `0x22510` | < 200 B / 0 | receive-only taps; `0x22510` is the **audio-input** path (`USB INPUT DISABLED`, `DUAL MONO INPUT MODE`) | S3 |
 | 1 | `0x600A5C24` (flash) | 26 B | the **USB-audio** interface object (84 users, USB-input settings) | S3 |
@@ -296,7 +297,7 @@ Everything below is leaf level: each subsystem, thread, class family, screen, da
 in the map. What remains is naming the last few nodes and data blocks, and checking S2/S3 readings on hardware.
 
 - **Master-chain nodes still unnamed or S3:**
-  - limiter and OTT: candidates `0x0AF20` and `0x1FB44`
+  - OTT, and the DJ filter's split between `0x1FB44` and `0x0AEB0` (the LIMITER is `0x0AF20`)
   - soft clip, the scope taps and the bus EQs: among `0x061F4`, `0x05E20`, `0x053AC`, `0x228C8`, `0x20B08`
 
   REVERB, MODFX, DELAY and DJ FILTER are named (§4). The per-node CPU counters on hardware settle the rest.
