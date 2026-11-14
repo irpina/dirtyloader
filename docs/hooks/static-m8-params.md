@@ -114,9 +114,27 @@ destination counts minus one:
 | FMSYNTH | `0x0C9D0` | 14 |
 | HYPERSYNTH | `0x0E552` | 14 |
 | MACROSYNTH | `0x1185A` | 14 |
-| SAMPLER | `0x1439E` | 13 |
+| SAMPLER | `0x1439E` (fn `0x14350`) and its specialised copy fn `0x12800` | 13 |
 | WAVSYNTH | `0x171BA` (fn `0x17160`, confirmed by decompile) | 14 |
-| EXTERNAL | `0x0B384` or `0x1286C` (13 cases; not yet told apart) | 13 |
+| EXTERNAL | fn `0x0B324` (switch at `0x0B384`; reached through a function pointer at `0x600B4F04`) | 13 |
+
+Both remaining switches were settled by decompiling them:
+
+- **EXTERNAL is `0x0B324`.** Its cases follow EXTERNAL's destination list exactly, and it has no PITCH:
+  - 1 VOLUME, multiplicative
+  - 2 CUTOFF and 3 RES, additive
+  - 4 AMP, ×16
+  - 5 PAN, bipolar
+  - 6–9 CC A–D, which re-read the modulator unless `this+0x90` is set
+  - 10–13 MOD AMT / RATE / BOTH / BINV, which call the target modulator's `+0x28` (amount) and `+0x2C` (rate)
+    methods; BINV passes `1 − x` to rate
+- **`0x12800` is SAMPLER, not EXTERNAL.** The SAMPLER voice (its update `0x15144`, and `0x1473C`/`0x149F0`)
+  applies modulator 0 through `0x12800`, then modulators 1–3 through `0x14350`, with `r1 = mods + 0xA8·k`. The
+  modulator objects are 0xA8 bytes apart. The compiler specialised the first call: it guards each virtual call
+  with a direct-call fast path. The cases are the same: VOLUME, PITCH (quantised through a table), LOOP ST
+  (raises a reload flag and stores a u16 position at `+0x1F4`), LENGTH (clamped 0–1), DEGRADE/CUTOFF/RES, AMP
+  ×16, PAN, MOD ×4. The SAMPLER writes its per-destination values to `voice+0x100 + 4·slot`; EXTERNAL keeps a
+  pointer to its float array at `+0x8C`.
 
 **For the mod:** a destination index past the original count takes the switch's `bhi` (default) branch. A Core
 hook on that branch (an ITCM detour — [../CORE.md](../CORE.md)) can handle the new destinations. The sends are

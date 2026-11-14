@@ -61,7 +61,7 @@ There is no `ev_enc`: the M8 has no encoders. Its continuous control is the touc
 | `ev_fx_row` | a row's FX column is applied at row fire; audio thread | `int f(int track, int column, int cmd, int value)` | `column` 0–2; take it to replace that column's stock effect | site pinned |
 | `ev_tempo` | the tempo is set; UI thread | `int f(float bpm)` | `bpm` in s0. Return nonzero to refuse the change | site pinned |
 | `ev_transport` | play, pause or stop; UI thread | `int f(int state)` | `state` 1 play, 0 pause, −1 stop. Return nonzero to refuse it | site pinned |
-| `ev_mod_apply` | a modulator targets a destination past the engine's stock list; audio thread | `void f(int engine, void *voice, void *mod, int dest)` | the default branch of each engine's `switch(dest)` ([hooks/static-m8-params.md](hooks/static-m8-params.md)); with `core_mod_dests` this is how mods add LFO destinations | site pinned (5 of 6 engines) |
+| `ev_mod_apply` | a modulator targets a destination past the engine's stock list; audio thread | `void f(int engine, void *voice, void *mod, int dest)` | the default branch of each engine's `switch(dest)` ([hooks/static-m8-params.md](hooks/static-m8-params.md)); with `core_mod_dests` this is how mods add LFO destinations | site pinned (all 6 audio engines; SAMPLER has two copies) |
 
 ## Core's tables
 

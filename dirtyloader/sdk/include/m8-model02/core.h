@@ -62,8 +62,19 @@ typedef void (*fw_set_playing_fn)(void *self, int playing);
 #define fw_set_view             ((void (*)(void *ui, int view))0x6004C13Du)
 #define fw_text                 ((void *)0x60030ECDu)     /* draw a string: arguments not confirmed yet */
 enum { M8_SONG = 0x00, M8_GROOVE, M8_CHAIN, M8_PHRASE, M8_TABLE, M8_INSTRUMENT, M8_PROJECT,
-       M8_MIXER = 0x0D, M8_SCALE = 0x13, M8_SETTINGS = 0x14, M8_INST_MODS = 0x16, M8_EQ = 0x19,
-       M8_FIRST_MOD_VIEW = 0x1E };
+       M8_KEYBOARD = 0x08, M8_FX_HELP = 0x09, M8_FILES = 0x0A, M8_EFFECTS = 0x0B, M8_CONFIRM = 0x0C,
+       M8_MIXER = 0x0D, M8_MIDI_SETTINGS = 0x0E, M8_MIDI_MAPPING = 0x0F, M8_THEME = 0x10, M8_RENDER = 0x11,
+       M8_SAMPLE_REC = 0x12, M8_SCALE = 0x13, M8_HW_SETTINGS = 0x14, M8_MKDIR = 0x15, M8_INST_MODS = 0x16,
+       M8_TIME_STATS = 0x17, M8_INST_POOL = 0x18, M8_EQ = 0x19, M8_LIMITER = 0x1A, M8_GRID_PICK = 0x1B,
+       M8_SETTINGS = 0x1C, M8_USB_DISK = 0x1D, M8_FIRST_MOD_VIEW = 0x1E };
+
+/* ---- mixer and effects settings (song blocks) -------------------------------------------------------- */
+#define FW_MIXER(n)             (fw_song + 0x004C + (n))
+#define FW_EFFECTS(n)           (fw_song + 0x1A53C + (n))
+enum { FX_MODFX_DEPTH = 0x03, FX_MODFX_FREQ, FX_MODFX_WIDTH, FX_MODFX_REVERB_SEND,
+       FX_DELAY_TIME_L = 0x0C, FX_DELAY_TIME_R, FX_DELAY_FEEDBACK, FX_DELAY_WIDTH, FX_DELAY_REVERB_SEND,
+       FX_REVERB_SIZE = 0x14, FX_REVERB_DECAY, FX_REVERB_MOD_DEPTH, FX_REVERB_MOD_FREQ, FX_REVERB_WIDTH,
+       FX_REVERB_SHIMMER, FX_MODFX_TYPE = 0x1C };
 
 struct m8_touch {                    /* at fw_touch */
     uint8_t _0[0x30];

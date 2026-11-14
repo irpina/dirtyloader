@@ -194,21 +194,28 @@ for their type interprets them — matching one audio node per engine.
 
 ### Screens (`set_view` ids)
 
+All 29 ids are named. **T** = the screen's own 40 × 24 text template (`EFFECT SETTINGS …`) is loaded by one
+of its vtable methods, or by code next to them in the same source file. **D** = dialogs without a template,
+named from their input handler.
+
 | id | screen | id | screen | id | screen |
 |---|---|---|---|---|---|
-| `0x00` | **SONG** (live mode, bookmarks) | `0x0A` | file browser | `0x14` | SYSTEM SETTINGS |
-| `0x01` | **GROOVE** | `0x0B` | MIDI mapping (S3) | `0x16` | INSTRUMENT MODS |
-| `0x02` | **CHAIN** | `0x0D` | **MIXER** | `0x18` | instrument pool (S3) |
-| `0x03` | **PHRASE** | `0x0E` | settings (MIDI?) | `0x19` | **EQ** |
-| `0x04` | **TABLE** (S2) | `0x10` | THEME | `0x1C` | firmware update / template |
-| `0x05` | **INSTRUMENT** | `0x11` | name entry | `0x1D` | USB disk mode |
-| `0x06` | **PROJECT** | `0x12` | sample editor | | |
-| | | `0x13` | SCALE | | |
+| `0x00` | **SONG** (T; live mode, bookmarks) | `0x0A` | file browser | `0x14` | hardware settings page (T: `BOOT MENU`, `HP PROTECTION`, `DISABLE CHARGING`, `KEY DELAY:REPEAT`, `SD CARD TEST`) |
+| `0x01` | **GROOVE** (T) | `0x0B` | **EFFECT SETTINGS** (T) | `0x15` | create directory (T: `CREATE DIRECTORY`) |
+| `0x02` | **CHAIN** (T) | `0x0C` | OK/CANCEL confirm dialog (D: left/right cursor; select returns to the caller, `+0x0D` = OK) | `0x16` | **INSTRUMENT MODS** (T) |
+| `0x03` | **PHRASE** (T) | `0x0D` | **MIXER** (T) | `0x17` | **TIME STATS** (T: play/work/powered time, file date) |
+| `0x04` | **TABLE** (T) | `0x0E` | **MIDI SETTINGS** (T) | `0x18` | **INSTRUMENT POOL** (T) |
+| `0x05` | **INSTRUMENT** (T) | `0x0F` | **MIDI MAPPING** (T) | `0x19` | **EQ EDITOR** (T) |
+| `0x06` | **PROJECT** (T) | `0x10` | **THEME SETTINGS** (T) | `0x1A` | **LIMITER SCOPE** (T: mix scope, limiter attack/release, soft clip, DJ filter) |
+| `0x08` | text keyboard (T: the `{c c c …}` grid; `QWERTY>` / `ABC>`) | `0x11` | **RENDER AUDIO** (T) | `0x1B` | grid picker dialog (D: 2-D cursor, returns the cell or `0xFF` on cancel; shares the keyboard's grid code) |
+| `0x09` | **FX command help** (T: `>SEQUENCER FX`, `>CURRENT INSTRUMENT`, `>INSTRUMENT MODS`, `>MIXER/EFFECTS` pages) | `0x12` | **SAMPLE RECORD** / sample editor (T; one 38 KB class, saves `.wav`) | `0x1C` | **SYSTEM SETTINGS** (T) |
+| | | `0x13` | **SCALE** (T) | `0x1D` | USB disk mode (T: `USB DRIVE MODE ACTIVATED`) |
 
-Unnamed (no strings): `0x08 0x09 0x0C 0x0F 0x15 0x17 0x1A 0x1B`. Names come from each screen class's own
-strings (`LIVE (SEL+LEFT TO EXIT)`, `TOTAL TICKS`, `CREATE A PHRASE TO PROCEED`, `FILL: RANDOM PATTERN`, …),
-and agree with the navigation groups `set_view` assigns and with which screens the touch engine serves (EQ gets
-x/y, the sample editor x/y + axis, the mixer gestures).
+*Corrected:* `0x0B` was "MIDI mapping" (that is `0x0F`), `0x11` "name entry", `0x14` "SYSTEM SETTINGS" (that
+is `0x1C`), `0x1C` "firmware update". Method: each id's singleton → its class (`re.objects`) → its vtable slots;
+each template's loader → the view whose methods it sits among. For 12 ids the loader *is* one of the view's
+methods; for the rest it lies within a few hundred bytes of them, in the same source file. The names also agree with the navigation groups `set_view` assigns, and with the screens
+the touch engine serves.
 
 ## 9. Data model
 
@@ -232,8 +239,31 @@ x/y, the sample editor x/y + axis, the mixer gestures).
 - **Transport**: the clock object `0x2000D218` — `setTempo` `0x6009A6C0`, `setPlaying` `0x6009A528`, `stop`
   `0x6009A55C`, `getTicks` `0x6009A51C`; **192 sub-ticks per beat at 44.1 kHz** (K = 192/(60·44100)); 8 track
   players at `0x2000D270` (8 × 688 B).
-- **LFO apply**: per-engine `switch(dest)` in ITCM writing into a float array at `voice+0x8C` — **Path B**
-  (FMSYNTH `0x0C9D0`, HYPERSYNTH `0x0E552`, MACROSYNTH `0x1185A`, SAMPLER `0x1439E`, WAVSYNTH `0x171BA`).
+- **LFO apply**: each engine has a `switch(dest)` in ITCM that writes per-destination values into the voice —
+  **Path B**. The switches: FMSYNTH `0x0C9D0`, HYPERSYNTH `0x0E552`, MACROSYNTH `0x1185A`, WAVSYNTH `0x171BA`,
+  SAMPLER `0x1439E` plus a specialised copy at `0x12800` (used for its modulator 0), and EXTERNAL `0x0B324`.
+  All six audio engines are now pinned ([hooks/static-m8-params.md](hooks/static-m8-params.md)).
+- **Mixer and effects settings** live in two blocks of the song:
+  - **Mixer:** `song + 0x4C + n`, accessor `0x600A611E`. It is read with field numbers 0–31 by the MIXER and
+    LIMITER SCOPE screens and by `0x6008A880` (not yet read).
+  - **Effects:** `song + 0x1A53C + n`, accessor `0x600A6124`. The EFFECT SETTINGS screen maps its 16 value
+    fields through the table at `0x20004D04`. The fields, offsets in hex:
+
+| field | MODFX | DELAY | REVERB |
+|---|---|---|---|
+| type | MOD TYPE `+1C` | | |
+| mod depth : freq | `+03` : `+04` | | `+16` : `+17` |
+| time L : R | | `+0C` : `+0D` | |
+| feedback | | `+0E` | |
+| size, decay : shimmer | | | `+14`, `+15` : `+19` |
+| stereo width | `+05` | `+0F` | `+18` |
+| reverb send | `+06` | `+10` | |
+
+  - The INPUT EQ rows pick EQs `0x81`, `0x82` and `0x83`, so the song holds 4 bus EQs after its 128 user EQs.
+  - The song upgrader at `0x6008B074` converts old songs' delay and reverb filter bytes (`+0A`/`+0B`,
+    `+12`/`+13`) into EQ bands, and copies EQs `0x80..0x83` into `0x20..0x23`.
+  - The MIXER and LIMITER SCOPE screens also read effects bytes `+1A`/`+1B` (13 reads), which the EFFECT
+    SETTINGS screen does not show. Their meaning is not pinned yet.
 - **Effects architecture** (from the mixer/effects UI): MODFX = CHORUS / PHASER / FLANGER; send effects MODFX,
   DELAY (time in steps), REVERB; **EQ banks** assignable per bus (`MIX EQ`, `MODFX EQ`, `DELAY EQ`, `REVERB EQ`);
   master chain **LIMITER (+ scope) → SOFT CLIP → DJ FILTER (LP/HP, LP/BS, BS/HP) → OTT (time, color)**.
@@ -252,12 +282,15 @@ MACROSYNTH and wavetable data are consistent with Braids-style oscillator tables
 - Which send-effect / master-chain node is which (MODFX, delay, reverb, EQ, limiter, OTT, DJ filter) — the
   KAOSS mod's targets. The graph is wired in run-time loops, so the fastest route is the per-node CPU counters
   on hardware (§4).
-- Which EXTERNAL apply switch is which (`0x0B384` vs `0x1286C`) — the other five engines are pinned.
-- The effects-settings struct field layout (reached through a passed pointer; the community parser documents
-  the file side).
 - The engine↔voice mapping is S3 (by source order).
-- The 950 KB oscillator data: which bank belongs to which engine (reached by computed offsets).
-- Eight screens without strings (`0x08 0x09 0x0C 0x0F 0x15 0x17 0x1A 0x1B`) and which view slot draws.
+- The 950 KB oscillator data: which bank belongs to which engine. **Checked and still open:** no literal, no
+  `movw`/`movt` pair and no `.data` table holds a bank base (the few words that land in the region are
+  coincidental constants, e.g. sine-table samples), so the banks are reached by offsets computed from a run-time
+  value. The way in is the engines' oscillator setup code, read in the decompiler, or a watchpoint on hardware.
+- Which View slot (`+0x0C` or `+0x10`) draws.
+
+*Resolved since the first pass:* the EXTERNAL apply switch (`0x0B324`, §9), the effects-settings layout (§9)
+and the eight screens without strings (§8).
 
 ## How this map was made (and how to redo it for a new firmware)
 

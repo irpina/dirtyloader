@@ -19,7 +19,7 @@ accessors:
 | chains | `0x20263F4C` | `0x99DC` | `0x9A5E` | 255 × 16 × 2 B: phrase, transpose | `0x600A6130(song, c, step, field)` |
 | tables | `0x20265F2C` | `0xB9BC` | `0xBA3E` | 256 × 16 × 8 B: transpose, vel, 3 × (cmd, val) | |
 | **instruments** | `0x2026DF2C` | `0x139BC` | `0x13A3E` | 128 × **215 B** (`0xD7`, returned by `0x600A6214`) | `0x600A617E(song, i, byte)` |
-| effects settings | `0x20274AAF` | `0x1A53F` | `0x1A5C1` | MODFX / delay / reverb | (reached via a passed pointer) |
+| effects settings | `0x20274AAC` | `0x1A53C` | `0x1A5BE` | MODFX / delay / reverb (field table in [FIRMWARE-MAP.md](../FIRMWARE-MAP.md) §9) | `0x600A6124(song, field)` |
 | MIDI mappings | `0x20274AEC` | `0x1A57C` | `0x1A5FE` | 128 | |
 | scales | `0x20274F6C` | `0x1A9FC` | `0x1AA7E` | 16 | |
 | EQs | `0x2027524C` | `0x1ACDC` | `0x1AD5E` | 128 × 18 B (3 bands × 6 B) | `0x600A6190(song, n, band, field)` |
