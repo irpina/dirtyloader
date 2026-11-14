@@ -61,7 +61,7 @@ cooperative scheduler — subsystem groups behind timing gates, not a flat list.
 | GPIO6 read | 0x6007BBB4 | S2 | a button/pin read (GPIO6). *Superseded: first logged as a micros() timer* |
 | watchdog kick | 0x60081958 | S2 | WDOG1 |
 | display SPI driver | 0x6008D920 | S2 | LPSPI4 — where pixels reach the panel |
-| ~~view draw vtable slot +0xA0~~ | — | superseded | `+0xA0` is not a view method (the `View` vtable has 8 slots); it is on a large parameter-object class |
+| ~~view draw vtable slot +0xA0~~ | — | superseded | `+0xA0` is not a view method (the `View` vtable has 8 slots); it is on a large instrument / receiver class |
 
 ### Sites
 
@@ -81,7 +81,8 @@ cooperative scheduler — subsystem groups behind timing gates, not a flat list.
 | per-view input handlers | 19 × slot `+0x08` | S1 | `(this, action)` switches; list with true entries in the ui doc |
 | text-draw wrapper | 0x60030ECC | S2 | → glyph renderer 0x6002E2A8 (ASCII 0x20..0x7A); second font 0x6002FDEC |
 | value formatter | 0x600785C0 | S2 | printf-style: format codes `'b'..'x'`, draws via 0x60030ECC |
-| parameter-object classes | 7 × 102–109 slots, 5 × 46 | S3 | shared base `+0x88/+0x90/+0x94` (0x6009B994/9C/A0), each overrides `+0xA0`. 7 = the M8's instrument types (hypothesis) |
+| instrument parameter interface | vtable `+0xBC` / `+0x0F8` / `+0x104` / `+0x108` / `+0x10C` | S1 | descriptor / LFO-dest name / LFO-dest count / default / value. [static-m8-params.md](static-m8-params.md) |
+| receiver classes | 5 × 46 slots | S2 | NONE, Launchpad Pro, 3 MIDI-input modes; `+0x88/+0x90/+0x94` = shared event interface. *Supersedes "parameter-object classes"* |
 | RAM vector table | 0x2000C000 | S1 | 176 entries, filled at boot; IRQ 70 audio, 110 SD, 157 buttons, 92 watchdog attached at run time ([map](../FIRMWARE-MAP.md) §6). *Supersedes "IRQ vector template 0x601E9A38"* — that is a 128-entry callback table of unknown purpose |
 | instrument classes | 7 vtables (102–109 slots) | S1 | named by their own name methods: WAVSYNTH 0x601DFE18, MACROSYNTH 0x601E0220, SAMPLER 0x601E07EC, MIDI OUT 0x601DFBBC, FMSYNTH 0x601DF97C, HYPERSYNTH 0x601E0058, EXTERNAL 0x601E0A14 |
 | parameter descriptor tables | 8 tables, 254 params | S1 | [static-m8-params.md](static-m8-params.md) |

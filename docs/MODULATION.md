@@ -84,13 +84,19 @@ address `0x20000000 + (flash − 0x601DE020)` and never by its flash address
 | SEND DELAY / REVERB / MODFX | `0x601E4558` / `457C` / `4534` | `0x20006538` / `655C` / `6514` | 6 each |
 
 The SEND references are **parameter descriptor records** — 28-byte entries in plain flash (id, name, label,
-code, help, flags, min/max/field offset), one table per engine plus a modulator table. They are mapped in
-[hooks/static-m8-params.md](hooks/static-m8-params.md): the modulator `DEST` field is byte `+0x02` of each
-modulator slot, and every engine's MODFX/DELAY/REVERB send has a descriptor and a field offset.
+code, help, flags + default, min/max, UI slot/page, index), one table per engine plus a modulator table. They
+are mapped in [hooks/static-m8-params.md](hooks/static-m8-params.md); every engine's MODFX/DELAY/REVERB send has
+a descriptor, and the four modulator slots live at instrument data `+0x30..+0x47`. (The 12 "references to the
+destination-name table" turned out to be descriptors reusing the shared label string `"CUTOFF"`.)
 
-**What is left for the LFO mod:** follow the 12 references to the destination-name table (`0x200061F4`) to the
-per-engine destination lists and their counts, then the code that maps a DEST value to a field (the apply
-step, which runs in the audio thread). Both are now ordinary static work.
+**The destination lists are found** (same doc): each engine has `getModDestCount()` at vtable `+0x104` (a
+constant: 14 or 15) and `getModDestName(dest)` at `+0x0F8` reading a per-engine string-pointer table in `.data`.
+Every list is OFF, VOLUME, PITCH, four engine-specific targets, CUTOFF, RES, AMP, PAN and MOD AMT/RATE/BOTH/BINV
+— **no engine offers DRY, MODFX, DELAY or REVERB**, exactly the gap this mod fills.
+
+**What is left for the LFO mod:** the UI half is data-level — raise the count immediate (`+0x104`) and point
+`+0x0F8`'s table literal at an extended copy in a cave. What remains is the **apply** step, where the audio
+thread turns a DEST index into a modulated parameter (in or under the engine voice nodes, ITCM).
 
 ## RE findings (historical): static analysis hits a wall here
 
@@ -135,6 +141,6 @@ one-shot scripts.
 - Modulation data model: **mapped.**
 - Sends confirmed as parameters outside the destination enum: **done.**
 - Parameter descriptor tables (incl. the modulator DEST field, the sends): **mapped** (static-m8-params.md).
-- Apply function / dest→param table: **unblocked** — the destination-name table has 12 references once
-  translated to DTCM; next static pass. (Superseded: "blocked on interactive RE or hardware".)
+- Per-engine destination lists and counts: **mapped** (`+0x0F8`, `+0x104`).
+- Apply step (DEST index → modulated parameter, audio thread): **open** — next static pass, or hardware.
 - Mod itself: **design ready**, path (A vs B) pending that pass.

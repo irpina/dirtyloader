@@ -54,9 +54,9 @@ class TestParams(unittest.TestCase):
             p[off:off + len(s) + 1] = s + b"\x00"
             ptrs.append(0x20000000 + (off - 0x3000))
             off += 16
-        for k in range(6):                                              # six records at 0x2000
-            rec = 0x2000 + 28 * k
-            struct.pack_into("<I4III", p, rec, 0x0F + k, *ptrs, 1, 0x000C_FF00)
+        for k in range(6):                                              # six records at 0x2000:
+            rec = 0x2000 + 28 * k                                       # 4 strings, flags, range, index
+            struct.pack_into("<4IIII", p, rec, *ptrs, 0xC0000001, 0x000C_FF00, 0x0F + k)
 
     def test_scan(self):
         tables = params.scan(self.fw, mm=_mm())
@@ -64,8 +64,34 @@ class TestParams(unittest.TestCase):
         t = tables[0]
         self.assertEqual((t.addr, len(t.params)), (LOAD + 0x2000, 6))
         x = t.params[0]
-        self.assertEqual((x.id, x.name, x.label, x.code, x.help), (0x0F, "DELAY VOL", "DEL ", "SDL", "SEND DELAY"))
-        self.assertEqual((x.min, x.max, x.offset, x.flags), (0, 255, 0x0C, 1))
+        self.assertEqual((x.index, x.name, x.label, x.code, x.help), (0x0F, "DELAY VOL", "DEL ", "SDL", "SEND DELAY"))
+        self.assertEqual((x.min, x.max, x.b2, x.b3, x.flags), (0, 255, 0x0C, 0, 0xC0000001))
+        self.assertEqual(t.params[5].index, 0x14)
+
+
+@unittest.skipUnless(HAVE_CAPSTONE, "capstone not installed")
+class TestObjects(unittest.TestCase):
+    def test_inline_vptr_store(self):
+        from dirtyloader.re import objects
+        fw = M8Firmware(version=0x00020001, load_addr=LOAD, payload=bytearray(0x4000))
+        p = fw.payload
+        code = bytes.fromhex(
+            "024b"      # 0x2000 ldr r3, [pc, #8]   -> object 0x20001000
+            "034a"      # 0x2002 ldr r2, [pc, #12]  -> vtable
+            "1a60"      # 0x2004 str r2, [r3]
+            "7047"      # 0x2006 bx lr
+            "00bf00bf"  # 0x2008 padding
+        )
+        p[0x2000:0x2000 + len(code)] = code
+        vt = LOAD + 0x3008
+        struct.pack_into("<II", p, 0x200C, 0x20001000, vt)            # literal pool
+        struct.pack_into("<IIII", p, 0x3000, 0, 0, LOAD + 0x2001, LOAD + 0x2001)   # {0,0} + 2 slots
+        export = {"functions": [{"entry": LOAD + 0x2000, "load": LOAD + 0x2000, "size": 8,
+                                 "callees": [], "thunk": None}]}
+        objs, _ctors, vts = objects.scan(fw, export)
+        self.assertIn(0x20001000, objs)
+        self.assertEqual(objs[0x20001000][0], vt)
+        self.assertEqual(len(vts[vt]), 2)
 
 
 @unittest.skipUnless(HAVE_CAPSTONE, "capstone not installed")

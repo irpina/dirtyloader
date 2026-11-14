@@ -90,26 +90,36 @@ from `loop()`. UI code that touches audio state brackets it with `AudioNoInterru
 | `0x29D34..` | FLEXSPI flash writes (EEPROM emulation) | FLEXSPI refs |
 | `0x2A088..0x2B310` | **SD card** (USDHC1, SdFat SDIO) — a 26-slot card class `0x601E1220`; IRQ 110 | USDHC1 refs |
 
-### Audio-graph nodes (`update()` in ITCM)
+### The audio graph (`update()` in ITCM)
 
-| node | `update()` | size / FPU insns | owner (constructor) | conf |
+Every global object was mapped to its class (`python -m dirtyloader.re.objects`), so node **instance counts**
+are known, and they expose the per-track design:
+
+| instances | `update()` | size / FPU insns | reading | conf |
 |---|---|---|---|---|
-| sequencer clock | `0x22720` | 402 B / 44 | graph builder `0x6009A9F4` | S1 |
-| HYPERSYNTH voice | `0x0F3FC` | **9.1 KB / 2038** | `0x60040114` (HYPERSYNTH source span) | S3 |
-| SAMPLER voice | `0x15144` | 5.9 KB / 756 | `0x60046240` | S3 |
-| FMSYNTH voice | `0x0D990` | 2.9 KB / 514 | `0x6003F6B8` | S3 |
-| WAVSYNTH voice | `0x18574` | 1.5 KB / 193 | `0x60047018` | S3 |
-| MACROSYNTH voice | `0x122CC` | 0.8 KB / 106 | `0x6004530C` | S3 |
-| EXTERNAL input? | `0x09328` | 3.3 KB / 561 | `0x6009CD94` | S3 |
-| effect-like nodes | `0x02B80`, `0x08CD8` (1.4 KB/226), `0x0AEB0` | | files sorting before "external" (`0x6003BA48..0x6003D960`) | S3 |
-| mix / send / master chain | `0x061F4` (3.1 KB/594), `0x070D8`, `0x0AF20`, `0x05E20`, `0x053AC`, `0x05AC0`, `0x05740`, `0x20B08`, `0x228C8`, `0x1FB44`, `0x1E9C8`, `0x22510`, `0x037D4`, `0x03760` | | graph builder `0x6009A9F4` | S3 |
-| USB audio in/out? | `0x1FE64`, `0x203B8`, `0x041A8` (4.6 KB/872), `0x05C50` | | `0x6009990C..0x60099B4C` (USB region) | S3 |
-| I2S output | `0x1F8F0` | 308 B / 0 | `0x60021130` (next to the SAI code) | S2 |
+| **32** | `0x037D4` | 266 B / 0 | 4-input integer mixers (`AudioMixer4`-style, 4 inputs from the base ctor) — **8 tracks × 4 buses** (dry, MODFX, delay, reverb sends) | S2 |
+| **24** | `0x1FE64` | 1.3 KB / 167 | **8 tracks × 3**: the per-track 3-band EQ (there is an EQ screen) | S3 |
+| **8** | `0x203B8` | 1.8 KB / 203 | **per-track channel strip** (filter, amp, limit, pan) | S3 |
+| 1 each | `0x0F3FC` HYPERSYNTH (9.1 KB / 2038), `0x15144` SAMPLER (5.9 KB / 756), `0x0D990` FMSYNTH (2.9 KB / 514), `0x18574` WAVSYNTH (1.5 KB / 193), `0x122CC` MACROSYNTH, `0x6003EA2C` EXTERNAL (flash) | | **one node per engine type** — matched by constructor source span | S3 |
+| 1 | `0x22720` | 402 B / 44 | **sequencer clock** | S1 |
+| 1 | `0x1F8F0` | 308 B / 0 | **I2S output** (receive + release only — a sink) | S2 |
+| 2 | `0x041A8` | 4.6 KB / 872 | a heavy stereo pair (reverb-like) | S3 |
+| 1 each | `0x09328` (3.3 KB), `0x061F4` (3.1 KB), `0x070D8`, `0x08CD8`, `0x0AF20`, `0x05E20`, `0x053AC`, `0x228C8`, `0x20B08`, `0x1FB44`, … | | send effects and master chain (MODFX, delay, reverb, EQ, limiter, OTT, DJ filter) — **not yet told apart** | — |
+| 1 each | `0x1E9C8`, `0x22510` | < 200 B / 0 | receive-only taps (scope / peak / record) | S3 |
 
-Engine ownership comes from the linker placing each engine's source in name order (EXTERNAL `0x6003E270` <
-FMSYNTH `0x6003F270` < HYPERSYNTH `0x6003FBD8` < MACROSYNTH `0x60044DC0` < MIDI OUT `0x6004552C` < SAMPLER
-`0x60046B38` < WAVSYNTH `0x6004713C`) and each voice constructor falling in one span; MIDI OUT, correctly, owns
-no audio node.
+- The block-I/O helpers are `0x1BD50` (`receiveReadOnly`, called by 22 nodes), `0x1BCF4` (`release`) and
+  `0x1BDBC`/`0x1BD0C` (`allocate`/`transmit`); the AudioStream base constructor is `0x600B4C78`
+  `(this, num_inputs, input_queue)`.
+- **The engine voices and the clock call none of the block helpers**: they don't pass `AudioStream` blocks;
+  most likely they render into per-track buffers that the 8 channel strips pick up.
+- Engine ownership comes from the linker placing each engine's source in name order (EXTERNAL `0x6003E270` <
+  FMSYNTH `0x6003F270` < HYPERSYNTH `0x6003FBD8` < MACROSYNTH `0x60044DC0` < MIDI OUT `0x6004552C` < SAMPLER
+  `0x60046B38` < WAVSYNTH `0x6004713C`); MIDI OUT, correctly, owns no audio node.
+- *Withdrawn:* the earlier "USB audio" reading of `0x1FE64`/`0x203B8` (they are ×24 and ×8 per-track nodes) and
+  "EXTERNAL input" for `0x09328` (EXTERNAL's voice is `0x6003EA2C`).
+- Telling the effects apart is cheapest **on hardware**: `software_isr` keeps a per-node CPU-cycle count, so
+  toggling reverb / delay / MODFX and watching which node's count moves names each one in minutes. (The graph is
+  wired at run time in loops over the node arrays, so the edges are not constants a static pass can read.)
 
 ## 5. Flash code (load `0x6002CF50..0x600B5000`)
 
@@ -124,7 +134,7 @@ no audio node.
 | `0x60084000..0x6008C000` | **song model & editing** | `OUT OF EMPTY CHAINS!`, `OUT OF EMPTY PHRASES!`, transpose, MIDI map |
 | `0x6008C000..0x60090000` | FX command names, **display SPI driver** | FX name lookup `0x6008C4A4`, LPSPI4 `0x6008D920`, metronome |
 | `0x60090000..0x60098000` | clocks, cache, RTC (SNVS) | `setup`-time configuration |
-| `0x60098000..0x600A8000` | **USB device, audio graph, instrument base, touch** | USB setup requests `0x600992B8`, graph builder `0x6009A9F4`, instrument base methods `0x6009B9xx` (parameter interface `+0x88/+0x90/+0x94`), instrument factory (type names), touch engine `0x600A5E60`, Launchpad Pro support, NONE instrument |
+| `0x60098000..0x600A8000` | **USB device, audio graph, instrument base, touch, controllers** | USB setup requests `0x600992B8`, graph builder `0x6009A9F4`, instrument / receiver base methods `0x6009B9xx`, per-engine instrument methods `0x6009C..0x600A3` (destination counts, …), static initializers `0x600A4694..0x600A6500` (screens, receivers), touch engine `0x600A5E60`, Launchpad Pro, NONE instrument |
 | `0x600A8000..0x600B0000` | audio I/O setup, **SD filesystem (exFAT)**, USB serial/MIDI, `main` `0x600AE04C` | SAI1 `0x600A8114`, ADC `0x600AD7E0`, PIT `0x600AD41C` |
 | `0x600B0000..0x600B5000` | **Teensy core + newlib** | SysTick `0x600B01E0`, `attachInterrupt` `0x600B03E0`, malloc/`dtoa` (`Balloc`), `assert`; flash→ITCM veneers |
 
@@ -154,30 +164,64 @@ no audio node.
 | ADC1/2, PIT, SNVS, WDOG1 | analog reads, interval timer, RTC, watchdog | `0x600AD7E0`, `0x600AD41C`, `0x60094C08`, `0x60081958` |
 | CCM / CCM_ANALOG | clocks, PLLs (incl. the audio PLL) | `0x6001A394` (ITCM), `0x60090320`, `0x60090A20` |
 
-No LPUART (DIN/TRS MIDI) or LPI2C (codec control) driver was matched by constant addresses yet; they are
-probably reached through peripheral pointers held in objects (Teensy's `HardwareSerial`/`Wire` style).
+| LPUART6 / LPUART2 / LPUART7 | **serial ports** (Teensy `Serial1`/`Serial3`/`Serial7` — MIDI TRS among them) | init `0x600895F8`; `0x600A6EC8`, `0x600AD6B8` |
+| LPI2C (`Wire`) | **I²C** for three devices: touch controller, audio codec, buttons (I/O expander) | `0x600A79FC`/`0x600A7A80` (next to touch), `0x600A8AFC`/`0x600A8B20` (next to SAI setup), `0x6007B0A0`/`0x6007B58C` (next to the button IRQ) |
+
+The serial and I²C drivers reach the peripheral through Teensy's hardware-descriptor structs in `.data`
+(LPUART6 `0x2000A980`, LPUART2 `0x2000A9E0`, LPUART7 `0x2000AA40`, LPI2C1 `0x2000AAA0`, LPSPI4 `0x2000A870` —
+only ports actually used are linked in), not by constant addresses, which is why the first pass missed them.
+The display SPI driver is partly in ITCM too (`0x600222E8..0x600233B0`).
 
 ## 8. Classes (92 vtables)
 
 | class family | vtables | interface |
 |---|---|---|
 | **View** (screens) | 26 × 8 slots, 5 × 32 slots | `+0x00` enter, `+0x08` input action, `+0x0C/+0x10` view-specific, `+0x14` leave, `+0x18/+0x1C` queries |
-| **Instrument** (7 engines + NONE) | WAVSYNTH `0x601DFE18`, MACROSYNTH `0x601E0220`, SAMPLER `0x601E07EC`, MIDI OUT `0x601DFBBC`, FMSYNTH `0x601DF97C`, HYPERSYNTH `0x601E0058`, EXTERNAL `0x601E0A14` (102–109 slots); NONE `0x601E0E34` | shared parameter interface `+0x88/+0x90/+0x94`; FX-command name `+0xA4`, count `+0xD4`, value text `+0xC8` |
-| other parameter objects | 4 × 46 slots | same base — likely FX / mixer objects |
-| **AudioStream nodes** | ~30 × 1–4 slots | slot 0 = `update()` in ITCM (§4) |
+| **Instrument** (7 engines) | WAVSYNTH `0x601DFE18`, MACROSYNTH `0x601E0220`, SAMPLER `0x601E07EC`, MIDI OUT `0x601DFBBC`, FMSYNTH `0x601DF97C`, HYPERSYNTH `0x601E0058`, EXTERNAL `0x601E0A14` (102–109 slots) | the parameter interface (`+0xBC` descriptor, `+0x0F8`/`+0x104` LFO destinations, `+0x108` default, `+0x10C` value — [hooks/static-m8-params.md](hooks/static-m8-params.md)); FX-command name `+0xA4`, count `+0xD4`, value text `+0xC8` |
+| **MIDI / controller receivers** | NONE `0x601E0E34`, Launchpad Pro `0x601E0D20`, three MIDI-input/record modes (`0x601E0F18`, `0x601E103C`, `0x601E10FC`) — 46 slots | the shared event interface the instruments also derive from (`+0x88/+0x90/+0x94` — *corrected*: first read as a parameter interface) |
+| **AudioStream nodes** | ~30 classes, 1–4 slots, ~105 instances | slot 0 = `update()` in ITCM (§4) |
 | track / phrase players | 3 × 38 slots | methods in the ITCM sequencer region |
 | SD card | 1 × 26 slots (`0x601E1220`) | all ITCM |
 
+**Instruments are type singletons.** There is exactly one object per engine (SAMPLER `0x2000EAA0`, WAVSYNTH
+`0x20037DB8`, MACROSYNTH `0x20038DE4`, MIDI OUT `0x2003AA94`, FMSYNTH `0x2003B97C`, HYPERSYNTH `0x2003DAAC`,
+EXTERNAL `0x2003EC88`, NONE `0x20014064`): the 128 instruments of a song are data records, and the singleton
+for their type interprets them — matching one audio node per engine.
+
+### Screens (`set_view` ids)
+
+| id | screen | id | screen | id | screen |
+|---|---|---|---|---|---|
+| `0x00` | **SONG** (live mode, bookmarks) | `0x0A` | file browser | `0x14` | SYSTEM SETTINGS |
+| `0x01` | **GROOVE** | `0x0B` | MIDI mapping (S3) | `0x16` | INSTRUMENT MODS |
+| `0x02` | **CHAIN** | `0x0D` | **MIXER** | `0x18` | instrument pool (S3) |
+| `0x03` | **PHRASE** | `0x0E` | settings (MIDI?) | `0x19` | **EQ** |
+| `0x04` | **TABLE** (S2) | `0x10` | THEME | `0x1C` | firmware update / template |
+| `0x05` | **INSTRUMENT** | `0x11` | name entry | `0x1D` | USB disk mode |
+| `0x06` | **PROJECT** | `0x12` | sample editor | | |
+| | | `0x13` | SCALE | | |
+
+Unnamed (no strings): `0x08 0x09 0x0C 0x0F 0x15 0x17 0x1A 0x1B`. Names come from each screen class's own
+strings (`LIVE (SEL+LEFT TO EXIT)`, `TOTAL TICKS`, `CREATE A PHRASE TO PROCEED`, `FILL: RANDOM PATTERN`, …),
+and agree with the navigation groups `set_view` assigns and with which screens the touch engine serves (EQ gets
+x/y, the sample editor x/y + axis, the mixer gestures).
+
 ## 9. Data model
 
-- **Parameters**: 8 descriptor tables, 254 parameters, 28-byte records (id, name, label, 3-char code, help,
-  flags, min, max, field offset) — one per engine, plus the modulators and the sampler/project settings.
-  See [hooks/static-m8-params.md](hooks/static-m8-params.md). Every engine ends with the same block (FILTER,
-  AMP, LIMIT, PAN, DRY, **MODFX/DELAY/REVERB send**), so the sends are ordinary parameters with known offsets.
-- **Modulators**: 6 types (AHD, ADSR, DRUM env, LFO, TRIG env, TRACKING), each slot with TYPE, **DEST (byte
-  `+0x02`)**, AMOUNT (`+0x04`) and type-specific fields.
-- **FX commands**: 78 global (`0x00..0x4D`) + instrument commands (`0x80|n`, via the instrument vtable).
-- **Views**: 30 ids (`0x00..0x1D`, 7 unused), current at `ui+0x15`.
+- **Parameters**: 8 descriptor tables, 256 parameters, 28-byte records (name, label, 3-char code, help,
+  flags + **default**, min, max, **UI grid slot**, **UI page**, **index**). The index is both the byte offset in
+  the instrument's data record and the instrument FX-command number (`0x80|index`, mnemonic = the 3-char code),
+  so **the descriptor table is also the instrument-command table**. Reached only through the instrument's
+  virtual `getParamDescriptor` (`+0xBC`). See [hooks/static-m8-params.md](hooks/static-m8-params.md).
+- **Instrument data record**: engine parameters at `data[0x00..]`, the **four modulator slots at
+  `data[0x30..0x47]`** (6 bytes each); every engine's parameter set ends with FILTER, AMP, LIMIT, PAN, DRY and
+  the **MODFX/DELAY/REVERB sends**.
+- **LFO destinations**: per engine, a count (`vt+0x104`, 14–15) and a name table (`vt+0x0F8`) in `.data` —
+  OFF, VOLUME, PITCH, 4 engine-specific, CUTOFF, RES, AMP, PAN, MOD AMT/RATE/BOTH/BINV. **No engine offers the
+  sends** — the extended-destinations mod's exact gap. (*Corrected:* "DEST is byte `+0x02`" was a misread of
+  the UI grid slot.)
+- **FX commands**: 78 global (`0x00..0x4D`) + instrument commands (`0x80|n`, from the descriptor tables).
+- **Views**: 30 ids (`0x00..0x1D`, 7 unused), current at `ui+0x15` — named in §8.
 
 ## 10. Libraries recognised
 
@@ -188,12 +232,15 @@ MACROSYNTH and wavetable data are consistent with Braids-style oscillator tables
 
 ## 11. What is still rough
 
-- Which mix/master node is which (reverb, delay, MODFX, EQ, limiter, OTT, DJ filter, scope) — the KAOSS mod's
-  targets. One decompile pass over the ~15 graph-builder nodes would settle it.
-- The engine↔voice mapping (S3, by source order) and the "USB audio" reading of the `0x60099xxx` nodes.
+- Which send-effect / master-chain node is which (MODFX, delay, reverb, EQ, limiter, OTT, DJ filter) — the
+  KAOSS mod's targets. The graph is wired in run-time loops, so the fastest route is the per-node CPU counters
+  on hardware (§4).
+- The **LFO apply step**: where the audio thread turns a DEST index into a modulated parameter (in or under the
+  engine voice nodes). The UI half of the extended-destinations mod is fully mapped
+  ([hooks/static-m8-params.md](hooks/static-m8-params.md)).
+- The engine↔voice mapping is S3 (by source order).
 - The 950 KB oscillator data: which bank belongs to which engine (reached by computed offsets).
-- LPUART/LPI2C users (MIDI DIN/TRS, codec control) — not matched by constant address.
-- Exactly which view vtable slot draws (`+0x0C` vs `+0x10`).
+- Eight screens without strings (`0x08 0x09 0x0C 0x0F 0x15 0x17 0x1A 0x1B`) and which view slot draws.
 
 ## How this map was made (and how to redo it for a new firmware)
 
@@ -203,6 +250,7 @@ python -m dirtyloader.re.layout   <stock.bin>          # code / text / tables / 
 python -m dirtyloader.re.switches <stock.bin>          # every tbb/tbh switch, bound + bias
 python -m dirtyloader.re.vtables  <stock.bin>          # C++ class hierarchy (flash + ITCM methods)
 python -m dirtyloader.re.params   <stock.bin>          # parameter descriptor tables
+python -m dirtyloader.re.objects  <stock.bin> <work>/fwmap.json   # every global C++ object -> its class
 python -m dirtyloader.re.ghidra_map <stock.bin> <work> # ONE Ghidra pass, runtime memory map, seeded, saved
 python -m dirtyloader.re.fwmap    <stock.bin> <work>/fwmap.json   # tag + label the whole image offline
 python -m dirtyloader.re.ghidra_map decompile <work> <addr...>    # cheap follow-ups on the saved project

@@ -39,10 +39,10 @@ Every remaining target sits behind one of two walls, and which one decides wheth
 | # | Primitive | Status | Anchor / lead | Unlocks | Wall |
 |---|---|---|---|---|---|
 | 1 | FX command dispatch | 🟢 executor **mapped** (`0x600287A4`, caller `0x60029270` confirmed); 2nd processor `0x60025ED4` | pitch helper `0x60029BDC`; mixer cmds not switch-dispatched | FX commands **69** | structural |
-| 2 | Parameter descriptor table + change event | 🟢 **tables mapped** (8 tables, 254 params); change event open | [static-m8-params.md](static-m8-params.md); instrument parameter interface `+0x88/+0x90/+0x94` | param tables 43, param edit 30 | structural |
+| 2 | Parameter descriptor table + change event | 🟢 **tables mapped** (8 tables, 254 params); change event open | [static-m8-params.md](static-m8-params.md); instrument interface `+0xBC` descriptor, `+0x108` default, `+0x10C` value | param tables 43, param edit 30 | structural |
 | 3 | Key/input event + view context | 🟢 **mapped** | router `0x6004C6C8`; **per-view vtable `+0x08`** (19 handlers); `set_view` `0x6004C13C`; view id at `ui+0x15` | UI input 41, performance 12 | structural |
 | 4 | Draw hook per view (RENDER) | 🟢 frame driver mapped; per-view slot open | `0x6004B514`; view `+0x0C`/`+0x10`; text `0x60030ECC`, values `0x600785C0` | screen 33, draw 33 | structural |
-| 5 | Modulator dest table + apply | 🟡 DEST field + send descriptors mapped; dest lists + apply next | DEST = byte `+0x02` per modulator; dest-name table has 12 refs at run time `0x200061F4`; voices in ITCM | the **LFO mod**; voice render 34 | structural |
+| 5 | Modulator dest table + apply | 🟢 **dest lists + counts mapped** (all 7 engines); apply step open | `+0x104` count, `+0x0F8` name table; modulators at data `+0x30..+0x47`; voices in ITCM | the **LFO mod**; voice render 34 | structural |
 | 6 | Master-chain + touch-axis | 🟡 **touch mapped**; master chain unmapped | touch engine `0x600A5E60` (x/y/dominant axis, per view) | the **KAOSS mod** | structural |
 | 7 | Row-fire / tick / transport / MIDI / storage | 🟢 **sequencer mapped**: clock node `0x22720`, row fire `0x24DE0`, per-tick executor (run addrs) — all in the audio IRQ | transport/MIDI/storage partly ([../FIRMWARE-MAP.md](../FIRMWARE-MAP.md) §3, §5) | ~130 rows across areas | structural (ITCM, audio thread) |
 
@@ -100,7 +100,7 @@ re-run unchanged on a new firmware build.
 draw 33), **`set_view` + per-view input** (UI input 41, performance 12), and the **touch engine** (the KAOSS
 mod's input). Six of the seven primitives now have a concrete anchor.
 
-The honest summary: the UI side is largely mapped; the big remaining unknowns are **the parameter interface**
-(now a vtable lead rather than a wall), **the sequencer's runtime-attached entry**, and **the audio path**. The
-indirection wall may matter less than it looked: if parameters are reached through the instrument classes'
-virtual methods, primitives 2 and 5 become structural work.
+The honest summary: the UI side, the parameter model and the LFO destination lists are mapped; the sequencer
+is located (an audio-graph node in the audio interrupt). The remaining unknowns are **which audio node is which
+effect** (fastest on hardware, via per-node CPU counters), **the LFO apply step** in the audio thread, and
+the eight screens without strings. See [../FIRMWARE-MAP.md](../FIRMWARE-MAP.md) §11.

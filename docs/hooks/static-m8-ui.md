@@ -106,7 +106,7 @@ current view** with float coordinates from a touch-state object:
 | other views | 0x600898E0 ×2, or 0x6008A178 / 0x60089C80 | — |
 
 **Hook:** `ev_touch` at `0x600A5E60` (or per-view at a handler above) — the KAOSS mod's XY input. The
-per-view handlers call parameter-object virtuals `+0x88/+0x90/+0x94` (next section), i.e. touch → parameter.
+per-view handlers call the instrument / receiver event interface `+0x88/+0x90/+0x94` (next section).
 
 ## Text and value drawing
 
@@ -137,10 +137,12 @@ names it (S1):
 | `0x601E0A14` | 109 | EXTERNAL |
 | `0x601E0E34` | 46 | NONE (empty instrument) |
 
-The other 46-slot classes (`0x601E0D20`, `0x601E0F18`, `0x601E103C`, `0x601E10FC`) share the same base and are
-likely FX / mixer parameter objects. The touch handlers drive parameters through `+0x88/+0x90/+0x94`
-(get/set/range by index). The parameter **descriptor tables** themselves turned out to be plain data once the
-memory map was understood: [static-m8-params.md](static-m8-params.md).
+The other 46-slot classes share the same base and are **MIDI / controller receivers**: Launchpad Pro
+(`0x601E0D20`, `LAUNCHPAD CONNECTED`), and three MIDI-input/record modes (`0x601E0F18`, `0x601E103C`,
+`0x601E10FC`; `OUT OF EMPTY PHRASES!`, `TRANSPOSE`). So `+0x88/+0x90/+0x94` belong to that shared **event
+interface** (*corrected*: first read as a parameter interface). The real parameter interface is
+`+0xBC`/`+0x0F8`/`+0x104`/`+0x108`/`+0x10C`, documented with the descriptor tables in
+[static-m8-params.md](static-m8-params.md). Screen ids are named in [../FIRMWARE-MAP.md](../FIRMWARE-MAP.md) §8.
 
 The instruments are the parameter/data model; the sound comes from separate `AudioStream` voice nodes whose
 `update()` runs in ITCM from the audio interrupt ([../FIRMWARE-MAP.md](../FIRMWARE-MAP.md) §3–4) — which is

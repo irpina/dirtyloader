@@ -43,7 +43,7 @@ Evidence this is the per-frame UI refresh:
   ([../FIRMWARE-MAP.md](../FIRMWARE-MAP.md) §7).
 
 *Correction:* that `+0xA0` is **not** a view method. The base `View` vtable has only 8 slots
-([static-m8-ui.md](static-m8-ui.md)); `+0xA0` belongs to one of the large parameter-object classes (46–109
+([static-m8-ui.md](static-m8-ui.md)); `+0xA0` belongs to one of the large instrument / receiver classes (46–109
 slots, likely the instrument engines / FX objects).
 
 **Hook (primitive #4):** detour the `bl 0x6004B514` in `loop()` for a whole-frame RENDER event. For per-view
