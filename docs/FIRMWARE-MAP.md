@@ -45,7 +45,7 @@ where it sits:
 | `0x60001680..0x6002CF50` | 174 KB | **ITCM image** — audio DSP, sequencer, audio/SD/USB interrupt code (§4) |
 | `0x6002CF50..0x600B5000` | ~520 KB | **flash-resident code** — UI, instruments, files, USB stack, libraries (§5) |
 | `0x600B5000..0x600CE800` | ~100 KB | parameter descriptor tables, float32 tables, engine tables (chords, scales) |
-| `0x600CE800..0x601C2000` | ~950 KB | **oscillator / wavetable banks**: ~370 KB smooth 8-bit tables, ~340 KB 8-bit and ~145 KB 16-bit audio-like data; not compressed; no direct code references (indexed by computed offset) |
+| `0x600CE800..0x601C2000` | ~950 KB | **oscillator / wavetable banks**: ~370 KB smooth 8-bit tables, ~340 KB 8-bit and ~145 KB 16-bit audio-like data; not compressed; no direct code references (indexed by computed offset). The region starts right after **WAVSYNTH's shape-name list** (`0x600CE388..0x600CE79F`: 9 basic shapes, then 60 wavetables `OSC:` ×17, `BNK:` ×7, `HRM:` ×13, `EFX:` ×21, `VOX:` ×2). Only WAVSYNTH code (`0x6004712C`) references that list, so the first, smooth block is WAVSYNTH's 60 wavetables (S3). The rest is unassigned. |
 | `0x601C2000..0x601DE000` | ~110 KB | string pools (UI text, help, FX command names `0x601D6FD8`), the WAVSYNTH parameter table `0x601C2FBC`, **font / bitmap data** `0x601D9ED8..0x601DD800` (read by the display driver) |
 | `0x601DE020..0x601EA2E0` | 49 KB | **`.data` image** → DTCM: vtables (`0x601DF4B4..0x601E12xx`), parameter labels (`0x601E3C00..0x601E5E00`), the RAM vector table slot |
 | `0x601EA2E0..0x601EB000` | 3 KB | zeros (the HAB `csf` points here; unused) — a 3 KB cave |
@@ -105,11 +105,20 @@ are known, and they expose the per-track design:
 | 1 each | `0x0F3FC` HYPERSYNTH (9.1 KB / 2038), `0x15144` SAMPLER (5.9 KB / 756), `0x0D990` FMSYNTH (2.9 KB / 514), `0x18574` WAVSYNTH (1.5 KB / 193), `0x122CC` MACROSYNTH, `0x6003EA2C` EXTERNAL (flash) | | **one node per engine type** — matched by constructor source span | S3 |
 | 1 | `0x22720` | 402 B / 44 | **sequencer clock** | S1 |
 | 1 | `0x1F8F0` | 308 B / 0 | **I2S output** (receive + release only — a sink) | S2 |
-| 2 | `0x041A8` | 4.6 KB / 872 | a heavy stereo pair (reverb-like) | S3 |
-| 1 each | `0x09328` (3.3 KB), `0x061F4` (3.1 KB), `0x070D8`, `0x08CD8`, `0x0AF20`, `0x05E20`, `0x053AC`, `0x228C8`, `0x20B08`, `0x1FB44`, … | | send effects and master chain (MODFX, delay, reverb, EQ, limiter, OTT, DJ filter) — **not yet told apart** | — |
+| 1 | `0x09328` (obj `0x20021F18`) | 3.3 KB / 561 | **REVERB**: the effects setter writes size, decay, mod depth, mod freq, width and shimmer to its `+0x98..+0xB0` | S1 |
+| 1 | `0x08CD8` (obj `0x2001DD14`) | | **MODFX**: MOD TYPE (chorus/phaser/flanger) lands at `+0x30`; depth/freq/width are globals at `0x20021BD4..0x20021BE4` | S2 |
+| 1 + 1 | `0x05C50` (obj `0x2001BF40`), `0x070D8` (obj `0x20021D4C`) | | **DELAY**: feedback and stereo width go to these two nodes; the delay time is set through the clock object (`0x6009A5F0`/`0x6009A69C`, next to `setTempo`), so the time is tempo-synced | S2 |
+| 1 | `0x0AEB0` (obj `0x2000C780`) | | **DJ FILTER**: effects `+1A` (resonance, via `0x6003D628`) and `+1B` (bipolar cutoff, via `0x6003D2DC`); the MIXER writes the same setters from its own fields | S2 |
+| 2 | `0x041A8` (objs `0x20037840`, `0x20037C9C`) | 4.6 KB / 872 | receive the **MODFX→reverb and delay→reverb send** levels (effects `+06`, `+10`) | S3 |
+| 1 each | `0x0AF20` (obj `0x2001D6DC`), `0x1FB44` (obj `0x2001D854`) | | touched by the MIXER field setter `0x6005C370` alongside the master-chain fields: the **limiter / OTT** candidates | S3 |
+| 1 each | `0x061F4` (3.1 KB), `0x05E20`, `0x053AC`, `0x228C8`, `0x20B08` | | not yet named (soft clip, scope taps, and the bus EQs are what is left to place) | — |
 | 1 each | `0x1E9C8`, `0x22510` | < 200 B / 0 | receive-only taps; `0x22510` is the **audio-input** path (`USB INPUT DISABLED`, `DUAL MONO INPUT MODE`) | S3 |
 | 1 | `0x600A5C24` (flash) | 26 B | the **USB-audio** interface object (84 users, USB-input settings) | S3 |
-| 1 | `0x09328` | 3.3 KB / 561 | likely the **sample-audition player** (file browser: `Samples`, `Songs`, `Instruments`) | S3 |
+
+How the effects were named: the EFFECT SETTINGS screen applies a field through one setter, `0x60050ADC`.
+That setter's `switch(field)` writes each field's value, under `AudioNoInterrupts()`, straight into a node
+object. Each object maps to its class, and each class to its `update()` (`re.objects`). *Withdrawn:* `0x09328` as
+the sample-audition player.
 
 - The block-I/O helpers are `0x1BD50` (`receiveReadOnly`, called by 22 nodes), `0x1BCF4` (`release`) and
   `0x1BDBC`/`0x1BD0C` (`allocate`/`transmit`); the AudioStream base constructor is `0x600B4C78`
@@ -121,9 +130,9 @@ are known, and they expose the per-track design:
   `0x60046B38` < WAVSYNTH `0x6004713C`); MIDI OUT, correctly, owns no audio node.
 - *Withdrawn:* the earlier "USB audio" reading of `0x1FE64`/`0x203B8` (they are ×24 and ×8 per-track nodes) and
   "EXTERNAL input" for `0x09328` (EXTERNAL's voice is `0x6003EA2C`).
-- Telling the effects apart is cheapest **on hardware**: `software_isr` keeps a per-node CPU-cycle count, so
-  toggling reverb / delay / MODFX and watching which node's count moves names each one in minutes. (The graph is
-  wired at run time in loops over the node arrays, so the edges are not constants a static pass can read.)
+- To confirm the S2/S3 effect readings **on hardware**: `software_isr` keeps a per-node CPU-cycle count, so
+  toggling an effect and watching which node's count moves checks each reading in minutes. (The graph is wired
+  at run time in loops over the node arrays, so the edges are not constants a static pass can read.)
 
 ## 5. Flash code (load `0x6002CF50..0x600B5000`)
 
@@ -262,8 +271,12 @@ the touch engine serves.
   - The INPUT EQ rows pick EQs `0x81`, `0x82` and `0x83`, so the song holds 4 bus EQs after its 128 user EQs.
   - The song upgrader at `0x6008B074` converts old songs' delay and reverb filter bytes (`+0A`/`+0B`,
     `+12`/`+13`) into EQ bands, and copies EQs `0x80..0x83` into `0x20..0x23`.
-  - The MIXER and LIMITER SCOPE screens also read effects bytes `+1A`/`+1B` (13 reads), which the EFFECT
-    SETTINGS screen does not show. Their meaning is not pinned yet.
+  - Effects bytes `+1A`/`+1B` belong to the master chain: the **DJ FILTER** resonance and cutoff (§4). That
+    is why the MIXER and LIMITER SCOPE screens read them, and the EFFECT SETTINGS screen does not show them.
+  - The effects setter `0x60050ADC` also takes ids `0xC8..0xE0`. These drive the input sends (per-bus send
+    functions `0x60039144` MODFX, `0x6003938C` DELAY, `0x60038DE4` REVERB, matching the MX/DE/RE columns,
+    for source 8 INPUT and 9 USB). The mixer's own fields `+10..+12`, `+14..+16` and `+18..+1A` drive the
+    same three functions.
 - **Effects architecture** (from the mixer/effects UI): MODFX = CHORUS / PHASER / FLANGER; send effects MODFX,
   DELAY (time in steps), REVERB; **EQ banks** assignable per bus (`MIX EQ`, `MODFX EQ`, `DELAY EQ`, `REVERB EQ`);
   master chain **LIMITER (+ scope) → SOFT CLIP → DJ FILTER (LP/HP, LP/BS, BS/HP) → OTT (time, color)**.
@@ -279,18 +292,33 @@ MACROSYNTH and wavetable data are consistent with Braids-style oscillator tables
 
 ## 11. What is still rough
 
-- Which send-effect / master-chain node is which (MODFX, delay, reverb, EQ, limiter, OTT, DJ filter) — the
-  KAOSS mod's targets. The graph is wired in run-time loops, so the fastest route is the per-node CPU counters
-  on hardware (§4).
-- The engine↔voice mapping is S3 (by source order).
-- The 950 KB oscillator data: which bank belongs to which engine. **Checked and still open:** no literal, no
-  `movw`/`movt` pair and no `.data` table holds a bank base (the few words that land in the region are
-  coincidental constants, e.g. sine-table samples), so the banks are reached by offsets computed from a run-time
-  value. The way in is the engines' oscillator setup code, read in the decompiler, or a watchpoint on hardware.
-- Which View slot (`+0x0C` or `+0x10`) draws.
+Everything below is leaf level: each subsystem, thread, class family, screen, data block and engine has a place
+in the map. What remains is naming the last few nodes and data blocks, and checking S2/S3 readings on hardware.
 
-*Resolved since the first pass:* the EXTERNAL apply switch (`0x0B324`, §9), the effects-settings layout (§9)
-and the eight screens without strings (§8).
+- **Master-chain nodes still unnamed or S3:**
+  - limiter and OTT: candidates `0x0AF20` and `0x1FB44`
+  - soft clip, the scope taps and the bus EQs: among `0x061F4`, `0x05E20`, `0x053AC`, `0x228C8`, `0x20B08`
+
+  REVERB, MODFX, DELAY and DJ FILTER are named (§4). The per-node CPU counters on hardware settle the rest.
+- The engine↔voice mapping is S3 (by source order).
+- **Oscillator data:** the first, smooth block is WAVSYNTH's 60 named wavetables (§2). The remaining
+  ~340 KB of 8-bit and ~145 KB of 16-bit data are unassigned.
+  - No literal, no `movw`/`movt` pair and no `.data` table holds a bank base. The engines' render functions
+    (`0x18574`, `0x122CC`, `0x0D990`) hold no region address either, so voices reach their tables through
+    pointers set up at run time.
+  - The `HRM:PLAITS01/02` and `VOX:BRAIDS` names suggest Mutable Instruments-derived tables (not confirmed).
+  - The per-table stride of the WAVSYNTH block is not confirmed (6 KB × 60 fits the block size).
+  - The next step is the WAVSYNTH setup code around `0x6004712C`, or a watchpoint on hardware.
+- **Drawing has no single View slot.** The frame refresh `0x6004B514` calls only the views' `+0x18`/`+0x1C`
+  queries. Each screen paints its 40 × 24 template from its own methods: `+0x10` for SONG, GROOVE, FX help,
+  EFFECT SETTINGS, MIDI SETTINGS and the hardware page; `+0x0C` or `+0x14` for others. So `ev_draw` stays at
+  the frame push (`0x6004B6DE`), as designed.
+
+*Resolved since the first pass:*
+- the EXTERNAL apply switch (`0x0B324`, §9)
+- the effects-settings layout, including `+1A`/`+1B` (§9)
+- the eight screens without strings (§8)
+- REVERB, MODFX, DELAY and the DJ filter nodes (§4)
 
 ## How this map was made (and how to redo it for a new firmware)
 
