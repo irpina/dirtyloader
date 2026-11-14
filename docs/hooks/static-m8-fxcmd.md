@@ -6,8 +6,8 @@ flash addresses (image base `0x60000000`); file offset = address − `0x60000000
 
 **Confidence S1.** The executor's 78-way table branch, its `cmp #0x4D` bound, and the decoded jump table all
 agree, and the command count `0x4E` (78) independently matches the name table (`0x601D6FD8`), the value
-formatter (`0x6005ED66`), and the total-count helper (`0x60029B3C`) already mapped in `SITES.md`. The one edge
-still open is the exact `bl` into the executor (the detour site), via the dispatch wrapper `0x60029270`.
+formatter (`0x6005ED66`), and the total-count helper (`0x60029B3C`) already mapped in `SITES.md`. The caller
+edge is **confirmed**: the dispatch wrapper `0x60029270` calls `0x600287A4` (Ghidra call reference).
 
 ## The dispatch chain
 
@@ -24,8 +24,8 @@ per-slot FX scan loop        0x60029AA4   push {r4-r9,lr}; walk a track's comman
   "78-case tbh" at `0x60028700` was conflating two adjacent functions; this supersedes it.
 - **`0x60029AA4`** is the per-slot scan loop (body from `0x60029AD2`): for each command slot of a track it calls
   the ratchet and the dispatch wrapper.
-- **`0x60029270`** is the dispatch wrapper the loop calls per slot — the presumed direct caller of the executor
-  (S3, not yet byte-confirmed to reach `0x600287A4`).
+- **`0x60029270`** (1416 bytes, 16 calls) is the dispatch wrapper the loop calls per slot, and it **calls the
+  executor `0x600287A4`** (confirmed). The `bl` inside it is the precise detour site.
 
 ## The executor function (`0x600287A4`)
 
@@ -84,9 +84,17 @@ id + a cave handler the dispatcher routes to.
 
 ## Open items (next static passes / hardware)
 
-1. Byte-confirm `0x60029270 → 0x600287A4` (closes the executor's caller edge to S1-with-callers).
-2. The **sibling executors** for the 52 default-routed commands — the mixer/send path, and the second table
-   branch **`tbb [pc,r12]` at `0x60029C08`** found in the same region (a smaller byte-offset switch).
+1. ~~Byte-confirm `0x60029270 → 0x600287A4`~~ — **done.**
+2. The 52 default-routed commands. Resolved so far (via the switch census, [static-m8-switches.md](static-m8-switches.md)):
+   - the `tbb` at **`0x60029C08`** is the **pitch-command helper** (bias `0x0C`, 4 cases = PSL/PBN/PVB/PVX), not
+     a sibling executor;
+   - **no** switch in the image is biased by `0x1C` / bounded at 37 cases, so the mixer/send commands
+     (`0x1C..0x40`) are not switch-dispatched — most likely data-indexed;
+   - **`0x60025ED4`** is a second command processor (72-case switch, ids `0x00..0x47`, per-slot state at
+     track `+0x1A4..`; RND and REP re-dispatch the stored slot command) — likely the per-tick/continuous side.
+   Next: decompile the executor's default path (`0x60028BCA`) and `0x60025ED4`'s cases.
 3. Decode a couple of the in-function handlers (e.g. `ARP 0x60028EDA`, `DEL 0x60028F2C`) to confirm the arg
    layout a handler would receive.
-4. Confirm on a spare Teensy once hooking is validated; nothing here has run on hardware.
+4. Who calls the scan loop `0x60029AA4`: not `loop()` — most likely the audio-update interrupt (attached at
+   runtime, so invisible to static call graphs).
+5. Confirm on a spare Teensy once hooking is validated; nothing here has run on hardware.

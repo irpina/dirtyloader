@@ -32,15 +32,17 @@ vtable.
 | **executor** (global/track cmds) | **0x600287A4** | **S1** | the 78-way dispatch: `cmp r8,#0x4D` + `tbh [pc,r8]` at 0x60028802; cmd id in r8/r2. 26 cmds handled in-function, 52 route to default 0x60028BCA (sibling executors). Full map: [static-m8-fxcmd.md](static-m8-fxcmd.md) |
 | per-command jump table | 0x60028806 | S1 | 78 × u16; `target = 0x60028806 + 2·entry`; decoded |
 | per-slot FX scan loop | 0x60029AA4 | S2 | walks a track's command column (body from 0x60029AD2); per slot calls the ratchet + the dispatch wrapper |
-| command dispatch wrapper | 0x60029270 | S3 | called per slot by the scan loop; presumed direct caller of the executor (edge unconfirmed) |
+| command dispatch wrapper | 0x60029270 | S1 | called per slot by the scan loop; **calls the executor 0x600287A4** (confirmed Ghidra call ref) |
 | ratchet / retrigger tick | 0x60028700 | S2 | per-slot counter at +0x78; resets slot on cmd==0x10. **NOT** the executor (supersedes the earlier lead) |
-| second table branch | 0x60029C08 | S3 | `tbb [pc,r12]` in the same region — a smaller byte-offset switch; likely a sibling executor, unread |
+| pitch-command helper | 0x60029BDC | S2 | holds the `tbb` at 0x60029C08: bias 0x0C, 4 cases = PSL/PBN/PVB/PVX. **Not** a sibling executor (supersedes) |
+| second command processor | 0x60025ED4 | S3 | 72-case switch (cmds 0x00..0x47), per-slot state at track+0x1A4..; RND/REP re-dispatch the stored command — likely per-tick/continuous |
+| mixer/send cmds 0x1C..0x40 | — | S3 | no switch anywhere is biased 0x1C / bounded 37 ([census](static-m8-switches.md)) → data-indexed, not switched |
 
 ### Sites
 
 | site | event / call | conf | notes | report |
 |---|---|---|---|---|
-| 0x600287A4 | `ev_fx_command`: a global/track command fires | S1 | detour the executor entry; handler gets the command id (r8/r2) before the 78-way `tbh`. observe / veto / re-range / extend. Exact `bl` detour site pends confirming 0x60029270→0x600287A4. [static-m8-fxcmd.md](static-m8-fxcmd.md) | (HW pending) |
+| 0x600287A4 | `ev_fx_command`: a global/track command fires | S1 | detour the executor entry (or the `bl` to it inside 0x60029270); handler gets the command id (r8/r2) before the 78-way `tbh`. observe / veto / re-range / extend. [static-m8-fxcmd.md](static-m8-fxcmd.md) | (HW pending) |
 
 ## `loop()` per-frame subsystems ([static-m8-loop.md](static-m8-loop.md))
 
@@ -51,15 +53,38 @@ cooperative scheduler — subsystem groups behind timing gates, not a flat list.
 
 | what | address | conf | notes |
 |---|---|---|---|
-| main engine (TICK-rate) | 0x600A5E60 | S2 | unconditional each frame; 24 subsystem calls. Sequencer / transport / voice-follow; subtree unmapped (row-fire/transport live here) |
+| touch / gesture engine | 0x600A5E60 | S2 | unconditional each frame; touch dx/dy/x/y → per-view handlers. *Superseded: first logged as a sequencer "TICK engine".* See the UI section below |
 | ~5 ms service group | 0x60081A90 | S2 | 6 subsystems (0x6007CBFC, 0x6007D23C, 0x6007C9E4, 0x6007BFB8, 0x60079A7C, 0x60039964) |
 | UI-frame gate | 0x6008196C | S2 | returns a byte behind a ~10 ms gate; `loop()` branches on it for the UI frame |
 | µs/elapsed read | 0x6007BBB4 | S2 | tiny, 1 peripheral ref (a micros()-style timer) |
-| view draw vtable slot | +0xA0 | S2 | per-view render method, called from the display driver's 8-item loop |
+| ~~view draw vtable slot +0xA0~~ | — | superseded | `+0xA0` is not a view method (the `View` vtable has 8 slots); it is on a large parameter-object class |
 
 ### Sites
 
 | site | event / call | conf | notes | report |
 |---|---|---|---|---|
-| 0x6004B514 | `ev_render`: display refresh (whole frame) | S2 | the display driver: NVIC-guarded framebuffer (ISER/ICER 0xE000E100/180), per-view vtable `+0xA0` draw, ~15 ms gate. Detour `bl 0x6004B514` in `loop()`, or wrap the view `+0xA0` for a per-view hook. [static-m8-loop.md](static-m8-loop.md) | (HW pending) |
-| 0x6004C6C8 | `ev_input`: UI event / view-update | S3 | runs just before the flush; event code in r1 (`==0xE4`), key/state at ctx+0x15, bitmask dispatch. Input-routing vs. view-build not yet certain | (HW pending) |
+| 0x6004B514 | `ev_render`: display refresh (whole frame) | S2 | the display driver: NVIC-guarded framebuffer (ISER/ICER 0xE000E100/180), ~15 ms gate. Detour `bl 0x6004B514` in `loop()`. [static-m8-loop.md](static-m8-loop.md) | (HW pending) |
+| 0x6004C6C8 | `ev_input` (global): the input router | S2 | runs just before the flush; action code in r1; the action reaches the current view's vtable `+0x08` (below) | (HW pending) |
+
+## UI framework ([static-m8-ui.md](static-m8-ui.md))
+
+### Data and calls (not sites)
+
+| what | address | conf | notes |
+|---|---|---|---|
+| UI context fields | ui+0x04 / +0x15 / +0x17 / +0x2D | S1 | current view object / **current view id** / previous id / nav group |
+| `View` vtable (base, 8 slots) | e.g. 0x601DFDC8 | S1 | `+0x00` enter, `+0x08` input, `+0x0C`/`+0x10` view-specific (draw candidates), `+0x14` leave, `+0x18`/`+0x1C` queries; 26 such classes + 5 32-slot list views |
+| per-view input handlers | 19 × slot `+0x08` | S1 | `(this, action)` switches; list with true entries in the ui doc |
+| text-draw wrapper | 0x60030ECC | S2 | → glyph renderer 0x6002E2A8 (ASCII 0x20..0x7A); second font 0x6002FDEC |
+| value formatter | 0x600785C0 | S2 | printf-style: format codes `'b'..'x'`, draws via 0x60030ECC |
+| parameter-object classes | 7 × 102–109 slots, 5 × 46 | S3 | shared base `+0x88/+0x90/+0x94` (0x6009B994/9C/A0), each overrides `+0xA0`. 7 = the M8's instrument types (hypothesis) |
+| IRQ vector template | 0x601E9A38 | S3 | 128 × default ISR 0x600ADF45; real handlers attached at runtime |
+
+### Sites
+
+| site | event / call | conf | notes | report |
+|---|---|---|---|---|
+| 0x6004C13C | `ev_view_change`: `set_view(ui, id)` | S1 | leave old (`+0x14`) → `ui+0x15 = id` → 30-way id→singleton switch → enter new (`+0x00`). Observe / veto / route a **new id** to a mod view (the KAOSS screen) | (HW pending) |
+| view vtable `+0x08` | `ev_input` (per view) | S1 | wrap one view's input handler (copy its vtable to a cave, repoint the singleton) | (HW pending) |
+| 0x600A5E60 | `ev_touch`: touch / gesture frame | S2 | dx/dy at +0x30/+0x34, x/y at +0x40/+0x44, dominant axis; per-view handlers (view 0x12 → 0x60067744 gets x, y, axis) | (HW pending) |
+| 0x60030ECC | `ev_draw_text` | S2 | every string drawn goes through it — overlays, re-labelling | (HW pending) |

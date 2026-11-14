@@ -36,57 +36,69 @@ Every remaining target sits behind one of two walls, and which one decides wheth
 
 | # | Primitive | Status | Anchor / lead | Unlocks | Wall |
 |---|---|---|---|---|---|
-| 1 | FX command dispatch | 🟢 sequencer executor **mapped** (`0x600287A4`); siblings left | names/fmt/count tables + executor done; `tbb 0x60029C08` + 52 default cmds | FX commands **69** | structural |
-| 2 | Parameter descriptor table + change event | 🔴 blocked | label region `0x601E3C00–0x601E5E00` known; table/site not found | param tables 43, param edit 30 | **indirection** |
-| 3 | Key/input event + view context | 🟡 candidate located | `0x6004C6C8` (event code in r1, key at ctx+0x15) | UI input 41, performance 12, touch | structural |
-| 4 | Draw hook per view (RENDER) | 🟢 **display driver mapped** | `0x6004B514` (NVIC-guarded) + view vtable `+0xA0` | screen 33, draw 33 | structural |
-| 5 | Modulator dest table + apply | 🟡 labels only; apply blocked | dest enum `0x601E3D24`, names `0x601E4214` | the **LFO mod**; voice render 34 | **indirection** |
-| 6 | Master-chain + touch-axis | 🔴 unmapped | track table `0x601CFDD4` | the **KAOSS mod**; needs #3+#4 | structural |
-| 7 | Row-fire / tick / transport / MIDI / storage | 🟡 engine located | `0x600A5E60` (24-call TICK engine); subtree unmapped | ~130 rows across areas | structural |
+| 1 | FX command dispatch | 🟢 executor **mapped** (`0x600287A4`, caller `0x60029270` confirmed); 2nd processor `0x60025ED4` | pitch helper `0x60029BDC`; mixer cmds not switch-dispatched | FX commands **69** | structural |
+| 2 | Parameter descriptor table + change event | 🟡 **new lead: virtual interface** | 7 + 5 parameter-object classes share `+0x88/+0x90/+0x94`; labels still indirected | param tables 43, param edit 30 | structural? |
+| 3 | Key/input event + view context | 🟢 **mapped** | router `0x6004C6C8`; **per-view vtable `+0x08`** (19 handlers); `set_view` `0x6004C13C`; view id at `ui+0x15` | UI input 41, performance 12 | structural |
+| 4 | Draw hook per view (RENDER) | 🟢 frame driver mapped; per-view slot open | `0x6004B514`; view `+0x0C`/`+0x10`; text `0x60030ECC`, values `0x600785C0` | screen 33, draw 33 | structural |
+| 5 | Modulator dest table + apply | 🟡 labels only; lead via instrument vtables | dest enum `0x601E3D24`, names `0x601E4214`; 7 instrument-class vtables | the **LFO mod**; voice render 34 | indirection → maybe structural |
+| 6 | Master-chain + touch-axis | 🟡 **touch mapped**; master chain unmapped | touch engine `0x600A5E60` (x/y/dominant axis, per view) | the **KAOSS mod** | structural |
+| 7 | Row-fire / tick / transport / MIDI / storage | 🟡 BOOT+TICK; sequencer off-loop | scan loop → executor not reached from `loop()` → audio-update IRQ (runtime-attached) | ~130 rows across areas | structural (+ runtime IRQ) |
 
 ## D. `loop()` — decomposed ([static-m8-loop.md](static-m8-loop.md))
 
 `loop()` (`0x60081BD4`) turned out to be a **cooperative scheduler**: subsystem groups behind timing gates,
 not a flat list. Mapped this pass:
 
-- **RENDER = `0x6004B514`** — the display driver (NVIC-guarded framebuffer, per-view vtable `+0xA0` draw,
-  ~15 ms gate). The one clean, evidence-backed UI site so far. S2.
-- **INPUT candidate = `0x6004C6C8`** — the event/view-update stage before the flush (event code in r1, key at
-  ctx+0x15, bitmask dispatch). S3 — input-routing vs. view-build still to confirm.
-- **TICK engine = `0x600A5E60`** — the unconditional 24-call per-frame engine; transport / row-fire / groove
-  live in its (unmapped) subtree.
+- **RENDER = `0x6004B514`** — the display driver (NVIC-guarded framebuffer, ~15 ms gate). S2.
+- **INPUT router = `0x6004C6C8`**, feeding the current view's vtable `+0x08`. S2 / S1.
+- **TOUCH = `0x600A5E60`** — the touch/gesture engine (*not* a sequencer engine, as first logged). S2.
 - Scheduler scaffolding: `0x60081A90` (~5 ms service group, 6 callees), `0x6008196C` (UI-frame gate),
   `0x6007BBB4` (µs read).
 
-Still open from here (software-only): the view-object **vtable layout** (for a per-view draw hook), the
-`0x6004C6C8` jump-table arms (confirm INPUT), and the `0x600A5E60` subtree (transport/row-fire).
+The UI framework behind it — `set_view`, the 8-slot `View` interface, per-view input handlers, the touch
+engine, text/value drawing — is in [static-m8-ui.md](static-m8-ui.md). The sequencer is **not** called from
+`loop()` at all.
+
+## D2. The tools that made this fast
+
+- **Switch census** (`python -m dirtyloader.re.switches`) — every `tbb`/`tbh` by encoding, with bound, bias and
+  decoded targets; case-count + bias identify a switch without strings. 140 in 6.6.2A.
+  ([static-m8-switches.md](static-m8-switches.md))
+- **Vtable finder** (`python -m dirtyloader.re.vtables [--find addr…]`) — `{0,0}`-headed code-pointer runs =
+  the class hierarchy; locating a function gives its virtual slot and its *true* entry. 61 vtables in 6.6.2A.
+
+Both are byte-level, so they work on the parts of the image Ghidra's auto-analysis never reaches, and both
+re-run unchanged on a new firmware build.
 
 ## E. The backlog, ordered by tractability
 
 **Ready now (structural, no hardware):**
 
-1. ~~Decompose `loop()`~~ **done** → RENDER mapped (`0x6004B514`), INPUT candidate (`0x6004C6C8`), TICK engine
-   (`0x600A5E60`). See [static-m8-loop.md](static-m8-loop.md). Follow-ups:
-   - the view-object **vtable layout** (per-view draw hook at `+0xA0`);
-   - `0x6004C6C8`'s jump-table arms (confirm INPUT vs. view-build);
-   - the `0x600A5E60` subtree (transport, row-fire, groove, tick).
-2. **Sibling FX executors** → the 52 default-routed mixer/send/DJ/I2C commands + the `tbb` at `0x60029C08`.
-3. **Instrument-command executor** (`0x80|n` via the instrument vtable) → instrument FX commands.
-4. **MIDI in/out dispatch**, storage/boot events.
+1. ~~Decompose `loop()`~~ **done**; ~~view framework~~ **done** (`set_view`, `View` vtable, input `+0x08`,
+   touch engine). Follow-up: which of view `+0x0C`/`+0x10` draws.
+2. **Parameter-object virtual interface** — decompile the shared `+0x88/+0x90/+0x94` (`0x6009B994/9C/A0`) and
+   one instrument class's `+0xA0`; match the 7 big vtables to the 7 instrument types. *This is the most
+   promising route to primitives 2 and 5 (param editing, LFO destinations).*
+3. **FX default path** — the executor's default `0x60028BCA` (mixer/send commands, data-indexed?) and the
+   second processor `0x60025ED4`.
+4. **Instrument-command executor** (`0x80|n` via the instrument vtable) → instrument FX commands.
+5. **Sequencer entry** — find who calls the scan loop `0x60029AA4`: the audio-update ISR, attached at runtime
+   (search for writes into the RAM vector table / `attachInterruptVector`-style setup).
+6. **MIDI in/out dispatch** (`0x6008A178` / `0x60089C80` are leads), storage/boot events.
 
 **Blocked (interactive Ghidra or hardware):**
 
-5. Parameter descriptor table + param-change event (primitive 2).
-6. Modulation apply + per-engine dest arrays — **the LFO mod's gate** (primitive 5).
-7. Audio-block / voice render (AUDIO_BLOCK) — interrupt/DMA-driven, hard statically.
-8. Touch-axis + master chain for KAOSS — needs input + draw mapped first.
+7. The parameter *label* tables themselves (RAM-indirected) — less important if item 2 pans out.
+8. Audio-block / voice render (AUDIO_BLOCK) — interrupt/DMA-driven, hard statically.
+9. Master chain for KAOSS (stage list / bypass / reorder) — touch is mapped, the chain is not.
 
 ## F. By the numbers
 
-600 manual targets. Two dispatch hooks are now mapped: the **FX executor** (69 rows) and the **RENDER display
-driver** (screen 33 + draw 33). With `loop()` decomposed, the INPUT and TICK-engine anchors are located too —
-so the UI/transport majority (~180 rows) has first anchors, pending the subtree passes.
+600 manual targets. Mapped dispatch points: the **FX executor** (69 rows), the **display driver** (screen 33 +
+draw 33), **`set_view` + per-view input** (UI input 41, performance 12), and the **touch engine** (the KAOSS
+mod's input). Six of the seven primitives now have a concrete anchor.
 
-The honest summary: **~85% of the hookable surface is still unmapped, but most of it is the *tractable* kind** —
-behind `loop()`'s call tree and a few more switch tables, not behind the indirection wall. Only the parameter
-and modulation tables (primitives 2 and 5) are genuinely stuck until interactive RE or the Teensy.
+The honest summary: the UI side is largely mapped; the big remaining unknowns are **the parameter interface**
+(now a vtable lead rather than a wall), **the sequencer's runtime-attached entry**, and **the audio path**. The
+indirection wall may matter less than it looked: if parameters are reached through the instrument classes'
+virtual methods, primitives 2 and 5 become structural work.

@@ -19,11 +19,11 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
-      # The core patcher is pure stdlib; keystone is only needed for the one
-      # assembler test (mkmod). The firmware-dependent suites never run here --
-      # the stock .bin is never committed.
-      - name: Install keystone (for the assembler test)
-        run: pip install keystone-engine==0.9.2
+      # The core patcher is pure stdlib; keystone (mkmod assembler test) and
+      # capstone (re.switches census test) are only for those tests. The
+      # firmware-dependent suites never run here -- the stock .bin is never committed.
+      - name: Install keystone + capstone (assembler and switch-census tests)
+        run: pip install keystone-engine==0.9.2 capstone==5.0.7
 
       - name: Firmware-free test suite
         run: python -m unittest discover -s tests -p "test_*.py" -v
