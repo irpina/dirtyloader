@@ -73,8 +73,9 @@ handler by subscribing:
 "subscribe": [{"event": "TICK", "handler": "0x60000461", "order": 50}]
 ```
 
-- `event` is a name from `dirtyloader/core/abi.py` (`TICK` today; `BOOT`, `RENDER`, `AUDIO_BLOCK` and `INPUT`
-  have ids but no installed site yet).
+- `event` is an event's name, Elekloader-style (`ev_tick`) or as in `dirtyloader/core/abi.py` (`TICK`); the
+  hook bus and every event's prototype and thread are in [CORE-EVENTS.md](CORE-EVENTS.md). Core 0.1 installs
+  `ev_tick`; the others are designed and their sites pinned for core 0.2.
 - `handler` is the Thumb address of the mod's handler (bit 0 set), usually code the mod's own sites place in a
   cave. It is called with the event id in `r0` and must follow the AAPCS (preserve r4-r11).
 - `order` (0-255, default 50) sorts handlers on the same event, lower first; ties go by mod id. The linker gives

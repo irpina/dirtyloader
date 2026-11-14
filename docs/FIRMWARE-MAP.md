@@ -5,7 +5,8 @@ connect. Built statically (nothing here has run on hardware) with the `dirtyload
 Detail docs: [hooks/MAPPING.md](hooks/MAPPING.md) (backlog), [hooks/SITES.md](hooks/SITES.md) (hook sites),
 [hooks/static-m8-ui.md](hooks/static-m8-ui.md), [hooks/static-m8-loop.md](hooks/static-m8-loop.md),
 [hooks/static-m8-fxcmd.md](hooks/static-m8-fxcmd.md), [hooks/static-m8-params.md](hooks/static-m8-params.md),
-[hooks/static-m8-song.md](hooks/static-m8-song.md),
+[hooks/static-m8-song.md](hooks/static-m8-song.md), and the hook bus built on all of it:
+[CORE-EVENTS.md](CORE-EVENTS.md),
 [hooks/static-m8-switches.md](hooks/static-m8-switches.md).
 
 Addresses: **load** = where the bytes sit in the flash image (what a mod patches; file offset = load −

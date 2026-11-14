@@ -41,10 +41,11 @@ def _hex(s: str, label: str) -> bytes:
 
 
 def event_id(ev) -> int:
-    """An event given by name ("TICK") or number -> its numeric id."""
+    """An event given by name ("TICK", or Elekloader-style "ev_tick") or number -> its numeric id."""
     if isinstance(ev, str) and not ev.strip().lstrip("-").isdigit() and not ev.lower().startswith("0x"):
+        from dirtyloader.core.abi import by_name
         try:
-            return int(Event[ev.strip().upper()])
+            return int(by_name(ev))
         except KeyError:
             raise M8FWError(f"unknown event {ev!r}; known: {', '.join(e.name for e in Event)}")
     return int(_int(ev))

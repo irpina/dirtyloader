@@ -1,5 +1,8 @@
 # The dirtyloader Core
 
+> **The event design — the hook bus's events, prototypes, sites, tables and firmware locations, modelled on
+> Elekloader's — is [CORE-EVENTS.md](CORE-EVENTS.md).** This file is the Core's mechanism.
+
 The **Core** is injected firmware infrastructure that lets several mods hook the
 same piece of M8 firmware without fighting over the bytes. It is the direct
 analogue of Elekloader's *core mod + event bus*: instead of each mod overwriting

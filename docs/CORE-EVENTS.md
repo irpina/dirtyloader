@@ -1,0 +1,151 @@
+[dirtyloader docs](../README.md) › Core events
+
+# The hook bus (core's events): the M8 Model:02
+
+The M8 core follows Elekloader's hook bus: **the core owns the shared sites, and mods subscribe to its events**
+instead of patching them. Event names, the "when / C prototype / notes" table and the conventions match
+Elekloader's (its `docs/ADAPTING.md`, "The hook bus"), so a mod author who knows one knows the other. Where the
+M8 differs (no encoders, a touch screen, an audio-thread sequencer), it gets its own events, as the Digitone and
+the Octatrack do on the Elektron side.
+
+Firmware: **6.6.2A Model:02**. Every site and location below is pinned to that build; the evidence for each is
+in [FIRMWARE-MAP.md](FIRMWARE-MAP.md) and [hooks/](hooks/). **Status:** only `ev_tick` is implemented today
+(core 0.1); the rest is the design core 0.2 builds toward. Nothing has run on hardware yet.
+
+## Conventions
+
+- **Handlers are C functions** (or Thumb assembly) in the ARM procedure-call standard with hard float: integer
+  arguments in r0–r3, then the stack; floats in s0–s3; the result in r0 (s0 for a float); r4–r11, s16–s31 and
+  `lr` preserved. The stack is the interrupted thread's: keep frames small.
+- **`order`** sorts the handlers of one event, lower first; ties go by mod id. Shipped mods use 10–90.
+  For the audio events: **10–49 make sound, 50–89 change sound already made** (as `ev_render_voices` on the
+  Digitakt).
+- **"Take it"**: for events whose prototype returns `int`, a nonzero return stops the event: no later handler
+  sees it, and the stock code does not run. A `void` event always reaches every handler.
+- **Two threads.** *UI* events run in `loop()` (the main thread). *Audio* events run inside **IRQ 70**, the
+  Teensy Audio update interrupt, once per audio block (~1,378 a second at 44.1 kHz with 32-sample blocks):
+  keep them short, never block, never call UI code. UI code that touches audio state brackets it with
+  `fw_audio_lock()` / `fw_audio_unlock()`.
+- **Audio handlers live in ITCM.** The audio thread is ITCM code (run `0x00000000..`), and from there a flash
+  routine is out of `bl` range and slow. Put audio-event handlers in the **`.itcm` section**: the core copies it
+  into free ITCM (≈18 KB above `0x2B8D0`, shared by all mods) at `ev_boot`, before the first audio block.
+  UI-event handlers go in ordinary flash code.
+
+## The events
+
+### Shared with Elekloader (same names and meaning)
+
+| event | when | C prototype | notes | status |
+|---|---|---|---|---|
+| `ev_boot` | once, after `setup()`, before the first `loop()`; UI thread | `void f(void)` | the core has copied `.itcm` and zeroed mods' `.bss` already | site pinned |
+| `ev_tick` | every `loop()` iteration; UI thread | `void f(void)` | free-running, thousands a second (not 30 like the Digitakt's): do almost nothing, or count | **implemented** |
+| `ev_draw` | each UI frame (~66 a second), after the views have drawn and **before the frame is pushed** to the display | `void f(void *ui)` | draw over the frame with `fw_text` and friends; what you draw lasts one frame | site pinned |
+| `ev_key` | each input action, before the current view handles it; UI thread | `int f(void *ui, int action)` | `action` is the M8's input-action code (each view's `+0x08` handler switches on it; `0xE4` is a global action). Return nonzero to take it | site pinned |
+| `ev_render_in` | audio block entry, before any node renders; audio thread | `void f(void)` | interrupt level | site pinned |
+| `ev_render_out` | audio block exit, after every node; audio thread | `void f(void)` | interrupt level | site pinned |
+| `ev_midi` | each MIDI message in | `int f(const unsigned char *msg, int port)` | return nonzero to take it | site pending |
+| `ev_settings` | the SYSTEM SETTINGS screen is built | `void f(void *menu)` | the M8's settings screen is a view, not a menu: needs its row model first | design only |
+
+There is no `ev_enc`: the M8 has no encoders. Its continuous control is the touch screen (`ev_touch`).
+
+### The M8's own events
+
+| event | when | C prototype | notes | status |
+|---|---|---|---|---|
+| `ev_view` | before the screen changes (`set_view`); UI thread | `int f(void *ui, int view)` | `view` is the target id (`0x00` SONG … `0x1D`, [FIRMWARE-MAP.md](FIRMWARE-MAP.md) §8); the current one is `*(uint8_t *)(ui + 0x15)`. Return nonzero to stay on the current screen. Ids from `0x1E` are mods' screens (`core_views`, below) | site pinned |
+| `ev_touch` | each touch frame, before the stock touch engine; UI thread | `int f(struct m8_touch *t)` | `t->x`, `t->y`, `t->dx`, `t->dy` (floats). Return nonzero to take the frame: the stock engine does not see it (a KAOSS-pad mod) | site pinned |
+| `ev_note` | a row fires on a track, before its note and FX are applied; audio thread | `int f(int track, const unsigned char *step)` | `step` is the phrase step (9 bytes: note, velocity, instrument, 3 × (command, value)); the handler may read it, not write it. Return nonzero to skip the row | site pinned |
+| `ev_fx_command` | an FX command runs on a track (the per-tick executor); audio thread | `int f(int track, int cmd, int value)` | `cmd` `0x00..0x4D` are the global commands, `0x80 \| n` an instrument's. Return nonzero to take it: the stock executor does not run it — the way a mod adds a command or changes one | site pinned (argument mapping to confirm) |
+| `ev_fx_row` | a row's FX column is applied at row fire; audio thread | `int f(int track, int column, int cmd, int value)` | `column` 0–2; take it to replace that column's stock effect | site pinned |
+| `ev_tempo` | the tempo is set; UI thread | `int f(float bpm)` | `bpm` in s0. Return nonzero to refuse the change | site pinned |
+| `ev_transport` | play, pause or stop; UI thread | `int f(int state)` | `state` 1 play, 0 pause, −1 stop. Return nonzero to refuse it | site pinned |
+| `ev_mod_apply` | a modulator targets a destination past the engine's stock list; audio thread | `void f(int engine, void *voice, void *mod, int dest)` | the default branch of each engine's `switch(dest)` ([hooks/static-m8-params.md](hooks/static-m8-params.md)); with `core_mod_dests` this is how mods add LFO destinations | site pinned (5 of 6 engines) |
+
+## Core's tables
+
+As on the Elektron side (`core_machines`, the Mod Menu), mods add **entries to core's tables**; the linker
+places them and refuses clashes by `resources.names`.
+
+| table | entry | what core does with it | claim |
+|---|---|---|---|
+| `core_views` | `{ int id; void *view; const char *name; }` — `view` an object whose first word is a `View` vtable (8 slots: enter, …, input `+0x08`, …, leave `+0x14`) | `set_view(id)` for `id >= 0x1E` switches to it like a stock screen: leave the old view, set `ui+4`, enter the new one; touch and keys reach it through its own vtable | `view:<name>` |
+| `core_mod_dests` | `{ uint8_t engines; const char *name; }` — `engines` a bit per engine (WAVSYNTH, MACROSYNTH, SAMPLER, FMSYNTH, HYPERSYNTH, EXTERNAL, MIDI OUT) | extends each engine's destination count (`vt+0x104`) and name table (`vt+0x0F8`) with the entries, in link order; their indices then reach `ev_mod_apply` | `moddest:<name>` |
+
+The extended-LFO-destinations mod is one `core_mod_dests` entry per send (DRY, MODFX, DELAY, REVERB) and one
+`ev_mod_apply` handler that writes the modulated level into the track's send mixer (`fw_send_mixer`). The KAOSS
+mod is a `core_views` screen plus an `ev_touch` handler.
+
+## Firmware locations (6.6.2A)
+
+Named exports, as Elekloader core 3.0's `fw_*`, so a mod that names only these rebuilds for another firmware
+unchanged. The C declarations are in `dirtyloader/sdk/include/m8-model02/core.h`.
+
+| name | 6.6.2A | what |
+|---|---|---|
+| `fw_song` | `0x2025A570` | the song (OCRAM); `FW_PHRASE(p, s)`, `FW_CHAIN(c, s)`, `FW_INSTRUMENT(i)`, `FW_EQ(n)` give its parts ([hooks/static-m8-song.md](hooks/static-m8-song.md)) |
+| `fw_clock` | `0x2000D218` | the sequencer clock: `+0x28` running, `+0x29` paused, `+0x2C` ticks, `+0x30` bpm (float) |
+| `fw_track_players` | `0x2000D270` | 8 × `0x2B0` per-track sequencer state |
+| `fw_ui` | `0x20015458` | the UI context: `+0x04` current view object, `+0x15` current view id, `+0x17` previous |
+| `fw_touch` | `0x200177D4` | the touch state: `+0x30` dx, `+0x34` dy, `+0x40` x, `+0x44` y (floats) |
+| `fw_instruments` | 8 singletons | SAMPLER `0x2000EAA0`, WAVSYNTH `0x20037DB8`, MACROSYNTH `0x20038DE4`, MIDI OUT `0x2003AA94`, FMSYNTH `0x2003B97C`, HYPERSYNTH `0x2003DAAC`, EXTERNAL `0x2003EC88`, NONE `0x20014064` |
+| `fw_send_mixer(t, bus)` | `0x20010F50 + 0x38·(4t + bus)` | the per-track send mixers (`AudioMixer4`-style), 32 nodes |
+| `fw_set_view` | `0x6004C13C` | switch screens |
+| `fw_set_tempo`, `fw_set_playing`, `fw_stop` | `0x6009A6C0`, `0x6009A528`, `0x6009A55C` | transport |
+| `fw_text` | `0x60030ECC` | draw a string (arguments to confirm) |
+| `fw_audio_lock` / `fw_audio_unlock` | NVIC `ICER2` / `ISER2`, bit `0x40` | `AudioNoInterrupts()` / `AudioInterrupts()` |
+
+## The sites core owns (6.6.2A) — do not patch them
+
+| event | site | kind |
+|---|---|---|
+| `ev_boot` | `0x600AE04E` `bl setup` | flash: `bl` detour |
+| `ev_tick` | `0x600AE052` `bl loop` | flash: `bl` detour (core 0.1) |
+| `ev_touch` | `0x60081C32` `bl` touch engine | flash: `bl` detour |
+| `ev_key` | `0x60081C56` `bl` input router | flash: `bl` detour |
+| `ev_draw` | `0x6004B6DA..0x6004B6E1` frame push (`ldr.w r3,[r3,#0xA0]; blx r3`) | flash: replace both |
+| `ev_view` | `0x6004C13C` `set_view` entry | flash: entry detour |
+| `ev_tempo` | `0x6009A6C0` entry | flash: entry detour |
+| `ev_transport` | `0x6009A528`, `0x6009A55C` entries | flash: entry detour |
+| `ev_render_in` / `ev_render_out` | run `0x2929C` entry / `0x292EE` exit of `software_isr` | ITCM: long veneer |
+| `ev_note` | run `0x24DE0` row fire | ITCM: long veneer |
+| `ev_fx_row` | run `0x24854` | ITCM: long veneer |
+| `ev_fx_command` | run `0x27124` executor | ITCM: long veneer |
+| `ev_mod_apply` | the default branch of the apply switch, run `0x0C9D0` FM, `0x0E552` HYPER, `0x1185A` MACRO, `0x1439E` SAMPLER, `0x171BA` WAV | ITCM: retarget `bhi` |
+| core region | `0x60000200..0x60001000` | dispatcher, table, stubs |
+
+*Flash* sites use the Core's existing `bl`/entry detour into the cave at `0x60000200`. *ITCM* sites run at their
+run address and cannot reach that cave: the core places their stubs in free ITCM and patches each site with the
+linker's long-branch form (`ldr.w pc,[pc,#-0]` + literal) — [CORE.md](CORE.md), "ITCM hook sites".
+
+## How core 0.2 dispatches
+
+Core 0.1 calls each TICK handler with the event id in r0. Core 0.2 keeps the table (`event:u16, flags:u16,
+handler:u32`, 64 entries, `order`-sorted by the linker) and gives each site a **stub** that:
+
+1. saves the site's argument registers and builds the event's arguments from them;
+2. calls `core_dispatch(event, a0, a1, a2, a3)`, which calls each enabled handler for that event in table
+   order with those arguments and, for an `int` event, stops at the first nonzero return;
+3. if the event was taken, returns past the stock code with the stock's "nothing done" result; otherwise runs
+   the displaced instructions and continues into the stock code.
+
+The audio-thread stubs and their dispatcher copy live in ITCM; the UI ones in the flash cave.
+
+## Mapping to Elekloader
+
+| Elekloader | M8 | |
+|---|---|---|
+| `ev_tick`, `ev_draw`, `ev_key`, `ev_render_in`, `ev_render_out`, `ev_settings` | same names | shared |
+| `ev_enc` | — | no encoders; continuous input is `ev_touch` |
+| `ev_voice_on` (Digitone) | `ev_note` | a row fires; the M8 has no per-voice event |
+| `ev_midi_cc` (Digitone), `ev_midi` (Octatrack) | `ev_midi` | site pending |
+| `ev_hold` (Digitone) | — | the M8 has no Mod Menu yet; `core_views` is its screen hook |
+| `core_machines` | `core_mod_dests`, `core_views` | the M8's extension tables |
+| `fw_*` (core 3.0) | `fw_*` | same idea |
+| `.fast` (fast SRAM) | `.itcm` | the M8's fast code area, for the audio thread |
+
+## Building toward core 0.2
+
+1. Generalise `dirtyloader.core.builder`: one stub per event from a site table (flash `bl`, flash entry, ITCM
+   long veneer), the argument-passing dispatcher, and the `.itcm` copy at boot.
+2. `mkmod`: `subscribe` by `ev_*` name (the loader accepts `ev_tick` and `TICK` alike) and an `.itcm` section.
+3. Validate on the Teensy, event by event, starting with the UI ones; then the ITCM ones.

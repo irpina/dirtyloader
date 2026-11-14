@@ -110,6 +110,7 @@ examples/hello-tick/   the smallest handler mod (mod.json + hello.s)
 site/              the GitHub Pages in-browser builder (index.html, app.js, make_site.py)
 tests/             firmware-free unit tests (synthetic image; run in CI)
 docs/FORMAT.md     the .m8mod specification
+docs/CORE-EVENTS.md   the hook bus: events, prototypes, sites, core tables (Elekloader-style)
 docs/FIRMWARE-MAP.md  the whole-firmware map (memory map, layout, threads, drivers, classes)
 dirtyloader/re/    RE tools: memmap, layout, switches, vtables, params, objects, ghidra_map, fwmap
 ```

@@ -59,6 +59,18 @@ class TestMod(unittest.TestCase):
         with self.assertRaises(M8FWError):
             event_id("NO_SUCH_EVENT")
 
+    def test_elekloader_event_names(self):
+        from dirtyloader.core.abi import Event, EVENTS
+        self.assertEqual(event_id("ev_tick"), int(Event.TICK))           # Elekloader-style name
+        self.assertEqual(event_id("ev_fx_command"), int(Event.FX_COMMAND))
+        self.assertEqual(event_id("RENDER"), int(Event.DRAW))             # core 0.1 names keep their ids
+        self.assertEqual(event_id("AUDIO_BLOCK"), int(Event.RENDER_IN))
+        self.assertEqual(event_id("INPUT"), int(Event.KEY))
+        for ev, info in EVENTS.items():                                   # every event round-trips
+            self.assertEqual(event_id(info.name), int(ev))
+            self.assertIn(info.thread, ("ui", "audio"))
+            self.assertEqual(info.takeable, info.prototype.startswith("int "))
+
     def test_format1_loads_and_converts(self):
         v1 = {
             "m8mod_format": 1, "id": "old", "version": "1.0", "name": "old mod",
