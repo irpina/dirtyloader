@@ -117,8 +117,8 @@ the empty table.
    the `TICK` site at `0x600AE052`, and emits `mods/core.m8mod`. CRCs recompute
    via `m8fw`; `dirtyloader.core.test_core` disassembles the installed bytes to
    confirm every instruction. Ships a bundled no-op demo handler on TICK.
-3. **Validate on a spare Teensy 4.1 + M8 Headless firmware** — *next; hardware
-   ordered.* Never on a real M8 until proven. Re-run `re.trace` on the Headless
+3. **Validate on a spare Teensy 4.1 + M8 Headless firmware** — *done for core 0.2's
+   BOOT and TICK sites (see "Core 0.2" below).* Never on a real M8 until proven. Re-run `re.trace` on the Headless
    build for its addresses (the Model02 `.bin` expects full M8 hardware and will
    stall on a bare board). The HalfKay bootloader is untouched, so stock recovers.
 4. **A real handler** — replace the no-op demo with a visible effect (e.g. draw
@@ -163,7 +163,11 @@ every 1.024 s). Reading the LED:
 
 A Teensy fresh from the factory runs a plain 1 Hz blink sketch, so only the double-blink counts as a pass.
 `tests/test_core02.py` checks the three site kinds, the relocation and the handler order on a synthetic image.
-**Not yet run on hardware.**
+
+**Passed on hardware (2026-11-16, spare Teensy 4.1).** The board was flashed with tycmd 0.9.9: stock 6.6.4A
+first, then the linked `.hex`. The patched firmware enumerates as M8 (serial, audio, MIDI). On `E`, it streams
+display frames over serial, and its system-info packet reports headless 6.6.4. Pin 13 double-blinks, so BOOT
+and TICK both run. TEMPO (`entry` site) has no visible handler yet and is not exercised.
 
 ## ITCM hook sites need a different detour
 
