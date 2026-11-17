@@ -271,6 +271,11 @@
       "kind": "entry",
       "patch_at": "0x6007FF34",
       "note": "clear an instrument slot (song 0x2025F674, slot, full): the pool's delete, and the instrument loader before it loads"
+    },
+    "LIVE_NOTE": {
+      "kind": "itcm_entry",
+      "patch_at": "0x23374",
+      "note": "the live / preview note trigger (load 0x600249F4): (player, instrument, note, velocity; stack: phrase, row, flag). Its callers are the UI's (13 flash sites through the veneer 0x600A8DC0: entering and auditioning notes, previews) and a chord helper; the sequencer fires rows elsewhere (ev_row). Model:02 0x24DE0."
     }
   },
   "notes": [

@@ -9,7 +9,7 @@ struct { uint32_t boot, tick, draw, key, view, tempo, render_in, render_out, son
                   card_ready, usb, last_usb,
                   seq_tick, note_off, row, fx_row, fx_command, mod_apply, mod_engines, mute, inst_load, inst_save,
                   param_set, step_edit, sysex, audio_out, inst_clear,
-                  track_audio, track_mask, fx_audio, fx_mask, render_params; } selftest_counts;
+                  track_audio, track_mask, fx_audio, fx_mask, render_params, live_note, live_args[4]; } selftest_counts;
 
 static void on_boot(void) { selftest_counts.boot++; }
 static void on_tick(void) { selftest_counts.tick++; }
@@ -60,6 +60,13 @@ static int on_inst_clear(void *song, int slot, int full) { selftest_counts.inst_
 static void on_track_audio(float *l, float *r, int track) { selftest_counts.track_audio++; selftest_counts.track_mask |= 1u << (track & 31); }
 static void on_fx_audio(int stage, float *l, float *r) { selftest_counts.fx_audio++; selftest_counts.fx_mask |= 1u << (stage & 31); }
 static void on_render_params(void *engine) { selftest_counts.render_params++; }
+static int on_live_note(void *player, int instrument, int note, int velocity)
+{
+    selftest_counts.live_note++;
+    selftest_counts.live_args[0] = (uint32_t)player; selftest_counts.live_args[1] = (uint32_t)instrument;
+    selftest_counts.live_args[2] = (uint32_t)note; selftest_counts.live_args[3] = (uint32_t)velocity;
+    return 0;
+}
 static int on_audio_out(float *left, float *right, int frames) { selftest_counts.audio_out++; return 0; }
 
 DL_MOD("core-selftest", "0.1.0", "Core self-test",
@@ -77,4 +84,4 @@ DL_MOD("core-selftest", "0.1.0", "Core self-test",
        DL_ON(EV_PARAM_SET, 90, on_param_set), DL_ON(EV_STEP_EDIT, 90, on_step_edit), DL_ON(EV_SYSEX, 90, on_sysex),
        DL_ON(EV_AUDIO_OUT, 40, on_audio_out), DL_ON(EV_INST_CLEAR, 90, on_inst_clear),
        DL_ON(EV_TRACK_AUDIO, 90, on_track_audio), DL_ON(EV_FX_AUDIO, 90, on_fx_audio),
-       DL_ON(EV_RENDER_PARAMS, 90, on_render_params));
+       DL_ON(EV_RENDER_PARAMS, 90, on_render_params), DL_ON(EV_LIVE_NOTE, 90, on_live_note));

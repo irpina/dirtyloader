@@ -58,7 +58,7 @@ Status:
 | `ev_mute` | `ev_mute(mixer, track)` at the routine every mute and solo path applies through. It fires once per track, and the masks are at `fw_mute_mask` / `fw_solo_mask` | done | 8 per toggle |
 | `ev_trig_set`, `ev_step_note`, `ev_plock_store` / `_clear`, `ev_step_clear`, `ev_track_length` | `ev_step_edit(view, cell, n, column)`: the phrase view's cell-edited method. Bulk edits (clear, paste) may not reach it | partly | 1 per note entered |
 | `ev_param_set`, `ev_sound_live` | `ev_param_set(instview, field, old)`: an instrument field changed and its value went to the playing tracks | done | 1 per edit |
-| `ev_keyboard_note`, `ev_live_note` | key-played notes reach `ev_note` (its site also serves preview). There is no separate event to take a press | partly | |
+| `ev_keyboard_note`, `ev_live_note` | `ev_live_note(player, instrument, note, velocity)` at the M8's live / preview trigger (ITCM run `0x23374`): notes played or auditioned from the keys, not the sequencer's (`ev_row`, `ev_note`). Take it to drop the note | done | 4 notes entered → 4 (C-4, velocity 0x64); 0 during playback |
 | `ev_key_leds` | n/a: headless has no key LEDs. Its keys are m8c's, sent over USB serial | n/a | |
 | `ev_voice_free`, `ev_voice_steal` | `ev_note_off(player, kill)`. The M8 has one player per track (8, `FW_PLAYER(t)`) and no voice allocator to steal from | done (release); n/a (steal) | 1 per OFF |
 | `ev_arp_step` | n/a: the M8's arpeggio is an FX command (ARP), which `ev_fx_row` / `ev_fx_command` see | n/a | |

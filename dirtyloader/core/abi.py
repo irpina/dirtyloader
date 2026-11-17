@@ -65,6 +65,7 @@ class Event(IntEnum):
     MOD_APPLY = 0x0053   # a modulator is applied to its destination (audio thread)
     NOTE_OFF = 0x0054    # a track's note is released or killed (audio thread)
     ROW = 0x0055         # the sequencer fires a new row on a track (audio thread)
+    LIVE_NOTE = 0x0056   # a note played from the keys / preview, not the sequencer
     TEMPO = 0x0060       # the tempo is set
     TRANSPORT = 0x0061   # play / pause / stop
     PLAY = 0x0062        # the sequencer starts
@@ -120,6 +121,7 @@ EVENTS = {
     Event.MOD_APPLY: EventInfo("ev_mod_apply", "audio", True, "int f(int dest, void *modulator, void *target, int engine)",
                                "implemented (headless: 6 engines)"),
     Event.NOTE_OFF: EventInfo("ev_note_off", "audio", True, "int f(void *player, int kill)", "implemented (headless)"),
+    Event.LIVE_NOTE: EventInfo("ev_live_note", "audio", True, "int f(void *player, int instrument, int note, int velocity)", "implemented (headless)"),
     Event.ROW: EventInfo("ev_row", "audio", False, "void f(void *player)", "implemented (headless)"),
     Event.SEQ_TICK: EventInfo("ev_seq_tick", "audio", True, "int f(void *engine)", "implemented (headless)"),
     Event.MUTE: EventInfo("ev_mute", "ui", True, "int f(void *mixer, int track)", "implemented (headless)"),
