@@ -68,7 +68,7 @@ class TestMod(unittest.TestCase):
         self.assertEqual(event_id("INPUT"), int(Event.KEY))
         for ev, info in EVENTS.items():                                   # every event round-trips
             self.assertEqual(event_id(info.name), int(ev))
-            self.assertIn(info.thread, ("ui", "audio"))
+            self.assertIn(info.thread, ("ui", "audio", "fault"))       # ev_crash runs in the fault handler
             self.assertEqual(info.takeable, info.prototype.startswith("int "))
 
     def test_format1_loads_and_converts(self):
