@@ -58,6 +58,11 @@
       "ptr": "0x20040654",
       "stock": "0x6009C0B9",
       "note": "usbMIDI's partial SysEx handler pointer; the firmware sets it to 0x6009C0B9 in setup (0x600869B0). core_boot chains it for ev_sysex."
+    },
+    "phrase_slots": {
+      "redraw": "0x2000173C",
+      "edited": "0x20001740",
+      "note": "the phrase view's vtable (RAM) +0x34 (bulk redraw: cut, clear, paste, interpolate, rotate, fill, transpose) and +0x38 (a cell edited); core wraps them for ev_step_edit's bulk reports"
     }
   },
   "core": {
@@ -276,6 +281,16 @@
       "kind": "itcm_entry",
       "patch_at": "0x23374",
       "note": "the live / preview note trigger (load 0x600249F4): (player, instrument, note, velocity; stack: phrase, row, flag). Its callers are the UI's (13 flash sites through the veneer 0x600A8DC0: entering and auditioning notes, previews) and a chord helper; the sequencer fires rows elsewhere (ev_row). Model:02 0x24DE0."
+    },
+    "INST_COPY": {
+      "kind": "entry",
+      "patch_at": "0x6005524C",
+      "note": "clone an instrument (instview 0x2001A530, src, dst): the phrase and table views' SHIFT+EDIT on an instrument cell ('CLONED INSTRUMENT %02X TO %02X')"
+    },
+    "INST_PASTE": {
+      "kind": "entry",
+      "patch_at": "0x60054894",
+      "note": "paste the copied instrument (instview, action): the instrument view's and the pool's SHIFT+EDIT after SHIFT+OPT; ldrb/cmp then beq.w at +4"
     }
   },
   "notes": [

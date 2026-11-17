@@ -78,6 +78,8 @@ struct core_ram {
     uint32_t sysex_orig;           /* the firmware's SysEx handler core_sysex hands chunks on to */
     const struct dl_setting *settings[MAX_SETTINGS];
     uint32_t nsettings, menu_sel, menu_back;
+    uint32_t bulk_orig, cell_orig, snap_phrase;   /* ev_step_edit's bulk reports: the phrase as last seen */
+    uint8_t snap[16 * 9];
     uint32_t usb_last;             /* usb_configuration as ev_usb last reported it; 0xFF before the first */
 };
 _Static_assert(__builtin_offsetof(struct core_ram, api) == 0x208, "dl/core.h: DL_CORE_PTR is the RAM + 0x208");
@@ -1105,15 +1107,60 @@ static void core_clock(void *obj)
     ((update_fn)ram->clock_orig)(obj);
 }
 
+/* ev_step_edit for bulk edits: every phrase edit ends in the phrase view's +0x34 (bulk) or +0x38 (one cell; its
+   entry is already ev_step_edit's site). Core keeps the phrase as it last saw it and, after a bulk redraw, reports
+   the steps that changed: ev_step_edit(view, first changed step, steps from it to the last changed, -1). A redraw
+   that changed nothing (a selection, a copy) says nothing. */
+#define EV_STEP_EDIT_W 0x0081u
+static int fire4(uint32_t word, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
+static uint8_t *phrase_of(void *view) { return FW_PHRASE_STEP(((uint8_t *)view)[4], 0); }
+static void snap_take(void *view)
+{
+    uint8_t *p = phrase_of(view);
+    for (uint32_t i = 0; i < sizeof ram->snap; i++) ram->snap[i] = p[i];
+    ram->snap_phrase = ((uint8_t *)view)[4];
+}
+static void core_phrase_bulk(void *view, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    ((void (*)(void *, uint32_t, uint32_t, uint32_t))ram->bulk_orig)(view, a1, a2, a3);
+    uint8_t *p = phrase_of(view);
+    if (ram->snap_phrase == ((uint8_t *)view)[4]) {
+        int first = -1, last = -1;
+        for (int s = 0; s < 16; s++)
+            for (int k = 0; k < 9; k++)
+                if (p[s * 9 + k] != ram->snap[s * 9 + k]) { if (first < 0) first = s; last = s; break; }
+        if (first >= 0)
+            fire4(EV_STEP_EDIT_W, (uint32_t)view, (uint32_t)(p + first * 9), (uint32_t)(last - first + 1), 0xFFFFFFFFu);
+    }
+    snap_take(view);
+}
+static void core_phrase_cell(void *view, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    ((void (*)(void *, uint32_t, uint32_t, uint32_t))ram->cell_orig)(view, a1, a2, a3);   /* ev_step_edit's site */
+    snap_take(view);
+}
+
 static uint32_t has_subs(uint16_t ev)
 {
     for (uint32_t i = 0; i < ram->count; i++) if (ram->table[i].event == ev) return 1;
     return 0;
 }
-static void wrap_slot(uint32_t slot, uint32_t *orig, void (*fn)(void *))
+static void wrap_slot(uint32_t slot, uint32_t *orig, uint32_t fn)
 {
     volatile uint32_t *s = (volatile uint32_t *)slot;
-    if (*s != ((uint32_t)fn | 1)) { *orig = *s; *s = (uint32_t)fn | 1; }
+    if (*s != (fn | 1)) { *orig = *s; *s = fn | 1; }
+}
+
+static int fire4(uint32_t word, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+{
+    register uint32_t r0 __asm__("r0") = a0;
+    register uint32_t r1 __asm__("r1") = a1;
+    register uint32_t r2 __asm__("r2") = a2;
+    register uint32_t r3 __asm__("r3") = a3;
+    register uint32_t ip __asm__("ip") = word;
+    register uint32_t fn __asm__("r4") = CORE_DISPATCH;
+    __asm volatile("blx r4" : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3), "+r"(ip), "+r"(fn) : : "lr", "memory", "cc");
+    return (int)r0;
 }
 
 /* ev_sysex: usbMIDI's SysEx handler pointer (FW_SYSEX_HANDLER) is the firmware's, set in setup(); core_boot
@@ -1654,13 +1701,18 @@ void core_boot(void)
     ram->track_subs = has_subs(EV_TRACK_AUDIO_W);   /* the graph's objects: wrapped only for a subscriber */
     ram->fx_subs = has_subs(EV_FX_AUDIO_W & 0xFFFFu);
     ram->params_subs = has_subs(EV_PARAMS_W);
-    if (ram->track_subs) wrap_slot(FW_SLOT_TRACK, &ram->track_orig, core_track);
+    if (ram->track_subs) wrap_slot(FW_SLOT_TRACK, &ram->track_orig, (uint32_t)core_track);
     if (ram->fx_subs) {
-        wrap_slot(FW_SLOT_MFX, &ram->mfx_orig, core_mfx);
-        wrap_slot(FW_SLOT_DELAY, &ram->delay_orig, core_delay);
-        wrap_slot(FW_SLOT_REVERB, &ram->reverb_orig, core_reverb);
+        wrap_slot(FW_SLOT_MFX, &ram->mfx_orig, (uint32_t)core_mfx);
+        wrap_slot(FW_SLOT_DELAY, &ram->delay_orig, (uint32_t)core_delay);
+        wrap_slot(FW_SLOT_REVERB, &ram->reverb_orig, (uint32_t)core_reverb);
     }
-    if (ram->params_subs) wrap_slot(FW_SLOT_CLOCK, &ram->clock_orig, core_clock);
+    if (ram->params_subs) wrap_slot(FW_SLOT_CLOCK, &ram->clock_orig, (uint32_t)core_clock);
+    if (has_subs(EV_STEP_EDIT_W)) {                 /* bulk phrase edits */
+        ram->snap_phrase = 0xFFFFFFFFu;
+        wrap_slot(FW_SLOT_PHRASE_BULK, &ram->bulk_orig, (uint32_t)core_phrase_bulk);
+        wrap_slot(FW_SLOT_PHRASE_CELL, &ram->cell_orig, (uint32_t)core_phrase_cell);
+    }
     if (FW_VECTORS[3] != ((uint32_t)core_fault | 1)) {   /* ev_crash: HardFault .. UsageFault */
         ram->fault_orig = FW_VECTORS[3];
         ram->in_fault = 0;

@@ -78,6 +78,8 @@ class Event(IntEnum):
     INST_LOAD = 0x0072   # an instrument file is about to be loaded into a slot
     INST_SAVE = 0x0073   # an instrument slot is about to be saved to a file
     INST_CLEAR = 0x0074  # an instrument slot is about to be cleared
+    INST_COPY = 0x0075   # an instrument is cloned into another slot
+    INST_PASTE = 0x0076  # the copied instrument is pasted into a slot
     PARAM_SET = 0x0080   # an instrument parameter was edited
     STEP_EDIT = 0x0081   # phrase cells were edited
     # earlier names, same ids (core 0.1 files may use them)
@@ -130,6 +132,8 @@ EVENTS = {
     Event.INST_LOAD: EventInfo("ev_inst_load", "ui", True, "int f(void *songs, const char *path, int slot)", "implemented (headless)"),
     Event.INST_SAVE: EventInfo("ev_inst_save", "ui", True, "int f(void *songs, const char *path, int slot)", "implemented (headless)"),
     Event.INST_CLEAR: EventInfo("ev_inst_clear", "ui", True, "int f(void *song, int slot, int full)", "implemented (headless)"),
+    Event.INST_COPY: EventInfo("ev_inst_copy", "ui", True, "int f(void *instview, int src, int dst)", "implemented (headless)"),
+    Event.INST_PASTE: EventInfo("ev_inst_paste", "ui", True, "int f(void *instview, int action)", "implemented (headless)"),
     Event.PARAM_SET: EventInfo("ev_param_set", "ui", False, "void f(void *instview, int field, int old)", "implemented (headless)"),
     Event.STEP_EDIT: EventInfo("ev_step_edit", "ui", False, "void f(void *phraseview, uint8_t *cell, int n, int column)", "implemented (headless)"),
     Event.SYSEX: EventInfo("ev_sysex", "ui", True, "int f(const uint8_t *data, int len, int last)", "implemented (headless)"),

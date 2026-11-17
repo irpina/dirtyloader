@@ -114,6 +114,11 @@ typedef int (*fw_inst_save_fn)(void *songs, const char *path, int slot);
 #define FW_SLOT_REVERB      0x20002814u
 #define FW_SLOT_CLOCK       0x20001E94u
 #define FW_TRACK_MAIN       0x3E4u
+/* The phrase view (object 0x2001AD90, phrase number at +4): its vtable is in RAM. +0x34 redraws after a bulk edit
+ * (cut / clear, paste, interpolate, rotate, the FILL generators, transposing a selection), +0x38 after a cell. */
+#define fw_phrase_view      ((uint8_t *)0x2001AD90u)
+#define FW_SLOT_PHRASE_BULK 0x2000173Cu
+#define FW_SLOT_PHRASE_CELL 0x20001740u
 enum { FW_FX_MFX, FW_FX_DELAY, FW_FX_REVERB };
 typedef void (*fw_audio_transmit_fn)(void *obj, void *block, int port);
 typedef void (*fw_audio_release_fn)(void *block);
