@@ -26,6 +26,7 @@ it; only this builder requires it.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import struct
 from dataclasses import dataclass
@@ -509,13 +510,23 @@ def build_core03_mod(fw: M8Firmware, stock_sha256: str, bindings: dict) -> Mod:
     defines = {"CORE_FW_H": '"%s"' % ld["fw_header"], "CORE_RAM": f"0x{ram:08X}u",
                "CORE_RAM_END": f"0x{ram_end:08X}u", "CORE_FLASH_TABLE": f"0x{TABLE:08X}u",
                "CORE_FLASH_SLOTS": str(abi.MAX_HOOKS)}
-    entries = ["core_early", "core_load", "core_boot", "core_serial"]
+    row = ld.get("settings_row")
+    if row:
+        defines["SETTINGS_MODS_Y"] = str(int(row["field_y"]))
+    entries = ["core_early", "core_load", "core_boot", "core_serial", "core_key"]
     c_img, syms = cc.build_fixed([CORE03_SOURCE], c_at, entries, defines)
     if c_at < fw.load_addr + len(fw.payload):
         raise RuntimeError(f"loader address 0x{c_at:08X} is inside the stock image")
-    # past the image the flash is erased (0xFF): that is what the loader's site hash-checks against
+    # SYSTEM SETTINGS gets a MODS row: a copy of its layout template with the row added, after the loader. The
+    # copy names the stock rows by address (["stock", ...]), so no Dirtywave bytes are in the mod.
+    t_at = t_len = 0
+    if row:
+        t_at = (c_at + len(c_img) + 15) & ~15
+        t_len = int(row["attrs"], 16) + 24 * 40 + 1           # text template, gap, attribute template
+    end = max(c_at + len(c_img), t_at + t_len)
+    # past the image the flash is erased (0xFF): that is what the loader's sites hash-check against
     fw = M8Firmware(version=fw.version, load_addr=fw.load_addr,
-                    payload=bytearray(fw.payload) + b"\xff" * (c_at + len(c_img) - fw.load_addr - len(fw.payload)))
+                    payload=bytearray(fw.payload) + bytes([0xFF]) * (end - fw.load_addr - len(fw.payload)))
     load_at = int(ld["load_at"], 16)
     img = build_core02(fw, bindings, ram=ram, early=syms["core_early"], boot=syms["core_boot"], layout=3,
                        calls_before={load_at: syms["core_load"]})
@@ -530,6 +541,31 @@ def build_core03_mod(fw: M8Firmware, stock_sha256: str, bindings: dict) -> Mod:
     o = fw.addr_to_offset(c_at)
     sites.append(Site.from_bytes(c_at, bytes(fw.payload[o:o + len(c_img)]), c_img, "code",
                                  f"core 0.3 loader ({len(c_img)} B, core03.c)"))
+    if row:
+        # The screen's text template is 24 rows of 40 characters; its attribute (colour) template follows at
+        # +attrs. The copy is the stock one with row r replaced, its colours those of row `attr_like`.
+        tpl, r, at_off = int(row["template"], 16), int(row["row"]), int(row["attrs"], 16)
+        like = int(row["attr_like"])
+        attr = tpl + at_off
+        text = row["text"].ljust(40)[:40].encode("ascii")
+        new = [["stock", f"0x{tpl:08x}", r * 40], ["hex", text.hex()],
+               ["stock", f"0x{tpl + (r + 1) * 40:08x}", at_off - (r + 1) * 40],
+               ["stock", f"0x{attr:08x}", r * 40],
+               ["stock", f"0x{attr + like * 40:08x}", 40],
+               ["stock", f"0x{attr + (r + 1) * 40:08x}", (24 - r - 1) * 40 + 1]]
+        o = fw.addr_to_offset(t_at)
+        sites.append(Site(addr=t_at, len=t_len, stock_sha256=hashlib.sha256(bytes(fw.payload[o:o + t_len])).hexdigest(),
+                          new=new, kind="data", note="SYSTEM SETTINGS layout and colours with the MODS row"))
+        # every literal that names the stock templates (the text's address, or the colours' at +attrs) now names
+        # core's copy
+        for lit_s in row["literals"]:
+            lit = int(lit_s, 16)
+            o = fw.addr_to_offset(lit)
+            v = struct.unpack_from("<I", fw.payload, o)[0]
+            if v not in (tpl, attr):
+                raise RuntimeError(f"0x{lit:08X} names neither of the settings templates")
+            sites.append(Site.from_bytes(lit, bytes(fw.payload[o:o + 4]), struct.pack("<I", t_at + v - tpl), "data",
+                                         "SYSTEM SETTINGS: the templates are core's copy"))
     events = list(img.stubs)
     mod = Mod(
         id="core", version=CORE03_VERSION, title="dirtyloader core", author="dirtyloader", category="Core",
@@ -539,7 +575,8 @@ def build_core03_mod(fw: M8Firmware, stock_sha256: str, bindings: dict) -> Mod:
                      "it also takes mod uploads over USB (dirtyloader.unit)."),
         target=make_target(stock, stock_sha256, bindings.get("firmware", "")), events=events, sites=sites,
         subscribe=([{"event": "SERIAL", "handler": syms["core_serial"] | 1, "order": 0}]
-                   if "SERIAL" in events else []),
+                   if "SERIAL" in events else [])
+                  + ([{"event": "KEY", "handler": syms["core_key"] | 1, "order": 0}] if "KEY" in events else []),
         resources={"names": ["core:hook-table", "core:region", "core:loader", "core:itcm-tail"]},
     )
     return mod

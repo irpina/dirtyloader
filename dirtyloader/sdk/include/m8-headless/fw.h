@@ -87,6 +87,34 @@ typedef int (*fw_serial_putc_fn)(int c);                       /* usb_serial_put
 #define fw_serial_read      ((fw_serial_read_fn)0x600A3F9Du)
 #define fw_serial_putc      ((fw_serial_putc_fn)0x600A4169u)
 
+/* ---- the UI -----------------------------------------------------------------------------------------------
+ * Screens are objects whose first word is an 8-slot method table: enter(view, arg), +04 (shared), input(view,
+ * action), update(view) each loop, draw(view) each frame, +14, and two flags (+18, +1C). set_view(ui, id) leaves
+ * the old screen, fetches fw_views[id] (30 slots, 7 is empty in this build) and enters it. The current id is at
+ * ui + 0x15. Input actions are the m8c key bits of the chord: EDIT 01, OPT 02, RIGHT 04, PLAY 08, SHIFT 10,
+ * DOWN 20, UP 40, LEFT 80. Text goes into a 40 x 24 character grid (fw_grid + 0x10 + row * 40 + col) that the
+ * display task draws and sends to m8c. */
+#define fw_ui               ((uint8_t *)0x2001C1A4u)
+#define FW_UI_VIEW          0x15
+#define fw_views            ((void *volatile *)0x20000B24u)
+#define FW_VIEWS            30
+#define FW_VIEW_FREE        7                           /* the empty slot core's MODS page takes */
+#define FW_VIEW_SETTINGS    0x1C
+#define fw_settings         ((volatile uint8_t *)0x2001CCECu)   /* SYSTEM SETTINGS: +4 cursor x, +5 cursor y */
+#define fw_grid             ((uint8_t *)0x20019160u)
+#define FW_GRID_COLS        40
+#define FW_GRID_ROWS        24
+typedef void (*fw_set_view_fn)(void *ui, int view);
+typedef void (*fw_text_fn)(void *grid, int col, int row, const char *s);
+#define fw_set_view         ((fw_set_view_fn)0x6004A96Du)
+#define fw_text             ((fw_text_fn)0x60077543u)
+#define FW_VIEW_SHARED_04   0x60099B25u                 /* the +04 method most screens share */
+#define FW_VIEW_NOP         0x60099B19u                 /* an empty method */
+#define FW_VIEW_FLAG_18     0x60099B1Du                 /* the +18 / +1C flags SETTINGS uses: return 0 */
+#define FW_VIEW_FLAG_1C     0x60099B21u
+enum { FW_KEY_EDIT = 0x01, FW_KEY_OPT = 0x02, FW_KEY_RIGHT = 0x04, FW_KEY_PLAY = 0x08, FW_KEY_SHIFT = 0x10,
+       FW_KEY_DOWN = 0x20, FW_KEY_UP = 0x40, FW_KEY_LEFT = 0x80 };
+
 /* Teensyduino's crash record (CrashReport): written by the fault handler, kept across the reboot */
 #define fw_fault_info       ((const volatile uint32_t *)0x2027FF80u)
 

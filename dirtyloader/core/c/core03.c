@@ -26,6 +26,7 @@
 #define RAM_SIG      0x47495344u       /* "DSIG": ram->nmods is from a previous boot of this core */
 #define SLOTS        64
 #define MAX_MODS     16
+#define NAME_MAX     28                /* an .m8x file name the MODS page and the boot record keep */
 #define FLAG_ENABLED 1u
 
 struct hook { uint16_t event, flags; void *fn; };
@@ -39,6 +40,13 @@ struct core_ram {
     uint32_t next;               /* next free byte of the mods' area */
     uint32_t nmods;
     const struct dl_mod *mods[MAX_MODS];
+    /* what core_load did with each line of active.txt, for the MODS page */
+    uint32_t nboot;
+    struct { char name[NAME_MAX]; int32_t err; } boot[MAX_MODS];
+    /* the MODS page (TELOS): a screen in the firmware's free view slot */
+    struct { const void *const *vt; uint8_t body[0x3C]; } page_view;
+    uint32_t page_n, page_sel, page_dirty, last_action;
+    struct { char name[NAME_MAX]; uint8_t on; } page[MAX_MODS];
 };
 #define ram ((struct core_ram *)CORE_RAM)
 #define AREA_START ((CORE_RAM + sizeof(struct core_ram) + 7u) & ~7u)
@@ -104,6 +112,12 @@ static int write_file(const char *path, const char *text, uint32_t n)
     int ok = f_write(&f, text, n) == (int)n;
     fw_file_close(&f);
     return ok;
+}
+
+static void restart_now(void)
+{
+    *(volatile uint32_t *)0xE000ED0Cu = 0x05FA0004u;  /* SCB_AIRCR: SYSRESETREQ */
+    for (;;) { }
 }
 
 /* ---- the crash guard ------------------------------------------------------------------------------------------
@@ -224,7 +238,7 @@ done:
 #define PKT_MARK  0xD1
 #define PKT_REPLY 0xF1
 #define PKT_MAX   1100u                             /* payload bytes; the request lands in SCRATCH */
-enum { C_INFO = 1, C_LIST, C_PUT, C_CHECK, C_GET, C_MKDIRS, C_RESTART };
+enum { C_INFO = 1, C_LIST, C_PUT, C_CHECK, C_GET, C_MKDIRS, C_RESTART, C_PEEK };
 enum { S_OK = 0, S_BAD, S_SUM, S_PATH, S_IO, S_NOCARD, S_TIMEOUT, S_CMD };
 
 static int rx_peek(void)
@@ -322,8 +336,7 @@ static void serve(uint8_t cmd, uint8_t seq, const uint8_t *p, uint32_t len)
         reply(cmd, seq, S_OK, 0, 0);
         uint32_t t = fw_millis;
         while (fw_millis - t < 50) { }                  /* let the reply leave */
-        *(volatile uint32_t *)0xE000ED0Cu = 0x05FA0004u;  /* SCB_AIRCR: SYSRESETREQ */
-        for (;;) { }
+        restart_now();
     }
     if (cmd == C_INFO) {
         char *o = (char *)out;
@@ -337,6 +350,13 @@ static void serve(uint8_t cmd, uint8_t seq, const uint8_t *p, uint32_t len)
         for (uint32_t i = 0; i < ram->nmods && i < MAX_MODS; i++) { *o++ = ' '; o = put(o, ram->mods[i]->id); }
         o = put(o, "\n");
         reply(cmd, seq, S_OK, out, (uint32_t)(o - (char *)out));
+        return;
+    }
+    if (cmd == C_PEEK) {                                /* address u32, length u16 (<= 512): read memory */
+        if (len != 6) { reply(cmd, seq, S_BAD, 0, 0); return; }
+        uint32_t at = le32(p), n = p[4] | p[5] << 8;
+        if (n > 512) n = 512;
+        reply(cmd, seq, S_OK, (const void *)at, n);
         return;
     }
     if (!FW_SD_MOUNTED()) { reply(cmd, seq, S_NOCARD, 0, 0); return; }
@@ -413,6 +433,179 @@ int core_serial(void *m8c)
     return 1;
 }
 
+/* ---- the MODS page (TELOS) -----------------------------------------------------------------------------------
+ * SYSTEM SETTINGS > MODS (TELOS) > OPEN. A screen of the firmware's own kind, in its free view slot: one row
+ * per .m8x on the card with its state, APPLY & RESTART last. UP/DOWN move, EDIT switches a mod on or off for the
+ * next boot (written to active.txt at once) or restarts on the last row, OPT goes back to SYSTEM SETTINGS.
+ *   ON running   +ON on from the next boot   OFF   -OFF off from the next boot   E<n> on, but the boot refused it */
+#ifndef SETTINGS_MODS_Y
+#define SETTINGS_MODS_Y 12                          /* the field row core's settings template adds */
+#endif
+#define PAGE_TOP  5                                 /* grid row of the first mod */
+
+static int name_eq(const char *a, const char *b, uint32_t n)
+{
+    for (uint32_t i = 0; i < n; i++) {
+        if (a[i] != b[i]) return 0;
+        if (!a[i]) return 1;
+    }
+    return 1;
+}
+
+static void page_read(void)
+{
+    struct fw_file dir, f;
+    ram->page_n = 0;
+    if (!f_open(&dir, "/dirtyloader/mods", FW_O_READ)) return;
+    while (ram->page_n < MAX_MODS) {
+        zero(&f, sizeof f);
+        if (!fw_file_open_next(&f, &dir, FW_O_READ)) break;
+        char *nm = ram->page[ram->page_n].name;
+        int k = f.fat ? fw_fat_name(f.fat, nm, NAME_MAX) : fw_exfat_name(f.exfat, nm, NAME_MAX);
+        fw_file_close(&f);
+        if (k > 4 && name_eq(nm + k - 4, ".m8x", 5)) ram->page[ram->page_n++].on = 0;
+    }
+    fw_file_close(&dir);
+    char *const list = (char *)(SCRATCH + STATUS_SIZE);
+    int n = 0;
+    if (f_open(&f, "/dirtyloader/active.txt", FW_O_READ)) {
+        n = f_read(&f, list, LIST_SIZE - 1);
+        fw_file_close(&f);
+    }
+    if (n < 0) n = 0;
+    list[n] = 0;
+    for (char *p = list; *p;) {
+        char *line = p;
+        while (*p && *p != '\n' && *p != '\r') p++;
+        if (*p) *p++ = 0;
+        for (uint32_t i = 0; i < ram->page_n; i++)
+            if (name_eq(ram->page[i].name, line, NAME_MAX)) ram->page[i].on = 1;
+    }
+}
+
+static void page_write(void)
+{
+    char *const t = (char *)(SCRATCH + STATUS_SIZE);
+    char *o = put(t, "# one .m8x per line, from /dirtyloader/mods/; core loads them at boot\n");
+    for (uint32_t i = 0; i < ram->page_n; i++)
+        if (ram->page[i].on) { o = put(o, ram->page[i].name); *o++ = '\n'; }
+    write_file("/dirtyloader/active.txt", t, (uint32_t)(o - t));
+    write_file(GUARD_PATH, "GOOD", 4);
+}
+
+static int boot_err(const char *name)               /* -1 not loaded at boot, 0 running, n refused */
+{
+    for (uint32_t i = 0; i < ram->nboot; i++)
+        if (name_eq(ram->boot[i].name, name, NAME_MAX)) return ram->boot[i].err;
+    return -1;
+}
+
+static void row(int r, const char *s)               /* a whole grid row, padded */
+{
+    char line[FW_GRID_COLS + 1];
+    uint32_t i = 0;
+    for (; s[i] && i < FW_GRID_COLS; i++) line[i] = s[i];
+    for (; i < FW_GRID_COLS; i++) line[i] = ' ';
+    line[FW_GRID_COLS] = 0;
+    fw_text(fw_grid, 0, r, line);
+}
+
+static int page_changed(void)
+{
+    for (uint32_t i = 0; i < ram->page_n; i++) {
+        int e = boot_err(ram->page[i].name);
+        if (ram->page[i].on != (e >= 0)) return 1;
+    }
+    return 0;
+}
+
+static void page_draw_all(void)
+{
+    char b[64], *o;
+    for (int r = 0; r < FW_GRID_ROWS; r++) row(r, "");
+    o = put(b, " MODS (TELOS)");
+    *o = 0;
+    row(3, b);
+    for (uint32_t i = 0; i <= ram->page_n; i++) {
+        o = b;
+        *o++ = ' ';
+        *o++ = i == ram->page_sel ? '>' : ' ';
+        if (i == ram->page_n) {
+            o = put(o, page_changed() ? "APPLY & RESTART" : "RESTART");
+            *o = 0;
+            row(PAGE_TOP + (int)i + 1, b);
+            break;
+        }
+        const char *nm = ram->page[i].name;
+        uint32_t k = 0;
+        while (nm[k] && k < 26) *o++ = nm[k++];
+        while (k++ < 27) *o++ = ' ';
+        int e = boot_err(nm);
+        if (ram->page[i].on && e > 0) { *o++ = 'E'; o = put_dec(o, (uint32_t)e); }
+        else if (ram->page[i].on) o = put(o, e == 0 ? "ON" : "+ON");
+        else o = put(o, e == 0 ? "-OFF" : "OFF");
+        *o = 0;
+        row(PAGE_TOP + (int)i, b);
+    }
+    if (!ram->page_n) row(PAGE_TOP, "   NO MODS IN /DIRTYLOADER/MODS");
+    o = put(b, " ");
+    o = put_dec(o, ram->next - AREA_START);
+    o = put(o, " / ");
+    o = put_dec(o, AREA_END - AREA_START);
+    o = put(o, " BYTES IN USE");
+    *o = 0;
+    row(20, b);
+    row(21, " EDIT ON/OFF   OPT BACK");
+}
+
+static void page_enter(void *view, int arg)
+{
+    if (FW_SD_MOUNTED()) page_read();
+    else ram->page_n = 0;
+    ram->page_sel = 0;
+    ram->page_dirty = 1;
+}
+
+static void page_input(void *view, int action)
+{
+    ram->last_action = (uint32_t)action;
+    uint32_t rows = ram->page_n + 1;
+    if (action == FW_KEY_UP && ram->page_sel) ram->page_sel--;
+    else if (action == FW_KEY_DOWN && ram->page_sel + 1 < rows) ram->page_sel++;
+    else if (action == FW_KEY_OPT) { fw_set_view(fw_ui, FW_VIEW_SETTINGS); return; }
+    else if (action == FW_KEY_EDIT) {
+        if (ram->page_sel == ram->page_n) restart_now();
+        ram->page[ram->page_sel].on ^= 1;
+        page_write();
+    }
+    ram->page_dirty = 1;
+}
+
+static void page_update(void *view) { }
+
+static void page_draw(void *view)
+{
+    if (!ram->page_dirty) return;
+    ram->page_dirty = 0;
+    page_draw_all();
+}
+
+static const void *const page_vt[8] = {
+    (const void *)page_enter, (const void *)FW_VIEW_SHARED_04, (const void *)page_input, (const void *)page_update,
+    (const void *)page_draw, (const void *)FW_VIEW_NOP, (const void *)FW_VIEW_FLAG_18, (const void *)FW_VIEW_FLAG_1C,
+};
+
+/* ev_key, order 0: EDIT on the settings row core adds opens the page */
+int core_key(void *ui, int action)
+{
+    if (((uint8_t *)ui)[FW_UI_VIEW] == FW_VIEW_SETTINGS && fw_settings[5] == SETTINGS_MODS_Y
+        && action == FW_KEY_EDIT && fw_views[FW_VIEW_FREE] == &ram->page_view) {
+        fw_set_view(ui, FW_VIEW_FREE);
+        return 1;
+    }
+    return 0;
+}
+
 static void itcm_writable(void)
 {
     volatile uint32_t *rnr = (uint32_t *)0xE000ED98u, *rasr = (uint32_t *)0xE000EDA0u;
@@ -439,6 +632,7 @@ void core_load(void)
     ram->sig = RAM_SIG;
     ram->loaded = 1;
     ram->nmods = 0;
+    ram->nboot = 0;
     ram->next = AREA_START;
     flash_hooks(orders);
     if (!FW_SD_MOUNTED())
@@ -485,6 +679,13 @@ void core_load(void)
             const struct dl_mod *m = 0;
             uint32_t at = ram->next;
             int err = load_one(line, orders, &m);
+            if (ram->nboot < MAX_MODS) {
+                char *d = ram->boot[ram->nboot].name;
+                uint32_t i = 0;
+                for (; line[i] && i < NAME_MAX - 1; i++) d[i] = line[i];
+                d[i] = 0;
+                ram->boot[ram->nboot++].err = err;
+            }
             o = put(o, line);
             if (err) {
                 o = put(o, ": E");
@@ -519,6 +720,11 @@ void core_boot(void)
         uint16_t orders[SLOTS];
         ram->nmods = 0;
         flash_hooks(orders);
+    }
+    if (!fw_views[FW_VIEW_FREE]) {                  /* the MODS page takes the firmware's free view slot */
+        zero(&ram->page_view, sizeof ram->page_view);
+        ram->page_view.vt = page_vt;
+        fw_views[FW_VIEW_FREE] = &ram->page_view;
     }
     __asm volatile("dsb\n isb" ::: "memory");
     ram->magic = RAM_MAGIC;

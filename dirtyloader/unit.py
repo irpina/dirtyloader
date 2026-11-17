@@ -26,7 +26,7 @@ from typing import List, Optional, Tuple
 from dirtyloader.serialport import open_m8, SerialPort
 
 MARK, REPLY = 0xD1, 0xF1
-C_INFO, C_LIST, C_PUT, C_CHECK, C_GET, C_MKDIRS, C_RESTART = range(1, 8)
+C_INFO, C_LIST, C_PUT, C_CHECK, C_GET, C_MKDIRS, C_RESTART, C_PEEK = range(1, 9)
 STATUS = {0: "ok", 1: "bad request", 2: "checksum", 3: "bad path or no such file", 4: "SD error",
           5: "no SD card", 6: "timeout", 7: "unknown command"}
 CHUNK = 1024
@@ -113,6 +113,14 @@ class Unit:
             out += part
             if len(part) < 512:
                 return out
+
+    def peek(self, addr: int, n: int) -> bytes:
+        """Read the unit's memory (development: screen objects, tables, state)."""
+        out = b""
+        while len(out) < n:
+            k = min(512, n - len(out))
+            out += self.request(C_PEEK, struct.pack("<IH", addr + len(out), k))
+        return out
 
     def restart(self) -> None:
         self.request(C_RESTART)

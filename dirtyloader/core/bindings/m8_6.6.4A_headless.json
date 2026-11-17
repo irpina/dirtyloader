@@ -30,6 +30,9 @@
     "ram_end": "0x00030000",
     "fw_header": "m8-headless/fw.h",
     "load_at": "0x6007F0CC",
+    "settings_row": {"template": "0x601C631C", "attrs": "0x3C4", "literals": ["0x600739BC", "0x600739C4", "0x60074018"],
+                     "row": 21, "attr_like": 7, "field_y": 12, "text": " MODS (TELOS) {OPEN}",
+                     "note": "SYSTEM SETTINGS' layout: a text template of 24 rows of 40 characters, fields in braces numbered by row in order (BACKLIGHT 0 .. KEY DELAY 11), and its colours 0x3C4 bytes on. Its enter passes both to 0x6009AF74(grid, text, colours) from the literal 0x60074018 (the colours' address, text = it - 0x3C4); 0x600739BC/C4 are getters' copies. Core points all three at a copy whose row 21, the first blank after the last field, is field row 12, coloured like THEME (row 7)."},
     "note": "core 0.3: the C loader goes in free flash past the image (ends 0x601DD400); its state and the loaded mods go in the ITCM tail after the firmware's ITCM code (0x29B40) up to the end of the 6 ITCM banks (GPR17 0xAAAAAFFF = 192 KB). MPU region 1 (ITCM, RASR 0x07080025, read-only) is made read/write by core_early. load_at is the bl 0x6008FDA8 in setup() just after the card is mounted (0x6007A3FC at 0x6007F0BC) and before audio starts or the autosave loads: core_load reads the card there, because SdFat calls after setup() broke the firmware's own card reads. SdFat: FsBaseFile::open 0x600A0894 on the SdFs volume 0x200376EC (sdk/include/m8-headless/fw.h)."
   },
   "core": {
@@ -37,6 +40,12 @@
               "note": "main(): bl setup; BOOT handlers run once after setup() returns"},
     "TICK":  {"kind": "call_pre",  "patch_at": "0x600A28FE", "target": "0x6007F02C",
               "note": "main(): bl loop; TICK handlers run before every loop()"},
+    "DRAW":  {"kind": "call_pre",  "patch_at": "0x6007FAB8", "target": "0x60049CE0",
+              "note": "loop(): bl frame_refresh(display 0x2001A4F4), after the screen's update (0x6004A820 -> view +0x0C) and before the frame goes out"},
+    "KEY":   {"kind": "call_pre",  "patch_at": "0x6007FBA0", "target": "0x6004ADEC",
+              "note": "loop(): bl ui_input(ui 0x2001C1A4, action); action = the chord's key bits (EDIT 01 OPT 02 RIGHT 04 PLAY 08 SHIFT 10 DOWN 20 UP 40 LEFT 80)"},
+    "VIEW":  {"kind": "entry",     "patch_at": "0x6004A96C",
+              "note": "set_view(ui, id): leaves the old screen, fw_views[id] (0x20000B24, 30 slots, 7 empty), enters the new one"},
     "SERIAL": {"kind": "entry",    "patch_at": "0x6007846C",
                "note": "the m8c command parser (obj): drains USB serial into a 6-byte buffer and runs E/R/D/C/K/P/S. Called from loop and from the render screens' polling (24 sites); core's handler takes requests that start with 0xD1."},
     "TEMPO": {"kind": "entry",     "patch_at": "0x60090978",
