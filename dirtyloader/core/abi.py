@@ -86,7 +86,7 @@ EVENTS = {
     Event.MIDI: EventInfo("ev_midi", "ui", True, "int f(const unsigned char *msg, int port)", "site pending"),
     Event.SETTINGS: EventInfo("ev_settings", "ui", False, "void f(void *menu)", "design only"),
     Event.SERIAL: EventInfo("ev_serial", "ui", True, "int f(void *m8c)", "site pinned"),
-    Event.NOTE: EventInfo("ev_note", "audio", True, "int f(int track, const unsigned char *step)", "site pinned"),
+    Event.NOTE: EventInfo("ev_note", "audio", True, "int f(void *player, int instrument)", "implemented (headless)"),
     Event.FX_COMMAND: EventInfo("ev_fx_command", "audio", True, "int f(int track, int cmd, int value)",
                                 "site pinned"),
     Event.FX_ROW: EventInfo("ev_fx_row", "audio", True, "int f(int track, int column, int cmd, int value)",

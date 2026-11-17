@@ -182,7 +182,7 @@ CORE02_VERSION = "0.2.0"
 # a multiple of 8 bytes, so handlers see an AAPCS-aligned stack whenever the hooked site had one.
 
 TAKE = 0x10000
-KINDS02 = ("call_pre", "call_post", "entry")
+KINDS02 = ("call_pre", "call_post", "entry", "itcm_entry")
 
 
 RAM_MAGIC = 0x33524C44          # "DLR3": core 0.3's table in ITCM is live (core03.c sets it after loading)
@@ -316,8 +316,12 @@ class Core02:
     dispatch: int
 
 
+VENEER_TABLE = REGION + abi.CORE_REGION_SIZE - 0x84          # core 0.3: count, then (itcm address, target) x 16
+MAX_VENEERS = 16
+
+
 def build_core02(fw: M8Firmware, bindings: dict, ram: int = 0, early: int = 0, boot: int = 0,
-                 layout: int = 2, calls_before: dict = None) -> Core02:
+                 layout: int = 2, calls_before: dict = None, itcm_load: int = 0, veneers_at: int = 0) -> Core02:
     """Assemble core 0.2 for one firmware from its bindings' "core" sites. core 0.3 passes the address of its
     ITCM table (`ram`) and of core03.c's `early` (before setup) and `boot` (after setup, before ev_boot). `calls_before`
     maps the address of a `bl` to a function to call first (core 0.3's loader, inside setup())."""
@@ -337,7 +341,7 @@ def build_core02(fw: M8Firmware, bindings: dict, ram: int = 0, early: int = 0, b
         return at
 
     dispatch = emit(_dispatch02_asm(TABLE, abi.MAX_HOOKS, ram))
-    sites, stubs = [], {}
+    sites, stubs, veneers = [], {}, []
     for name, s in bindings["core"].items():
         ev = by_name(name)
         take = EVENTS[ev].takeable
@@ -400,6 +404,41 @@ def build_core02(fw: M8Firmware, bindings: dict, ram: int = 0, early: int = 0, b
             """)
             new = _asm(f"b.w #{stub}", at)
             new += b"\x00\xbf" * ((n - len(new)) // 2)        # pad a longer relocation with nops
+        elif kind == "itcm_entry":
+            # ITCM code (the audio thread and the sequencer) runs at 0x0000xxxx, out of reach of flash: the site
+            # branches to a veneer in the ITCM tail (core_early writes it), the veneer to the flash stub, and the
+            # stub back into ITCM with bx. `patch_at` is the run address; the bytes are patched in the load image.
+            if not (itcm_load and veneers_at):
+                raise RuntimeError(f"{name}: an itcm_entry site needs the ITCM load base and a veneer area")
+            if len(veneers) >= MAX_VENEERS:
+                raise RuntimeError("too many ITCM sites for the veneer table")
+            run = at
+            load = itcm_load + run
+            prologue, n = relocate_prologue(fw, load)
+            back = (run + n) | 1
+            stub = emit(f"""
+                push {{r0, r1, r2, r3, r4, lr}}
+                sub  sp, #8
+                {_set_ip(word)}
+                bl   #{dispatch}
+                add  sp, #8
+                cmp  r0, #0
+                bne  taken
+                pop  {{r0, r1, r2, r3, r4, lr}}
+                {prologue}
+                movw ip, #{back & 0xFFFF}
+                movt ip, #{back >> 16}
+                bx   ip
+            taken:
+                movs r0, #0
+                add  sp, #16
+                pop  {{r4, pc}}
+            """)
+            ven = veneers_at + 8 * len(veneers)
+            veneers.append((ven, stub | 1))
+            new = _asm(f"b.w #{ven}", run)
+            new += b"\x00\xbf" * ((n - len(new)) // 2)
+            at = load
         else:
             raise RuntimeError(f"{name}: unknown site kind {kind!r} (one of {KINDS02})")
         stubs[ev.name] = stub
@@ -420,6 +459,12 @@ def build_core02(fw: M8Firmware, bindings: dict, ram: int = 0, early: int = 0, b
     blob += struct.pack("<I", dispatch | 1)                        # +0x0C the dispatcher (Thumb)
     blob += bytes(abi.MAX_HOOKS * abi.HOOK_ENTRY_SIZE)             # empty table: the linker fills it in order
     blob += code
+    if veneers:
+        end = VENEER_TABLE - REGION
+        if len(blob) > end:
+            raise RuntimeError(f"core is {len(blob)} B; with ITCM veneers the region holds {end}")
+        blob += bytes([0xFF]) * (end - len(blob))
+        blob += struct.pack("<I", len(veneers)) + b"".join(struct.pack("<II", v, t) for v, t in veneers)
     if len(blob) > abi.CORE_REGION_SIZE:
         raise RuntimeError(f"core 0.2 is {len(blob)} B; the cave holds {abi.CORE_REGION_SIZE}")
     return Core02(blob=bytes(blob), sites=sites, stubs=stubs, dispatch=dispatch)
@@ -509,7 +554,8 @@ def build_core03_mod(fw: M8Firmware, stock_sha256: str, bindings: dict) -> Mod:
     c_at, ram, ram_end = (int(ld[k], 16) for k in ("c_at", "ram", "ram_end"))
     defines = {"CORE_FW_H": '"%s"' % ld["fw_header"], "CORE_RAM": f"0x{ram:08X}u",
                "CORE_RAM_END": f"0x{ram_end:08X}u", "CORE_FLASH_TABLE": f"0x{TABLE:08X}u",
-               "CORE_FLASH_SLOTS": str(abi.MAX_HOOKS), "CORE_DISPATCH": f"0x{CODE | 1:08X}u"}
+               "CORE_FLASH_SLOTS": str(abi.MAX_HOOKS), "CORE_DISPATCH": f"0x{CODE | 1:08X}u",
+               "CORE_VENEERS": f"0x{VENEER_TABLE:08X}u"}
     row = ld.get("settings_row")
     if row:
         defines["SETTINGS_MODS_Y"] = str(int(row["field_y"]))
@@ -530,7 +576,8 @@ def build_core03_mod(fw: M8Firmware, stock_sha256: str, bindings: dict) -> Mod:
                     payload=bytearray(fw.payload) + bytes([0xFF]) * (end - fw.load_addr - len(fw.payload)))
     load_at = int(ld["load_at"], 16)
     img = build_core02(fw, bindings, ram=ram, early=syms["core_early"], boot=syms["core_boot"], layout=3,
-                       calls_before={load_at: syms["core_load"]})
+                       calls_before={load_at: syms["core_load"]}, itcm_load=int(ld.get("itcm_load", "0"), 16),
+                       veneers_at=int(ld.get("veneers", "0"), 16))
     region_off = fw.addr_to_offset(REGION)
     stock_region = bytes(fw.payload[region_off:region_off + len(img.blob)])
     if set(stock_region) - {0xFF}:

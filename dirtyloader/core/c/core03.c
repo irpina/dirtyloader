@@ -434,6 +434,8 @@ static void serve(uint8_t cmd, uint8_t seq, const uint8_t *p, uint32_t len)
     reply(cmd, seq, S_CMD, 0, 0);
 }
 
+#define FW_VECTORS ((volatile uint32_t *)0x2000B800u)
+
 int core_serial(void *m8c)
 {
     if (rx_peek() != PKT_MARK) return 0;                /* not ours: the m8c parser runs */
@@ -791,7 +793,6 @@ static int fire(uint32_t word, uint32_t a0, uint32_t a1)
    where loaded mods run. */
 #define EV_RENDER_IN_W  0x0030u
 #define EV_RENDER_OUT_W 0x0031u
-#define FW_VECTORS ((volatile uint32_t *)0x2000B800u)
 #define FW_AUDIO_VECTOR (16 + 70)
 static void core_audio(void)
 {
@@ -808,9 +809,28 @@ static void itcm_writable(void)
     __asm volatile("dsb; isb" ::: "memory");
 }
 
+/* The ITCM sites' veneers: the builder lists them at CORE_VENEERS (count, then itcm address and flash stub per
+   site); each becomes `ldr.w pc, [pc, #0]` and the stub's address, in the ITCM tail above core's RAM. */
+#ifndef CORE_VENEERS
+#error "CORE_VENEERS comes from the builder"
+#endif
+static void write_veneers(void)
+{
+    const uint32_t *t = (const uint32_t *)CORE_VENEERS;
+    uint32_t n = t[0];
+    if (n > 16) return;                             /* erased flash: no ITCM sites */
+    for (uint32_t i = 0; i < n; i++) {
+        volatile uint32_t *v = (volatile uint32_t *)t[1 + 2 * i];
+        v[0] = 0xF000F8DFu;                         /* ldr.w pc, [pc, #0] */
+        v[1] = t[2 + 2 * i];
+    }
+    __asm volatile("dsb; isb" ::: "memory");
+}
+
 void core_early(void)
 {
     itcm_writable();
+    write_veneers();
     ram->magic = 0;
     ram->loaded = 0;
 }
