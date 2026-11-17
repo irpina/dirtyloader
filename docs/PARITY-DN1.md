@@ -104,8 +104,9 @@ Status:
 | LFO destination names and groups (5.2), `core_param_override`'s names | `mod_dest_add(engine, name)`: a destination added to an engine's list, shown and picked in the instrument MODS page's DEST like a stock one, applied by the mod in `ev_mod_apply`. Core swaps the engine's two getters in its RAM vtable. A modulator keeps its destination in 4 bits, so each engine takes 16: one more for the 15-destination engines, two for SAMPLER and EXTERNAL | done | the demo's WAVSYNTH destination DEMO showed as `0F DEMO` and was applied 28,352 times in 1.5 s |
 | parameter slots, lane parameters, knobs on pages (2.1-5.1) | n/a as such: the M8 has no knob pages, and its parameters are fields a view edits with EDIT + arrows. A mod's own parameters go on its page (`page_add`), kept with the song (`song_data`), and stock fields are observed with `ev_param_set` | n/a | |
 
-## Not this device
+## The other M8: Model:02
 
-The Model:02 build (6.6.2A, the `.bin` container) is a separate port of the same core: every site above has to
-be found again in that firmware (`port.py` matches code between the two). It is not built. Testing it needs a
-Model:02 unit, and this work was told to test on the spare Teensy only, not on the real M8.
+core 0.5 is also built for the M8 Model:02 6.6.2A, from the same C, with every site found again in that
+firmware ([MODEL02-PORT.md](MODEL02-PORT.md)). `python -m dirtyloader.core.build_model02` writes a flashable
+`.bin`. It is checked statically on every build (`tests/test_model02.py`), but has not been run on a Model:02 unit:
+this work tested on the spare headless Teensy only, as asked.

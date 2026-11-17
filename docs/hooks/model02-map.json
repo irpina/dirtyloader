@@ -1,0 +1,1703 @@
+{
+ "from": "M8 Headless 6.6.4A",
+ "to": "M8 Model:02 6.6.2A (M8_V6_6_2A_MODEL02.bin, load 0x60000000)",
+ "conventions": "code addresses are flash/run addresses; ITCM entries are run addresses (load = run + 0x60001680 in both); .data run = load - 0x601DE020 + 0x20000000 (headless - 0x601D0B40); Thumb functions keep the headless file's |1 style where fw.h uses it",
+ "entries": [
+  {
+   "name": "sym.entry (ResetHandler)",
+   "headless": "0x6000164D",
+   "model02": "0x60001649",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); m2 bindings entry 0x60001649"
+  },
+  {
+   "name": "sym.startup",
+   "headless": "0x60001430",
+   "model02": "0x60001430",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); memmap: identical startup copies"
+  },
+  {
+   "name": "sym.main",
+   "headless": "0x600A28F8",
+   "model02": "0x600AE04C",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); m2 bindings main"
+  },
+  {
+   "name": "sym.setup",
+   "headless": "0x6007F030",
+   "model02": "0x60082374",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "main's first bl (bl callers in headless map to m2 sites that call it); m2 bindings setup"
+  },
+  {
+   "name": "sym.loop",
+   "headless": "0x6007F02C",
+   "model02": "0x60081BD4",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "main's second bl; m2 bindings loop. NB: m2 loop is a real function, not a b.w veneer"
+  },
+  {
+   "name": "sym.loop_real",
+   "headless": "0x6007FC54",
+   "model02": "0x60081BD4",
+   "kind": "code entry",
+   "confidence": "S2",
+   "evidence": "headless loop() veneer target; m2 has no veneer, loop itself"
+  },
+  {
+   "name": "sym.yield",
+   "headless": "0x600A8E88",
+   "model02": "0x600B4DC0",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "14 callers agree; both are ldr.w pc veneers; m2 bindings yield"
+  },
+  {
+   "name": "sym.systick_isr",
+   "headless": "0x600A42D4",
+   "model02": "0x600B01E0",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); startup installs 0x600B01E1; FIRMWARE-MAP SysTick"
+  },
+  {
+   "name": "sym.set_tempo / core.TEMPO",
+   "headless": "0x60090978",
+   "model02": "0x6009A6C0",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "same body (vcmp/vstr bpm, *K, tail-call delay update 0x6009A5F0~0x60090878); FIRMWARE-MAP setTempo. m2 takes (float bpm) only: no clock-owner r0; bpm at clock 0x2000D218+0x30 (headless owner+0x3C0)"
+  },
+  {
+   "name": "exports.millis",
+   "headless": "0x20040264",
+   "model02": "0x20040358",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "88 exact literal votes; SysTick ISR increments it in both; startup literal"
+  },
+  {
+   "name": "memory.itcm",
+   "headless": "load 0x60001680..0x6002B1C0 -> run 0..0x29B40",
+   "model02": "load 0x60001680..0x6002CF50 -> run 0..0x2B8D0",
+   "kind": "itcm run",
+   "confidence": "S1",
+   "evidence": "startup literals 0x6000146C/6E (same code)"
+  },
+  {
+   "name": "memory.data",
+   "headless": "load 0x601D0B40 -> run 0x20000000..0x2000BAC0",
+   "model02": "load 0x601DE020 -> run 0x20000000..0x2000C2C0",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "startup literals; bss end 0x200415E0 -> 0x20041700"
+  },
+  {
+   "name": "memory.vectors_ram / FW_VECTORS (core03.c)",
+   "headless": "0x2000B800",
+   "model02": "0x2000C000",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "startup literal 0x60001480; 11 exact votes; update_setup writes +0x158"
+  },
+  {
+   "name": "memory.stack_top",
+   "headless": "0x20050000",
+   "model02": "0x20050000",
+   "kind": "literal",
+   "confidence": "S1",
+   "evidence": "startup literal 0x60001656 (hl 0x6000165A)"
+  },
+  {
+   "name": "FW_AUDIO_VECTOR = 16+70 (IRQ 70)",
+   "headless": "0x2000B958 (+0x158)",
+   "model02": "0x2000C158 (+0x158)",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "update_setup (hl 0x1AE1C / m2 0x1BE04) stores software_isr (hl 0x27619, m2 0x2929D) at vectors+0x158, prio 0xD0"
+  },
+  {
+   "name": "ev_crash fault vectors FW_VECTORS[3..6]",
+   "headless": "0x2000B80C..",
+   "model02": "0x2000C00C..",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "same RAM vector table layout"
+  },
+  {
+   "name": "MPU ITCM region (core_early, RASR 0x07080025)",
+   "headless": "0x6008C390",
+   "model02": "0x60096A30",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "MPU setup function identical incl. RASR literal 0x07080025 (hl pool 0x6008C474, m2 0x60096B14)"
+  },
+  {
+   "name": "loader.itcm_load",
+   "headless": "0x60001680",
+   "model02": "0x60001680",
+   "kind": "literal",
+   "confidence": "S1",
+   "evidence": "startup"
+  },
+  {
+   "name": "loader.ram (ITCM tail start)",
+   "headless": "0x00029B40",
+   "model02": "0x0002B8D0",
+   "kind": "itcm run",
+   "confidence": "S1",
+   "evidence": "ITCM image end; no literal points into 0x2B8D0..0x30000"
+  },
+  {
+   "name": "loader.ram_end",
+   "headless": "0x0002FF80",
+   "model02": "0x0002FF80",
+   "kind": "itcm run",
+   "confidence": "S1",
+   "evidence": "same 192 KB ITCM (GPR17 0xAAAAAFFF in both). Free tail 0x2B8D0..0x2FF80 = 18096 B (headless 25664 B)"
+  },
+  {
+   "name": "loader.veneers",
+   "headless": "0x0002FF80",
+   "model02": "0x0002FF80",
+   "kind": "itcm run",
+   "confidence": "S1",
+   "evidence": "end of ITCM, same as headless"
+  },
+  {
+   "name": "DL_CORE_PTR (loader.ram + 0x208)",
+   "headless": "0x00029D48",
+   "model02": "0x0002BAD8",
+   "kind": "itcm run",
+   "confidence": "S2",
+   "evidence": "follows loader.ram 0x2B8D0"
+  },
+  {
+   "name": "loader.c_at (free flash past the image)",
+   "headless": "0x601E0000",
+   "model02": "0x601F0000",
+   "kind": "literal",
+   "confidence": "S2",
+   "evidence": "m2 image ends 0x601EB000 (boot data size 0x1EB000; 0x600998F0 loads 0x601EB000 as image end); flash is 16 MB (FCFB A1 size 0x1000000), EEPROM emulation at 0x60FC0000..0x60FFF000 (0x60079FCC, 0x6007A5BE, 0x600ADD54); 0x60FFF000 checked for 'FCFB' (0x600378F8). Free 0x601EB000..0x60FC0000"
+  },
+  {
+   "name": "loader.load_at (bl after the card mount, before audio/autosave)",
+   "headless": "0x6007F0CC",
+   "model02": "0x6008243C",
+   "kind": "bl site",
+   "confidence": "S2",
+   "evidence": "setup(): after sd_ready (m2 0x6008242A) / the hang loop, the first bl is 0x6008243C bl 0x600378F8 (OCRAM/DMAMEM init, r0 = mixer 0x20010858). Headless's bl target 0x6008FDA8 (mixer singleton getter) has no m2 counterpart (m2 mixer is a global)"
+  },
+  {
+   "name": "setup.mount_call_target (mixer getter)",
+   "headless": "0x6008FDA8",
+   "model02": null,
+   "kind": "code entry",
+   "confidence": "none",
+   "evidence": "headless function-static getter returning engine+0x3E0; m2 uses the global 0x20010858"
+  },
+  {
+   "name": "loader.sd_ready_call",
+   "headless": "0x6007F0BC",
+   "model02": "0x6008242A",
+   "kind": "bl site",
+   "confidence": "S1",
+   "evidence": "same ldrb [r,#6]/cbz/bl sd_ready/b sequence in setup"
+  },
+  {
+   "name": "loader.calls.MIDI (usb_midi_read's bl read_message)",
+   "headless": "0x600A376A",
+   "model02": "0x600AF46E",
+   "kind": "bl site",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); bl -> 0x600AF3C0 (= mapped read_message)",
+   "same_instructions": true
+  },
+  {
+   "name": "loader.sysex_handler.ptr / fw_sysex_handler",
+   "headless": "0x20040654",
+   "model02": "0x20040748",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "store in usbMIDI init (hl 0x600869B0 / m2 0x60089650), 3 exact + 21 based votes"
+  },
+  {
+   "name": "loader.sysex_handler.stock",
+   "headless": "0x6009C0B9",
+   "model02": "0x600A65B5",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "the literal stored at the same site (hl pool 0x60086A64 -> m2 0x60089704)"
+  },
+  {
+   "name": "loader.sysex_handler.set_site",
+   "headless": "0x600869B0",
+   "model02": "0x60089650",
+   "kind": "code site",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique)"
+  },
+  {
+   "name": "loader.settings_row.template",
+   "headless": "0x601C631C",
+   "model02": "0x601D245C",
+   "kind": "literal",
+   "confidence": "S1",
+   "evidence": "the SYSTEM SETTINGS text template; attrs at +0x3C4 (0x601D2820) as in headless. m2 rows differ: row 20 BATT.CHARGING{b~~}, row 21 FIRMWARE{UPDATE}; first blank row = 22, field_y = 14 (14 fields 0..13), attr_like 7 (THEME) still valid"
+  },
+  {
+   "name": "loader.settings_row.literals[0] (template getter pool)",
+   "headless": "0x600739BC",
+   "model02": "0x60074BF4",
+   "kind": "literal",
+   "confidence": "S1",
+   "evidence": "getter ldr r0,=template at 0x60074BEE (same code)"
+  },
+  {
+   "name": "loader.settings_row.literals[1] (attrs getter pool)",
+   "headless": "0x600739C4",
+   "model02": "0x60074BFC",
+   "kind": "literal",
+   "confidence": "S1",
+   "evidence": "getter ldr r0,=attrs at 0x60074BF8"
+  },
+  {
+   "name": "loader.settings_row.literals[2] (enter's attrs pool)",
+   "headless": "0x60074018",
+   "model02": "0x600753CC",
+   "kind": "literal",
+   "confidence": "S1",
+   "evidence": "SETTINGS enter 0x600751F8: ldr r2,=attrs; sub r1,r2,#0x3C4; bl grid_text"
+  },
+  {
+   "name": "settings grid_text fn (grid, text, colours)",
+   "headless": "0x6009AF74",
+   "model02": "0x600A5708",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "35 callers agree; the SETTINGS enter calls it the same way"
+  },
+  {
+   "name": "fw_file_open (FsBaseFile::open)",
+   "headless": "0x600A0895",
+   "model02": "0x600ABFFD",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); bl callers in headless map to m2 sites that call it (4-130 sites)"
+  },
+  {
+   "name": "fw_file_open_next",
+   "headless": "0x600A09CD",
+   "model02": "0x600AC135",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); bl callers in headless map to m2 sites that call it (4-130 sites)"
+  },
+  {
+   "name": "fw_file_close",
+   "headless": "0x600A086D",
+   "model02": "0x600ABFD5",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); bl callers in headless map to m2 sites that call it (4-130 sites)"
+  },
+  {
+   "name": "fw_fat_read",
+   "headless": "0x6009EFFD",
+   "model02": "0x600AA765",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); bl callers in headless map to m2 sites that call it (4-130 sites)"
+  },
+  {
+   "name": "fw_exfat_read",
+   "headless": "0x6009D601",
+   "model02": "0x600A8D69",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); bl callers in headless map to m2 sites that call it (4-130 sites)"
+  },
+  {
+   "name": "fw_fat_write",
+   "headless": "0x6009F631",
+   "model02": "0x600AAD99",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); bl callers in headless map to m2 sites that call it (4-130 sites)"
+  },
+  {
+   "name": "fw_exfat_write",
+   "headless": "0x6009E0D5",
+   "model02": "0x600A983D",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); bl callers in headless map to m2 sites that call it (4-130 sites)"
+  },
+  {
+   "name": "fw_fat_seek",
+   "headless": "0x6009F2A1",
+   "model02": "0x600AAA09",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); bl callers in headless map to m2 sites that call it (4-130 sites)"
+  },
+  {
+   "name": "fw_exfat_seek",
+   "headless": "0x6009D7CD",
+   "model02": "0x600A8F35",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); bl callers in headless map to m2 sites that call it (4-130 sites)"
+  },
+  {
+   "name": "fw_fat_name",
+   "headless": "0x600A022D",
+   "model02": "0x600AB995",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); bl callers in headless map to m2 sites that call it (4-130 sites)"
+  },
+  {
+   "name": "fw_exfat_name",
+   "headless": "0x6009E3A1",
+   "model02": "0x600A9B09",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); bl callers in headless map to m2 sites that call it (4-130 sites)"
+  },
+  {
+   "name": "fw_fat_mkdir",
+   "headless": "0x6009ED19",
+   "model02": "0x600AA481",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); bl callers in headless map to m2 sites that call it (4-130 sites)"
+  },
+  {
+   "name": "fw_exfat_mkdir",
+   "headless": "0x6009DF19",
+   "model02": "0x600A9681",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); bl callers in headless map to m2 sites that call it (4-130 sites)"
+  },
+  {
+   "name": "fw_fat_fclose",
+   "headless": "0x6009EB09",
+   "model02": "0x600AA271",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); bl callers in headless map to m2 sites that call it (4-130 sites)"
+  },
+  {
+   "name": "fw_exfat_fclose",
+   "headless": "0x6009D4AD",
+   "model02": "0x600A8C15",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); bl callers in headless map to m2 sites that call it (4-130 sites)"
+  },
+  {
+   "name": "fw_fat_remove",
+   "headless": "0x6009FF4D",
+   "model02": "0x600AB6B5",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); bl callers in headless map to m2 sites that call it (4-130 sites)"
+  },
+  {
+   "name": "fw_exfat_remove",
+   "headless": "0x6009DADD",
+   "model02": "0x600A9245",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); bl callers in headless map to m2 sites that call it (4-130 sites)"
+  },
+  {
+   "name": "fw_sd (SdFs volume)",
+   "headless": "0x200376EC",
+   "model02": "0x200372F4",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "40 exact + 13 based votes; sd_ready and the song writer load it; +0x480/+0x484 FatVolume/ExFatVolume used the same way (11/12 sites)"
+  },
+  {
+   "name": "fw_storage / fw_songs (storage + song loader object)",
+   "headless": "0x2001C8FC",
+   "model02": "0x20015BB0",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "167 exact votes; setup passes it to sd_ready (0x6008242A) and checks +6 the same way; +4 mounted flag read by sd_ready"
+  },
+  {
+   "name": "fw_sd_ready",
+   "headless": "0x6007A3FD",
+   "model02": "0x6007CDF9",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "18 callers agree; setup calls it after the mount. DIFFERENT: m2 first calls 0x6007CCE4 (card check) and returns its result (tail call); the +4 flag test is the same. Core only reads +4: OK"
+  },
+  {
+   "name": "FW_SD_MOUNTED (+4) / FW_VOL_CWD 0x448 / FsBaseFile 0x40",
+   "headless": "offsets",
+   "model02": "same",
+   "kind": "literal",
+   "confidence": "S2",
+   "evidence": "sd_ready reads [obj,#4]; SdFat code identical by run match"
+  },
+  {
+   "name": "fw_usb_midi_read_message",
+   "headless": "0x600A36BD",
+   "model02": "0x600AF3C1",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "the bl at usb_midi_read+6 calls it; near-anchor agrees"
+  },
+  {
+   "name": "fw_usb_midi_write_packed / core.MIDI_OUT",
+   "headless": "0x600A3239",
+   "model02": "0x600AEF3D",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); 11 callers agree"
+  },
+  {
+   "name": "usb_midi_read",
+   "headless": "0x600A3764",
+   "model02": "0x600AF468",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); its bl at +6 calls read_message"
+  },
+  {
+   "name": "FW_MIDI_READ_CALL",
+   "headless": "0x600A376A",
+   "model02": "0x600AF46E",
+   "kind": "bl site",
+   "confidence": "S1",
+   "evidence": "as loader.calls.MIDI"
+  },
+  {
+   "name": "fw_usb_configuration",
+   "headless": "0x2004159F",
+   "model02": "0x200416C6",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "usb_serial_putchar's first literal (identical fn); 12 exact votes"
+  },
+  {
+   "name": "fw_serial_read (usb_serial_read)",
+   "headless": "0x600A3F9D",
+   "model02": "0x600AFE0D",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); caller agrees"
+  },
+  {
+   "name": "fw_serial_putc",
+   "headless": "0x600A4169",
+   "model02": "0x600AFFD9",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); 42 callers"
+  },
+  {
+   "name": "fw_rx_available",
+   "headless": "0x2003382C",
+   "model02": "0x2003341C",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "same literal slot in identical usb_serial_read (side by side) + exact votes elsewhere"
+  },
+  {
+   "name": "fw_rx_head",
+   "headless": "0x20041590",
+   "model02": "0x200416B4",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "same literal slot in identical usb_serial_read (side by side) + exact votes elsewhere. NB head/tail are 3 bytes apart in m2 (2 in headless)"
+  },
+  {
+   "name": "fw_rx_tail",
+   "headless": "0x20041592",
+   "model02": "0x200416B7",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "same literal slot in identical usb_serial_read (side by side) + exact votes elsewhere. NB head/tail are 3 bytes apart in m2 (2 in headless)"
+  },
+  {
+   "name": "fw_rx_list",
+   "headless": "0x20033870",
+   "model02": "0x20033470",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "same literal slot in identical usb_serial_read (side by side) + exact votes elsewhere"
+  },
+  {
+   "name": "fw_rx_index",
+   "headless": "0x20033858",
+   "model02": "0x20033448",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "same literal slot in identical usb_serial_read (side by side) + exact votes elsewhere"
+  },
+  {
+   "name": "fw_rx_buffer",
+   "headless": "0x2027C4E0",
+   "model02": "0x20279760",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "same literal slot in identical usb_serial_read (side by side) + exact votes elsewhere"
+  },
+  {
+   "name": "rx_count (usb_serial_read, not in fw.h)",
+   "headless": "0x2003383C",
+   "model02": "0x2003342C",
+   "kind": "ram data",
+   "confidence": "S2",
+   "evidence": "same literal slot"
+  },
+  {
+   "name": "fw_song",
+   "headless": "0x2025F674",
+   "model02": "0x2025A570",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "1342 exact votes; FIRMWARE-MAP song 0x2025A570; FW_PHRASE_STEP +0xA6C/0x90/9 and FW_INSTRUMENT +0x139BC/0xD7 same (docs, INST_CLEAR code identical)"
+  },
+  {
+   "name": "fw_mixer",
+   "headless": "0x2000C260",
+   "model02": "0x20010858",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "headless reaches it via getter 0x6008FDA8 (engine+0x3E0); m2 mute-all loop (0x60083B7C) loads the global 0x20010858 where headless calls the getter, then the same MUTE calls; setup passes it at load_at"
+  },
+  {
+   "name": "fw_mute_mask",
+   "headless": "0x2000C410",
+   "model02": "0x20010A08",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "mixer+0x1B0 in both MUTE functions and the mute-all loop"
+  },
+  {
+   "name": "fw_solo_mask",
+   "headless": "0x2000C414",
+   "model02": "0x20010A0C",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "mixer+0x1B4"
+  },
+  {
+   "name": "fw_audio_engine / fw_sequencer (one object)",
+   "headless": "0x2000BE80",
+   "model02": null,
+   "kind": "ram data",
+   "confidence": "none",
+   "evidence": "no counterpart: 6.6.2A keeps the graph as separate globals (built in 0x6009A9F4). Use the objects: clock 0x2000D218 (= engine+0x390), mixer 0x20010858 (+0x3E0), tap 0x2001D854 (+0x9308), MFX 0x2001DD14 (+0x3D08), delay 0x20021D4C (+0x3A0C), reverb 0x20021F18 (+0x7E50)"
+  },
+  {
+   "name": "fw_sequencer +0x3B8 playing",
+   "headless": "0x2000C238",
+   "model02": "0x2000D240",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "= clock+0x28: play fn writes it in both (hl seq+0x3B8 = clock(+0x390)+0x28); FIRMWARE-MAP fw_clock +0x28 running"
+  },
+  {
+   "name": "FW_AUDIO_TAP object (engine+0x9308)",
+   "headless": "0x20015188",
+   "model02": "0x2001D854",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "update() hl 0x1E390 == m2 0x1FB44 (identical, run match); m2 objects map: the only instance of vt 0x20002440; FIRMWARE-MAP master-bus/DJ-filter object whose update is a copy"
+  },
+  {
+   "name": "FW_AUDIO_TAP class update slot",
+   "headless": "0x200022E8",
+   "model02": "0x20002440",
+   "kind": "vtable slot",
+   "confidence": "S1",
+   "evidence": "slot holding the mapped update; objects map"
+  },
+  {
+   "name": "fw_seq_engine",
+   "headless": "0x2001ADDC",
+   "model02": "0x200140D0",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "174 exact + 117 based votes; setup and PARAM_SET load it at the same spot"
+  },
+  {
+   "name": "FW_PLAYER(0)",
+   "headless": "0x2001ADF0",
+   "model02": "0x200140E4",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "seq_engine+0x14 in both; 291 based votes. STRIDE DIFFERS: 0x248 -> 0x240 (every mov/add #0x248 maps to #0x240). Player fields from ~+0x1F0 shift by -8 (row-fire code: +0x21A->+0x212, note/vel +0x21E/+0x224 -> +0x216/+0x21C); +0x4C row, +0x15 same"
+  },
+  {
+   "name": "fw_inst_load / core.INST_LOAD",
+   "headless": "0x6007BDD1",
+   "model02": "0x6007E78D",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); 2 callers"
+  },
+  {
+   "name": "fw_inst_save / core.INST_SAVE",
+   "headless": "0x6007C47D",
+   "model02": "0x6007EE39",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); 3 callers"
+  },
+  {
+   "name": "instview (INST_COPY note)",
+   "headless": "0x2001A530",
+   "model02": "0x20013828",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "157 exact votes"
+  },
+  {
+   "name": "fw_phrase_view",
+   "headless": "0x2001AD90",
+   "model02": "0x20014084",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "103 exact votes; objects map: view with 32-slot vtable 0x20001854"
+  },
+  {
+   "name": "FW_SLOT_PHRASE_BULK (+0x34) / loader.phrase_slots.redraw",
+   "headless": "0x2000173C",
+   "model02": "0x20001888",
+   "kind": "vtable slot",
+   "confidence": "S1",
+   "evidence": "vtable 0x20001854+0x34; holds 0x600605E9 = mapped hl 0x6005F0DD"
+  },
+  {
+   "name": "FW_SLOT_PHRASE_CELL (+0x38) / loader.phrase_slots.edited",
+   "headless": "0x20001740",
+   "model02": "0x2000188C",
+   "kind": "vtable slot",
+   "confidence": "S1",
+   "evidence": "holds 0x60061769 = STEP_EDIT (mapped)"
+  },
+  {
+   "name": "fw_audio_alloc (AudioStream::allocate)",
+   "headless": "0x0001AB5D",
+   "model02": "0x0001BB51",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); 16 callers"
+  },
+  {
+   "name": "fw_audio_release",
+   "headless": "0x0001AD69",
+   "model02": "0x0001BD51",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "identical code; 118 callers (FIRMWARE-MAP mislabels it receiveReadOnly)"
+  },
+  {
+   "name": "fw_audio_transmit",
+   "headless": "0x0001ADD5",
+   "model02": "0x0001BDBD",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "52 callers agree; same body BUT m2 has no leading 'cbz r1' NULL-block check: never pass NULL"
+  },
+  {
+   "name": "FW_SLOT_TRACK (track voice update slot)",
+   "headless": "0x20002348",
+   "model02": "0x200024A0",
+   "kind": "vtable slot",
+   "confidence": "S1",
+   "evidence": "update hl 0x24A0 == m2 0x22E0 (identical); 1 exact + 2 based literal votes (ctor 0x6009999C stores it)"
+  },
+  {
+   "name": "track voice objects",
+   "headless": "engine+0x5C0+0x674*t",
+   "model02": "0x2001606C + 0x2E4*t",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "8 ctor calls in graph builder 0x6009A9F4 (0x6009ABE2..0x6009AF44); +0x3D track, +0x38 instrument same (ctor stores)"
+  },
+  {
+   "name": "FW_TRACK_MAIN (+0x3E4 main strip in the voice)",
+   "headless": "0x3E4",
+   "model02": "0x20011650 + 0x6C*t",
+   "kind": "literal",
+   "confidence": "S2",
+   "evidence": "m2 voice object is 0x2E4 bytes and does NOT contain its strip: the 8 strips (class update 0x203B8 = hl 0x1EC94) are a separate array 0x20011650 stride 0x6C, built right after voice t; sends are other globals (0x200119B0.. EQ, mixers 0x20010F50..). core_track must index the strip array by track"
+  },
+  {
+   "name": "FW_SLOT_MFX",
+   "headless": "0x20002B58",
+   "model02": "0x20002CDC",
+   "kind": "vtable slot",
+   "confidence": "S1",
+   "evidence": "update hl 0x8F78 == m2 0x8CD8 (run); exact literal vote; object 0x2001DD14 (FIRMWARE-MAP MODFX)"
+  },
+  {
+   "name": "FW_SLOT_DELAY",
+   "headless": "0x20002D50",
+   "model02": "0x20002ED4",
+   "kind": "vtable slot",
+   "confidence": "S1",
+   "evidence": "update hl 0x7378 == m2 0x70D8; 2 based votes; object 0x20021D4C (FIRMWARE-MAP DELAY)"
+  },
+  {
+   "name": "FW_SLOT_REVERB",
+   "headless": "0x20002814",
+   "model02": "0x2000297C",
+   "kind": "vtable slot",
+   "confidence": "S1",
+   "evidence": "update hl 0x95D0 == m2 0x9328; exact vote; object 0x20021F18 (FIRMWARE-MAP REVERB)"
+  },
+  {
+   "name": "FW_SLOT_CLOCK",
+   "headless": "0x20001E94",
+   "model02": "0x20001FE0",
+   "kind": "vtable slot",
+   "confidence": "S1",
+   "evidence": "update hl 0x20CB8 == m2 0x22720 (run); object 0x2000D218 = FIRMWARE-MAP fw_clock / sequencer clock"
+  },
+  {
+   "name": "FW_AUDIO_FRAMES",
+   "headless": "64",
+   "model02": "32",
+   "kind": "literal",
+   "confidence": "S2",
+   "evidence": "m2 blocks hold 32 floats: pool stride 0x94 vs 0x114, float data +4..+0x84 (count at +0x88, hl +0x108), the tap clears 0x80 bytes vs 0x100, voice buffers 0x80. Same float mix helpers. core_tap's zero(FW_AUDIO_FRAMES*4) and handlers must use 32"
+  },
+  {
+   "name": "FW_ENGINE_VTABLES.FM",
+   "headless": "0x20001810",
+   "model02": "0x2000195C",
+   "kind": "vtable",
+   "confidence": "S1",
+   "evidence": "literal votes from the matched constructors + FIRMWARE-MAP instrument vtables (load addr - 0x601DE020 + 0x20000000); +0xF8/+0x104 dest name/count same (docs)"
+  },
+  {
+   "name": "FW_ENGINE_VTABLES.HYPER",
+   "headless": "0x20001EE0",
+   "model02": "0x20002038",
+   "kind": "vtable",
+   "confidence": "S1",
+   "evidence": "literal votes from the matched constructors + FIRMWARE-MAP instrument vtables (load addr - 0x601DE020 + 0x20000000); +0xF8/+0x104 dest name/count same (docs)"
+  },
+  {
+   "name": "FW_ENGINE_VTABLES.MACRO",
+   "headless": "0x200020A8",
+   "model02": "0x20002200",
+   "kind": "vtable",
+   "confidence": "S1",
+   "evidence": "literal votes from the matched constructors + FIRMWARE-MAP instrument vtables (load addr - 0x601DE020 + 0x20000000); +0xF8/+0x104 dest name/count same (docs)"
+  },
+  {
+   "name": "FW_ENGINE_VTABLES.SAMPLER",
+   "headless": "0x20002664",
+   "model02": "0x200027CC",
+   "kind": "vtable",
+   "confidence": "S1",
+   "evidence": "literal votes from the matched constructors + FIRMWARE-MAP instrument vtables (load addr - 0x601DE020 + 0x20000000); +0xF8/+0x104 dest name/count same (docs)"
+  },
+  {
+   "name": "FW_ENGINE_VTABLES.WAV",
+   "headless": "0x20001CAC",
+   "model02": "0x20001DF8",
+   "kind": "vtable",
+   "confidence": "S1",
+   "evidence": "literal votes from the matched constructors + FIRMWARE-MAP instrument vtables (load addr - 0x601DE020 + 0x20000000); +0xF8/+0x104 dest name/count same (docs)"
+  },
+  {
+   "name": "FW_ENGINE_VTABLES.EXTERNAL",
+   "headless": "0x2000288C",
+   "model02": "0x200029F4",
+   "kind": "vtable",
+   "confidence": "S1",
+   "evidence": "literal votes from the matched constructors + FIRMWARE-MAP instrument vtables (load addr - 0x601DE020 + 0x20000000); +0xF8/+0x104 dest name/count same (docs)"
+  },
+  {
+   "name": "FW_ENGINE_VTABLES.MIDI_OUT",
+   "headless": "0x20001A50",
+   "model02": "0x20001B9C",
+   "kind": "vtable",
+   "confidence": "S1",
+   "evidence": "literal votes from the matched constructors + FIRMWARE-MAP instrument vtables (load addr - 0x601DE020 + 0x20000000); +0xF8/+0x104 dest name/count same (docs)"
+  },
+  {
+   "name": "fw_ui",
+   "headless": "0x2001C1A4",
+   "model02": "0x20015458",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "223 exact votes; FIRMWARE-MAP fw_ui; loop passes it to the input router"
+  },
+  {
+   "name": "FW_UI_VIEW (+0x15)",
+   "headless": "0x15",
+   "model02": "0x15",
+   "kind": "literal",
+   "confidence": "S1",
+   "evidence": "set_view ldrb/strb [ui,#0x15] in both; docs"
+  },
+  {
+   "name": "fw_set_view / core.VIEW",
+   "headless": "0x6004A96D",
+   "model02": "0x6004C13D",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "94 callers agree; FIRMWARE-MAP set_view"
+  },
+  {
+   "name": "fw_views[30] table",
+   "headless": "0x20000B24",
+   "model02": null,
+   "kind": "ram data",
+   "confidence": "none",
+   "evidence": "NO COUNTERPART: m2 set_view dispatches with a tbh switch on the id to fixed view objects (case 7 = return). The MODS page cannot be installed by writing a table slot; use the VIEW entry hook (or patch the switch's case 7) instead"
+  },
+  {
+   "name": "FW_VIEW_FREE (7)",
+   "headless": "7",
+   "model02": "7",
+   "kind": "literal",
+   "confidence": "S1",
+   "evidence": "m2 switch case 7 is empty (pop)"
+  },
+  {
+   "name": "fw_settings (SYSTEM SETTINGS view)",
+   "headless": "0x2001CCEC",
+   "model02": "0x20015F50",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "m2 set_view case 0x1C loads 0x20015F50; exact vote; objects map: view vt 0x20002C98 (slots 1,6,7 = the shared fns below). +5 cursor y assumed same (S2)"
+  },
+  {
+   "name": "fw_grid",
+   "headless": "0x20019160",
+   "model02": "0x20012464",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "829 exact votes; SETTINGS enter and set_view load it in the same spot"
+  },
+  {
+   "name": "display (frame refresh object)",
+   "headless": "0x2001A4F4",
+   "model02": "0x200137F8",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "347 exact votes; loop passes it to frame_refresh"
+  },
+  {
+   "name": "fw_text",
+   "headless": "0x60077543",
+   "model02": "0x6007878B",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); 35 callers (core.h's 0x60030ECD is a different, glyph-level routine)"
+  },
+  {
+   "name": "FW_VIEW_SHARED_04",
+   "headless": "0x60099B25",
+   "model02": "0x600A4359",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); in the m2 SETTINGS vtable slot 1; 24 .data uses in both"
+  },
+  {
+   "name": "FW_VIEW_NOP",
+   "headless": "0x60099B19",
+   "model02": "0x600A434D",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); 14 .data uses (hl 13)"
+  },
+  {
+   "name": "FW_VIEW_FLAG_18",
+   "headless": "0x60099B1D",
+   "model02": "0x600A4351",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); m2 SETTINGS vtable slot 6"
+  },
+  {
+   "name": "FW_VIEW_FLAG_1C",
+   "headless": "0x60099B21",
+   "model02": "0x600A4355",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); m2 SETTINGS vtable slot 7"
+  },
+  {
+   "name": "fw_m8c_parse / core.SERIAL",
+   "headless": "0x6007846C",
+   "model02": "0x60079A7C",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); 18 callers"
+  },
+  {
+   "name": "frame_refresh (DRAW target)",
+   "headless": "0x60049CE0",
+   "model02": "0x6004B514",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); 21 callers; FIRMWARE-MAP frame refresh"
+  },
+  {
+   "name": "ui_input (KEY target)",
+   "headless": "0x6004ADEC",
+   "model02": "0x6004C6C8",
+   "kind": "code entry",
+   "confidence": "S1",
+   "evidence": "only call in loop, after ui; FIRMWARE-MAP input router. m2 action comes from the button scanner 0x6007B400 (headless: m8c key state 0x600790C4)"
+  },
+  {
+   "name": "fw_fault_info (CrashReport)",
+   "headless": "0x2027FF80",
+   "model02": "0x2027FF80",
+   "kind": "ram data",
+   "confidence": "S1",
+   "evidence": "2 exact + 2 based votes; same Teensy crash record"
+  },
+  {
+   "name": "core.BOOT",
+   "headless": "0x600A28FA",
+   "model02": "0x600AE04E",
+   "kind": "call_post",
+   "confidence": "S1",
+   "evidence": "main bl setup; m2 bindings hook_sites.BOOT",
+   "site_kind": "call_post",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "call_post",
+    "m2_bl_target": "0x60082374",
+    "same": true,
+    "why": "bl at site calls the mapped target"
+   }
+  },
+  {
+   "name": "core.TICK",
+   "headless": "0x600A28FE",
+   "model02": "0x600AE052",
+   "kind": "call_pre",
+   "confidence": "S1",
+   "evidence": "main bl loop; m2 bindings hook_sites.TICK",
+   "site_kind": "call_pre",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "call_pre",
+    "m2_bl_target": "0x60081bd4",
+    "same": true,
+    "why": "bl at site calls the mapped target"
+   }
+  },
+  {
+   "name": "core.DRAW",
+   "headless": "0x6007FAB8",
+   "model02": "0x60081C62",
+   "kind": "call_pre",
+   "confidence": "S1",
+   "evidence": "loop: ui update 0x6004BFF0 then bl frame_refresh(display 0x200137F8), as headless",
+   "site_kind": "call_pre",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "call_pre",
+    "m2_bl_target": "0x6004b514",
+    "same": true,
+    "why": "bl at site calls the mapped target"
+   }
+  },
+  {
+   "name": "core.KEY",
+   "headless": "0x6007FBA0",
+   "model02": "0x60081C56",
+   "kind": "call_pre",
+   "confidence": "S1",
+   "evidence": "loop: bl input router(ui, action); docs ev_key 0x60081C56",
+   "site_kind": "call_pre",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "call_pre",
+    "m2_bl_target": "0x6004c6c8",
+    "same": true,
+    "why": "bl at site calls the mapped target"
+   }
+  },
+  {
+   "name": "core.VIEW",
+   "headless": "0x6004A96C",
+   "model02": "0x6004C13C",
+   "kind": "entry",
+   "confidence": "S1",
+   "evidence": "set_view entry",
+   "site_kind": "entry",
+   "same_instructions": false,
+   "site_check": {
+    "kind": "entry",
+    "hl_prologue": "push {r3, r4, r5, r6, r7, lr}; mov r4, r0",
+    "m2_prologue": "push {r4, r5, r6, lr}; mov r4, r0",
+    "relocates": true,
+    "same": false,
+    "same_modulo_literal": false
+   },
+   "note": "prologue differs from headless but relocates under builder.relocate_prologue (checked)"
+  },
+  {
+   "name": "core.SONG_LOAD",
+   "headless": "0x60062154",
+   "model02": "0x60063638",
+   "kind": "entry",
+   "confidence": "S1",
+   "evidence": "AUTOSAVE/TEMPLATE/Backup/PREVIEW SONG strings in the same order; setup calls it with AUTOSAVE; no PLUGIN_STATE check in m2; 3 args (no r3)",
+   "site_kind": "entry",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "entry",
+    "hl_prologue": "push.w {r3, r4, r5, r6, r7, r8, sb, lr}",
+    "m2_prologue": "push.w {r3, r4, r5, r6, r7, r8, sb, lr}",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true
+   }
+  },
+  {
+   "name": "core.SONG_SAVE",
+   "headless": "0x6007AFC0",
+   "model02": "0x6007DAE8",
+   "kind": "entry",
+   "confidence": "S1",
+   "evidence": "same body (sd_ready, fw_sd+0x480, FsBaseFile, M8VERSION users); r1 = path",
+   "site_kind": "entry",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "entry",
+    "hl_prologue": "push.w {r4, r5, r6, r7, r8, sb, sl, fp, lr}",
+    "m2_prologue": "push.w {r4, r5, r6, r7, r8, sb, sl, fp, lr}",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true
+   }
+  },
+  {
+   "name": "core.NOTE",
+   "headless": "0x00022BDC",
+   "model02": "0x0002464C",
+   "kind": "itcm_entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); 4 callers",
+   "site_kind": "itcm_entry",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "itcm_entry",
+    "hl_prologue": "push.w {r4, r5, r6, r7, r8, sb, sl, fp, lr}",
+    "m2_prologue": "push.w {r4, r5, r6, r7, r8, sb, sl, fp, lr}",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true
+   }
+  },
+  {
+   "name": "core.PLAY",
+   "headless": "0x60090618",
+   "model02": "0x6009A410",
+   "kind": "entry",
+   "confidence": "S1",
+   "evidence": "same field writes (+0x29 mode, +0x2C=0, +0x28=1, +0x38=-1.0) on clock 0x2000D218; caller 0x6008BFF4. m2 has no seq r0: r1 = mode. Not 0x6009A528 (that is pause)",
+   "site_kind": "entry",
+   "same_instructions": false,
+   "site_check": {
+    "kind": "entry",
+    "hl_prologue": "push {r4, lr}; mov r4, r1",
+    "m2_prologue": "mov.w r3, #-0x1fff2000",
+    "relocates": true,
+    "same": false,
+    "same_modulo_literal": false
+   },
+   "note": "prologue differs from headless but relocates under builder.relocate_prologue (checked)"
+  },
+  {
+   "name": "core.STOP",
+   "headless": "0x600907A4",
+   "model02": "0x6009A55C",
+   "kind": "entry",
+   "confidence": "S1",
+   "evidence": "clears clock+0x28 and walks the players, as headless; FIRMWARE-MAP stop 0x6009A55C; no args",
+   "site_kind": "entry",
+   "same_instructions": false,
+   "site_check": {
+    "kind": "entry",
+    "hl_prologue": "push.w {r4, r5, r6, r7, r8, lr}",
+    "m2_prologue": "mov.w r2, #-0x1fff2000",
+    "relocates": true,
+    "same": false,
+    "same_modulo_literal": false
+   },
+   "note": "prologue differs from headless but relocates under builder.relocate_prologue (checked)"
+  },
+  {
+   "name": "core.SERIAL",
+   "headless": "0x6007846C",
+   "model02": "0x60079A7C",
+   "kind": "entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique)",
+   "site_kind": "entry",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "entry",
+    "hl_prologue": "push {r4, r5, r6, lr}; ldrb r6, [r0, #0x19]",
+    "m2_prologue": "push {r4, r5, r6, lr}; ldrb r6, [r0, #0x19]",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true
+   }
+  },
+  {
+   "name": "core.MIDI_OUT",
+   "headless": "0x600A3238",
+   "model02": "0x600AEF3C",
+   "kind": "entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique)",
+   "site_kind": "entry",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "entry",
+    "hl_prologue": "push.w {r4, r5, r6, r7, r8, sb, sl, fp, lr}",
+    "m2_prologue": "push.w {r4, r5, r6, r7, r8, sb, sl, fp, lr}",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true
+   }
+  },
+  {
+   "name": "core.TEMPO",
+   "headless": "0x60090978",
+   "model02": "0x6009A6C0",
+   "kind": "entry",
+   "confidence": "S1",
+   "evidence": "see sym.set_tempo",
+   "site_kind": "entry",
+   "same_instructions": false,
+   "site_check": {
+    "kind": "entry",
+    "hl_prologue": "ldr r3, [pc, #0x94]; ldr r3, [r3]",
+    "m2_prologue": "mov.w r3, #-0x1fff2000",
+    "relocates": true,
+    "same": false,
+    "same_modulo_literal": false
+   },
+   "note": "prologue differs from headless but relocates under builder.relocate_prologue (checked)"
+  },
+  {
+   "name": "core.SEQ_TICK",
+   "headless": "0x00021A64",
+   "model02": "0x000234FC",
+   "kind": "itcm_entry",
+   "confidence": "S1",
+   "evidence": "2 callers agree; headless note says ported from m2 0x60024B7C (= run 0x234FC)",
+   "site_kind": "itcm_entry",
+   "same_instructions": false,
+   "site_check": {
+    "kind": "itcm_entry",
+    "hl_prologue": "movs r3, #0; push.w {r4, r5, r6, r7, r8, sb, sl, lr}",
+    "m2_prologue": "push.w {r3, r4, r5, r6, r7, r8, sb, lr}",
+    "relocates": true,
+    "same": false,
+    "same_modulo_literal": false
+   },
+   "note": "prologue differs from headless but relocates under builder.relocate_prologue (checked)"
+  },
+  {
+   "name": "core.NOTE_OFF",
+   "headless": "0x00022AC0",
+   "model02": "0x00024530",
+   "kind": "itcm_entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); 4 callers; headless note m2 0x25BB0 is load-0x1680 = run 0x24530",
+   "site_kind": "itcm_entry",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "itcm_entry",
+    "hl_prologue": "push.w {r4, r5, r6, r7, r8, lr}",
+    "m2_prologue": "push.w {r4, r5, r6, r7, r8, lr}",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true
+   }
+  },
+  {
+   "name": "core.ROW",
+   "headless": "0x00024B7C",
+   "model02": "0x00026558",
+   "kind": "itcm_mid",
+   "confidence": "S1",
+   "evidence": "same code inside the per-track update (m2 0x26028, 5 callers agree): mov #-1; str [r4,#0x1EC]; ldrb rX,[r4,#0x15]; cmp; beq",
+   "site_kind": "itcm_mid",
+   "same_instructions": false,
+   "site_check": {
+    "kind": "itcm_mid",
+    "hl_prologue": "ldrb r3, [r4, #0x15]; cmp r3, #0",
+    "m2_prologue": "ldrb r5, [r4, #0x15]; cmp r5, #0",
+    "relocates": true,
+    "same": false,
+    "same_modulo_literal": false
+   },
+   "args": [
+    "r4"
+   ],
+   "note": "relocated bytes are ldrb r5,[r4,#0x15]; cmp r5,#0 (r3 in headless): the same itcm_mid kind works, args r4 unchanged"
+  },
+  {
+   "name": "core.FX_ROW",
+   "headless": "0x00022DE4",
+   "model02": "0x00024854",
+   "kind": "itcm_entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); 10 callers; FIRMWARE-MAP applier 0x24854",
+   "site_kind": "itcm_entry",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "itcm_entry",
+    "hl_prologue": "push.w {r4, r5, r6, r7, r8, sb, sl, fp, lr}",
+    "m2_prologue": "push.w {r4, r5, r6, r7, r8, sb, sl, fp, lr}",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true
+   }
+  },
+  {
+   "name": "core.FX_COMMAND",
+   "headless": "0x000258EC",
+   "model02": "0x00027124",
+   "kind": "itcm_entry",
+   "confidence": "S1",
+   "evidence": "caller agrees; FIRMWARE-MAP executor 0x27124",
+   "site_kind": "itcm_entry",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "itcm_entry",
+    "hl_prologue": "push.w {r4, r5, r6, r7, r8, sb, sl, lr}",
+    "m2_prologue": "push.w {r4, r5, r6, r7, r8, sb, sl, lr}",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true
+   }
+  },
+  {
+   "name": "core.MOD_APPLY@FM",
+   "headless": "0x0000CC8A",
+   "model02": "0x0000C9CA",
+   "kind": "itcm_mid",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); FIRMWARE-MAP switch, subs/cmp before the tbb/tbh; taken_to branch checked",
+   "site_kind": "itcm_mid",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "itcm_mid",
+    "hl_prologue": "subs r0, #1; cmp r0, #0xd",
+    "m2_prologue": "subs r0, #1; cmp r0, #0xd",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true,
+    "taken_to_ok": true,
+    "next": "bhi #0xca1a"
+   },
+   "args": [
+    "r0",
+    "r4",
+    "r5",
+    "#0"
+   ]
+  },
+  {
+   "name": "core.MOD_APPLY@FM.taken_to",
+   "headless": "0x0000CCDA",
+   "model02": "0x0000CA1A",
+   "kind": "itcm run",
+   "confidence": "S1",
+   "evidence": "branch target after the replaced subs/cmp (checked)"
+  },
+  {
+   "name": "core.MOD_APPLY@HYPER",
+   "headless": "0x0000E80C",
+   "model02": "0x0000E54C",
+   "kind": "itcm_mid",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); FIRMWARE-MAP switch, subs/cmp before the tbb/tbh; taken_to branch checked",
+   "site_kind": "itcm_mid",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "itcm_mid",
+    "hl_prologue": "subs r0, #1; cmp r0, #0xd",
+    "m2_prologue": "subs r0, #1; cmp r0, #0xd",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true,
+    "taken_to_ok": true,
+    "next": "bhi #0xe59c"
+   },
+   "args": [
+    "r0",
+    "r4",
+    "r5",
+    "#1"
+   ]
+  },
+  {
+   "name": "core.MOD_APPLY@HYPER.taken_to",
+   "headless": "0x0000E85C",
+   "model02": "0x0000E59C",
+   "kind": "itcm run",
+   "confidence": "S1",
+   "evidence": "branch target after the replaced subs/cmp (checked)"
+  },
+  {
+   "name": "core.MOD_APPLY@MACRO",
+   "headless": "0x00011B14",
+   "model02": "0x00011854",
+   "kind": "itcm_mid",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); FIRMWARE-MAP switch, subs/cmp before the tbb/tbh; taken_to branch checked",
+   "site_kind": "itcm_mid",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "itcm_mid",
+    "hl_prologue": "subs r0, #1; cmp r0, #0xd",
+    "m2_prologue": "subs r0, #1; cmp r0, #0xd",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true,
+    "taken_to_ok": true,
+    "next": "bhi #0x118a4"
+   },
+   "args": [
+    "r0",
+    "r4",
+    "r5",
+    "#2"
+   ]
+  },
+  {
+   "name": "core.MOD_APPLY@MACRO.taken_to",
+   "headless": "0x00011B64",
+   "model02": "0x000118A4",
+   "kind": "itcm run",
+   "confidence": "S1",
+   "evidence": "branch target after the replaced subs/cmp (checked)"
+  },
+  {
+   "name": "core.MOD_APPLY@SAMPLER",
+   "headless": "0x0001473C",
+   "model02": "0x00014398",
+   "kind": "itcm_mid",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); FIRMWARE-MAP switch, subs/cmp before the tbb/tbh; taken_to branch checked",
+   "site_kind": "itcm_mid",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "itcm_mid",
+    "hl_prologue": "subs r3, r0, #1; cmp r3, #0xc",
+    "m2_prologue": "subs r3, r0, #1; cmp r3, #0xc",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true,
+    "taken_to_ok": true,
+    "next": "bhi #0x143ea"
+   },
+   "args": [
+    "r0",
+    "r4",
+    "r5",
+    "#3"
+   ]
+  },
+  {
+   "name": "core.MOD_APPLY@SAMPLER.taken_to",
+   "headless": "0x0001478E",
+   "model02": "0x000143EA",
+   "kind": "itcm run",
+   "confidence": "S1",
+   "evidence": "branch target after the replaced subs/cmp (checked)"
+  },
+  {
+   "name": "core.MOD_APPLY@WAV",
+   "headless": "0x000175D4",
+   "model02": "0x000171B4",
+   "kind": "itcm_mid",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); FIRMWARE-MAP switch, subs/cmp before the tbb/tbh; taken_to branch checked",
+   "site_kind": "itcm_mid",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "itcm_mid",
+    "hl_prologue": "subs r0, #1; cmp r0, #0xd",
+    "m2_prologue": "subs r0, #1; cmp r0, #0xd",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true,
+    "taken_to_ok": true,
+    "next": "bhi #0x171fa"
+   },
+   "args": [
+    "r0",
+    "r4",
+    "r5",
+    "#4"
+   ]
+  },
+  {
+   "name": "core.MOD_APPLY@WAV.taken_to",
+   "headless": "0x0001761A",
+   "model02": "0x000171FA",
+   "kind": "itcm run",
+   "confidence": "S1",
+   "evidence": "branch target after the replaced subs/cmp (checked)"
+  },
+  {
+   "name": "core.MOD_APPLY@EXTERNAL",
+   "headless": "0x0000B63E",
+   "model02": "0x0000B37E",
+   "kind": "itcm_mid",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); FIRMWARE-MAP switch, subs/cmp before the tbb/tbh; taken_to branch checked",
+   "site_kind": "itcm_mid",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "itcm_mid",
+    "hl_prologue": "subs r0, #1; cmp r0, #0xc",
+    "m2_prologue": "subs r0, #1; cmp r0, #0xc",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true,
+    "taken_to_ok": true,
+    "next": "bhi #0xb3ce"
+   },
+   "args": [
+    "r0",
+    "r4",
+    "r6",
+    "#5"
+   ]
+  },
+  {
+   "name": "core.MOD_APPLY@EXTERNAL.taken_to",
+   "headless": "0x0000B68E",
+   "model02": "0x0000B3CE",
+   "kind": "itcm run",
+   "confidence": "S1",
+   "evidence": "branch target after the replaced subs/cmp (checked)"
+  },
+  {
+   "name": "core.MOD_APPLY@SAMPLER0",
+   "headless": "0x00012B2E",
+   "model02": "0x00012866",
+   "kind": "itcm_mid",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); FIRMWARE-MAP switch, subs/cmp before the tbb/tbh; taken_to branch checked",
+   "site_kind": "itcm_mid",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "itcm_mid",
+    "hl_prologue": "subs r3, #1; cmp r3, #0xc",
+    "m2_prologue": "subs r3, #1; cmp r3, #0xc",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true,
+    "taken_to_ok": true,
+    "next": "bhi #0x128b8"
+   },
+   "args": [
+    "r3",
+    "r4",
+    "r5",
+    "#3"
+   ]
+  },
+  {
+   "name": "core.MOD_APPLY@SAMPLER0.taken_to",
+   "headless": "0x00012B80",
+   "model02": "0x000128B8",
+   "kind": "itcm run",
+   "confidence": "S1",
+   "evidence": "branch target after the replaced subs/cmp (checked)"
+  },
+  {
+   "name": "core.MUTE",
+   "headless": "0x60038940",
+   "model02": "0x6003A4B4",
+   "kind": "entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); 11 callers",
+   "site_kind": "entry",
+   "same_instructions": false,
+   "site_check": {
+    "kind": "entry",
+    "hl_prologue": "cmp r1, #7; push {r4, r5, lr}",
+    "m2_prologue": "cmp r1, #7; push {r4, lr}",
+    "relocates": true,
+    "same": false,
+    "same_modulo_literal": false
+   },
+   "note": "prologue differs from headless but relocates under builder.relocate_prologue (checked)"
+  },
+  {
+   "name": "core.INST_LOAD",
+   "headless": "0x6007BDD0",
+   "model02": "0x6007E78C",
+   "kind": "entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique)",
+   "site_kind": "entry",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "entry",
+    "hl_prologue": "push.w {r4, r5, r6, r7, r8, sb, sl, fp, lr}",
+    "m2_prologue": "push.w {r4, r5, r6, r7, r8, sb, sl, fp, lr}",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true
+   }
+  },
+  {
+   "name": "core.INST_SAVE",
+   "headless": "0x6007C47C",
+   "model02": "0x6007EE38",
+   "kind": "entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique)",
+   "site_kind": "entry",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "entry",
+    "hl_prologue": "push.w {r4, r5, r6, r7, r8, lr}",
+    "m2_prologue": "push.w {r4, r5, r6, r7, r8, lr}",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true
+   }
+  },
+  {
+   "name": "core.PARAM_SET",
+   "headless": "0x60053B30",
+   "model02": "0x60055200",
+   "kind": "entry",
+   "confidence": "S1",
+   "evidence": "same body after the push (5 callers agree)",
+   "site_kind": "entry",
+   "same_instructions": false,
+   "site_check": {
+    "kind": "entry",
+    "hl_prologue": "ldr r3, [r0, #4]; cmp r3, #0",
+    "m2_prologue": "push.w {r3, r4, r5, r6, r7, r8, sb, sl, fp, lr}",
+    "relocates": true,
+    "same": false,
+    "same_modulo_literal": false
+   },
+   "note": "prologue differs from headless but relocates under builder.relocate_prologue (checked)"
+  },
+  {
+   "name": "core.STEP_EDIT",
+   "headless": "0x6006025C",
+   "model02": "0x60061768",
+   "kind": "entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); phrase view vtable +0x38 slot 0x2000188C",
+   "site_kind": "entry",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "entry",
+    "hl_prologue": "push.w {r0, r1, r4, r5, r6, r7, r8, sb, sl, lr}",
+    "m2_prologue": "push.w {r0, r1, r4, r5, r6, r7, r8, sb, sl, lr}",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true
+   }
+  },
+  {
+   "name": "core.INST_CLEAR",
+   "headless": "0x6007FF34",
+   "model02": "0x60082AD8",
+   "kind": "entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); 10 callers",
+   "site_kind": "entry",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "entry",
+    "hl_prologue": "push.w {r3, r4, r5, r6, r7, r8, sb, lr}",
+    "m2_prologue": "push.w {r3, r4, r5, r6, r7, r8, sb, lr}",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true
+   }
+  },
+  {
+   "name": "core.LIVE_NOTE",
+   "headless": "0x00023374",
+   "model02": "0x00024DE0",
+   "kind": "itcm_entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); 4 callers; headless note m2 0x24DE0",
+   "site_kind": "itcm_entry",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "itcm_entry",
+    "hl_prologue": "push.w {r4, r5, r6, r7, r8, sb, sl, fp, lr}",
+    "m2_prologue": "push.w {r4, r5, r6, r7, r8, sb, sl, fp, lr}",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true
+   }
+  },
+  {
+   "name": "core.INST_COPY",
+   "headless": "0x6005524C",
+   "model02": "0x60056918",
+   "kind": "entry",
+   "confidence": "S1",
+   "evidence": "run match (normalised 10-insn runs, unique); 2 callers",
+   "site_kind": "entry",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "entry",
+    "hl_prologue": "orr.w r3, r1, r2",
+    "m2_prologue": "orr.w r3, r1, r2",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true
+   }
+  },
+  {
+   "name": "core.INST_PASTE",
+   "headless": "0x60054894",
+   "model02": "0x60055F60",
+   "kind": "entry",
+   "confidence": "S1",
+   "evidence": "masked-imm run; 7 callers",
+   "site_kind": "entry",
+   "same_instructions": true,
+   "site_check": {
+    "kind": "entry",
+    "hl_prologue": "ldrb r3, [r0, #0x10]; cmp r3, #0xff",
+    "m2_prologue": "ldrb r3, [r0, #0x10]; cmp r3, #0xff",
+    "relocates": true,
+    "same": true,
+    "same_modulo_literal": true
+   }
+  }
+ ]
+}

@@ -1,0 +1,204 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+/* M8 Model:02 6.6.2A: the firmware locations core 0.5 and loadable mods use: the same names as m8-headless/fw.h.
+ * Each address was found again from the headless one (code matched by instruction runs, data by the literals
+ * the matched code loads); dirtyloader/core/bindings/m8_6.6.2A_model02.json records them. Built, not yet run
+ * on a Model:02 unit. */
+#ifndef DIRTYLOADER_M8_MODEL02_FW_H
+#define DIRTYLOADER_M8_MODEL02_FW_H
+
+#include <stdint.h>
+
+#undef DL_FW                                    /* dl/mod.h's default is 0, "any firmware" */
+#define DL_FW 0x02060602u                       /* 6.6.2A Model:02 (0x02: the model) */
+
+#define fw_millis   (*(volatile uint32_t *)0x20040358u)
+
+/* ---- SdFat 2.x as linked into this build -------------------------------------------------------------------
+ * FsBaseFile is 0x40 bytes: 0x38 bytes of storage for the open FatFile (0x24) or ExFatFile (0x38), then
+ * pointers to whichever is open. fw_sd is the SdFs volume setup() mounts. */
+struct fw_file {
+    uint8_t mem[0x38];
+    void *fat;                                  /* FatFile *, or 0 */
+    void *exfat;                                /* ExFatFile *, or 0 */
+};
+#define fw_sd               ((void *)0x200372F4u)
+/* The firmware's storage object: +4 is nonzero while a card is mounted. Check FW_SD_MOUNTED() before any
+ * file call, as the firmware checks before its own. fw_sd_ready() returns the flag after trying to mount a
+ * card inserted since boot; it masks the audio interrupt while it tries, so core uses only the flag. */
+typedef int (*fw_sd_ready_fn)(void *storage);
+#define fw_storage          ((void *)0x20015BB0u)
+#define fw_sd_ready         ((fw_sd_ready_fn)0x6007CDF9u)
+#define FW_SD_MOUNTED()     (((volatile uint8_t *)fw_storage)[4])
+#define FW_O_READ           0x000
+#define FW_O_RDWR           0x002
+#define FW_O_CREAT          0x200
+#define FW_O_TRUNC          0x400
+#define FW_ATTR_DIR         0x70                /* FatFile / ExFatFile attribute bits that mean a directory */
+
+typedef int  (*fw_open_fn)(struct fw_file *f, void *vol, const char *path, int oflag);   /* FsBaseFile::open */
+typedef int  (*fw_open_next_fn)(struct fw_file *f, struct fw_file *dir, int oflag);      /* ::openNext */
+typedef int  (*fw_close_fn)(struct fw_file *f);                                          /* ::close */
+typedef int  (*fw_io_fn)(void *file, void *buf, uint32_t n);
+typedef int  (*fw_fat_seek_fn)(void *fat, uint32_t pos);
+typedef int  (*fw_exfat_seek_fn)(void *exfat, uint32_t _r1, uint64_t pos);
+typedef int  (*fw_name_fn)(void *file, char *buf, uint32_t size);
+
+#define fw_file_open        ((fw_open_fn)0x600ABFFDu)
+#define fw_file_open_next   ((fw_open_next_fn)0x600AC135u)
+#define fw_file_close       ((fw_close_fn)0x600ABFD5u)
+#define fw_fat_read         ((fw_io_fn)0x600AA765u)
+#define fw_exfat_read       ((fw_io_fn)0x600A8D69u)
+#define fw_fat_write        ((fw_io_fn)0x600AAD99u)
+#define fw_exfat_write      ((fw_io_fn)0x600A983Du)
+#define fw_fat_seek         ((fw_fat_seek_fn)0x600AAA09u)
+#define fw_exfat_seek       ((fw_exfat_seek_fn)0x600A8F35u)
+#define fw_fat_name         ((fw_name_fn)0x600AB995u)
+#define fw_exfat_name       ((fw_name_fn)0x600A9B09u)
+
+/* SdFat directories: FatFile::mkdir(this, parent, path, pFlag) / ExFatFile::mkdir; the volume's working
+ * directory (the parent the firmware passes) is +0x448 of the FatVolume / ExFatVolume at fw_sd +0x480 / +0x484.
+ * `this` is a zeroed FatFile (0x24 B) or ExFatFile (0x38 B), left open on success: close it. */
+typedef int (*fw_mkdir_fn)(void *file, void *parent, const char *path, int pflag);
+typedef int (*fw_fclose_fn)(void *file);
+#define fw_fat_vol          (*(void *volatile *)((uint8_t *)fw_sd + 0x480))
+#define fw_exfat_vol        (*(void *volatile *)((uint8_t *)fw_sd + 0x484))
+#define FW_VOL_CWD          0x448
+#define fw_fat_mkdir        ((fw_mkdir_fn)0x600AA481u)
+#define fw_exfat_mkdir      ((fw_mkdir_fn)0x600A9681u)
+#define fw_fat_fclose       ((fw_fclose_fn)0x600AA271u)
+#define fw_exfat_fclose     ((fw_fclose_fn)0x600A8C15u)
+/* FatFile::remove(this) / ExFatFile::remove(this): delete an open file (opened FW_O_RDWR); it is closed after */
+typedef int (*fw_remove_fn)(void *file);
+#define fw_fat_remove       ((fw_remove_fn)0x600AB6B5u)
+#define fw_exfat_remove     ((fw_remove_fn)0x600A9245u)
+
+/* ---- USB MIDI (Teensyduino usb_midi.c) -------------------------------------------------------------------------
+ * A USB MIDI packet is a word: byte 0 cable << 4 | code index (CIN), bytes 1-3 the MIDI bytes (status first).
+ * usb_midi_read (0x600AF468, what usbMIDI.read() runs) takes one packet from usb_midi_read_message and calls
+ * the handlers the firmware set; usb_midi_write_packed queues one packet for the host. Core's ev_midi sees each
+ * packet usb_midi_read takes, ev_midi_out each packet written. */
+typedef uint32_t (*fw_midi_read_fn)(void);
+typedef void (*fw_midi_write_fn)(uint32_t packet);
+#define fw_usb_midi_read_message ((fw_midi_read_fn)0x600AF3C1u)
+#define fw_usb_midi_write_packed ((fw_midi_write_fn)0x600AEF3Du)
+#define FW_MIDI_READ_CALL   0x600AF46Eu
+/* usbMIDI's partial-SysEx handler (data, len, last): the firmware sets it to 0x600A65B5 in setup(); core 0.5 chains it */
+#define fw_sysex_handler    (*(volatile uint32_t *)0x20040748u)
+#define fw_usb_configuration (*(volatile uint8_t *)0x200416C6u)   /* nonzero once the host configured USB */     /* usb_midi_read's bl usb_midi_read_message: core's ev_midi site */
+
+/* ---- the song, the mixer, the sequencer (Ghidra, core 0.5's sites) ---------------------------------------------
+ * The song in RAM; the firmware's accessors return pointers into it: a phrase step is 9 bytes (note, velocity,
+ * instrument, 3 x (command, value)), an instrument 0xD7 bytes. */
+#define fw_song             ((uint8_t *)0x2025A570u)
+#define FW_PHRASE_STEP(p, s) (fw_song + 0xA6C + (p) * 0x90 + (s) * 9)
+#define FW_INSTRUMENT(i)    (fw_song + 0x139BC + (i) * 0xD7)
+#define fw_mixer            ((uint8_t *)0x20010858u)
+#define fw_songs            ((void *)0x20015BB0u)                 /* the song loader/writer's object */
+typedef int (*fw_inst_load_fn)(void *songs, const char *path, int slot, int flag);
+typedef int (*fw_inst_save_fn)(void *songs, const char *path, int slot);
+#define fw_inst_load        ((fw_inst_load_fn)0x6007E78Du)       /* ev_inst_load's routine (flag 0) */
+#define fw_inst_save        ((fw_inst_save_fn)0x6007EE39u)       /* ev_inst_save's routine */
+/* The audio graph (a float Teensy Audio graph: 32-frame blocks of float, 44.1 kHz): Model:02 keeps its objects as
+ * globals, not in one engine object. Each has a vtable in RAM whose first slot is update(). The tap gets the
+ * master's output and passes it on to USB; the I2S branch shares the same blocks. audio_block_t: +0 ref count
+ * (u8), +4 float data[32]. */
+#define FW_AUDIO_TAP_OBJ    ((uint8_t *)0x2001D854u)                 /* Model:02 keeps the graph's objects as globals */
+#define FW_CLOCK_OBJ        ((uint8_t *)0x2000D218u)                 /* the sequencer clock: +0x28 playing */
+/* More of the graph (classes are unique; each vtable's update slot is in RAM):
+ * - the 8 track voices (0x2001606C + 0x2E4 x track): class slot 0x200024A0; +0x3D the track; +0x38 the
+ *   instrument; each transmits its block pair to its strip (an array, FW_TRACK_STRIP) and its sends
+ * - send effects: MFX 0x2001DD14 (slot 0x20002CDC, stereo in), delay 0x20021D4C (slot 0x20002ED4, mono in), reverb
+ *   0x20021F18 (slot 0x2000297C, stereo in); they run after the tracks
+ * - the sequencer clock 0x2000D218 (slot 0x20001FE0): first in each block, before the tracks */
+#define FW_SLOT_TRACK       0x200024A0u
+#define FW_SLOT_MFX         0x20002CDCu
+#define FW_SLOT_DELAY       0x20002ED4u
+#define FW_SLOT_REVERB      0x2000297Cu
+#define FW_SLOT_CLOCK       0x20001FE0u
+#define FW_TRACK_STRIP(voice) ((uint8_t *)0x20011650u + 0x6C * ((uint8_t *)(voice))[0x3D])   /* strips are an array */
+/* The phrase view (object 0x20014084, phrase number at +4): its vtable is in RAM. +0x34 redraws after a bulk edit
+ * (cut / clear, paste, interpolate, rotate, the FILL generators, transposing a selection), +0x38 after a cell. */
+#define fw_phrase_view      ((uint8_t *)0x20014084u)
+#define FW_SLOT_PHRASE_BULK 0x20001888u
+#define FW_SLOT_PHRASE_CELL 0x2000188Cu
+enum { FW_FX_MFX, FW_FX_DELAY, FW_FX_REVERB };
+typedef void (*fw_audio_transmit_fn)(void *obj, void *block, int port);
+typedef void (*fw_audio_release_fn)(void *block);
+#define fw_audio_transmit   ((fw_audio_transmit_fn)0x0001BDBDu)  /* AudioStream::transmit (ITCM) */
+#define fw_audio_release    ((fw_audio_release_fn)0x0001BD51u)   /* AudioStream::release (ITCM) */
+#define FW_AUDIO_FRAMES     32                          /* Model:02: 32-frame blocks */
+#define FW_AUDIO_RATE       44100
+typedef void *(*fw_audio_alloc_fn)(void);
+#define fw_audio_alloc      ((fw_audio_alloc_fn)0x0001BB51u)        /* AudioStream::allocate (ITCM): ref count 1 */
+#define fw_mute_mask        (*(volatile uint8_t *)0x20010A08u)  /* a bit per track */
+#define fw_solo_mask        (*(volatile uint8_t *)0x20010A0Cu)
+#define fw_seq_engine       ((uint8_t *)0x200140D0u)              /* ev_seq_tick's argument */
+#define fw_sequencer        ((uint8_t *)0x2000D218u)              /* +FW_SEQ_PLAYING: playing */
+#define FW_SEQ_PLAYING      0x28u
+#define FW_PLAYER(t)        ((uint8_t *)0x200140E4u + 0x240 * (t))   /* a track's player: +0xC track, +0x4C the row */
+enum { FW_ENGINE_FM, FW_ENGINE_HYPER, FW_ENGINE_MACRO, FW_ENGINE_SAMPLER, FW_ENGINE_WAV, FW_ENGINE_EXTERNAL,
+       FW_ENGINE_MIDI_OUT, FW_ENGINES };
+/* Each engine's class vtable is in RAM (DTCM .data): +0xF8 name(eng, dest) and +0x104 count(eng) list its
+ * modulation destinations (0 = OFF). A modulator keeps dest in the low nibble of its first byte (instrument +0x3F
+ * + 6 x mod), so an engine has at most 16. Stock counts: 15, SAMPLER and EXTERNAL 14. Order: FW_ENGINE_*. */
+#define FW_ENGINE_VTABLES   { 0x2000195Cu, 0x20002038u, 0x20002200u, 0x200027CCu, 0x20001DF8u, 0x200029F4u, 0x20001B9Cu }
+#define FW_VT_DEST_NAME     0xF8u
+#define FW_VT_DEST_COUNT    0x104u
+#define FW_MOD_DESTS_MAX    16
+
+/* core 0.4's API for mods (dl/core.h): a pointer to it sits after core's hook table (bindings: loader.ram +
+ * 0x208). dl_core() checks it. */
+#define DL_CORE_PTR         0x0002BAD8u
+
+/* ---- USB serial (Teensyduino usb_serial.c): what m8c talks to ------------------------------------------------
+ * The m8c command parser (fw_m8c_parse, 0x60079A7C) drains every waiting byte; core's ev_serial handler runs at
+ * its entry and peeks the receive queue first. Received data waits in RX_NUM (8) 512-byte buffers queued in
+ * rx_list (a ring of 9, head and tail are bytes); rx_index is how far each buffer has been read. Mask the USB
+ * interrupt (IRQ 113) while looking, as usb_serial_read does. */
+#define fw_rx_available     (*(volatile uint32_t *)0x2003341Cu)
+#define fw_rx_head          (*(volatile uint8_t *)0x200416B4u)
+#define fw_rx_tail          (*(volatile uint8_t *)0x200416B7u)
+#define fw_rx_list          ((volatile uint8_t *)0x20033470u)
+#define fw_rx_index         ((volatile uint16_t *)0x20033448u)
+#define fw_rx_buffer        ((volatile uint8_t *)0x20279760u)
+#define FW_RX_RING          9
+#define FW_RX_BUF           512
+#define FW_USB_IRQ_BIT      (1u << (113 - 96))
+#define FW_NVIC_ISER3       (*(volatile uint32_t *)0xE000E10Cu)
+#define FW_NVIC_ICER3       (*(volatile uint32_t *)0xE000E18Cu)
+typedef int (*fw_serial_read_fn)(void *buf, uint32_t n);      /* usb_serial_read: no yield, returns bytes read */
+typedef int (*fw_serial_putc_fn)(int c);                       /* usb_serial_putchar: dropped if USB is not up */
+#define fw_serial_read      ((fw_serial_read_fn)0x600AFE0Du)
+#define fw_serial_putc      ((fw_serial_putc_fn)0x600AFFD9u)
+
+/* ---- the UI -----------------------------------------------------------------------------------------------
+ * Screens are objects whose first word is an 8-slot method table: enter(view, arg), +04 (shared), input(view,
+ * action), update(view) each loop, draw(view) each frame, +14, and two flags (+18, +1C). set_view(ui, id) leaves
+ * the old screen, fetches fw_views[id] (30 slots, 7 is empty in this build) and enters it. The current id is at
+ * ui + 0x15. Input actions are the m8c key bits of the chord: EDIT 01, OPT 02, RIGHT 04, PLAY 08, SHIFT 10,
+ * DOWN 20, UP 40, LEFT 80. Text goes into a 40 x 24 character grid (fw_grid + 0x10 + row * 40 + col) that the
+ * display task draws and sends to m8c. */
+#define fw_ui               ((uint8_t *)0x20015458u)
+#define FW_UI_VIEW          0x15
+#define FW_VIEW_FREE        7                           /* the empty slot core's MODS page takes */
+#define FW_HAS_VIEW_TABLE   0                           /* set_view is a switch: core_view (ev_view) takes id 7 */
+#define FW_VIEW_SETTINGS    0x1C
+#define fw_settings         ((volatile uint8_t *)0x20015F50u)   /* SYSTEM SETTINGS: +4 cursor x, +5 cursor y */
+#define fw_grid             ((uint8_t *)0x20012464u)
+#define FW_GRID_COLS        40
+#define FW_GRID_ROWS        24
+typedef void (*fw_set_view_fn)(void *ui, int view);
+typedef void (*fw_text_fn)(void *grid, int col, int row, const char *s);
+#define fw_set_view         ((fw_set_view_fn)0x6004C13Du)
+#define fw_text             ((fw_text_fn)0x6007878Bu)
+#define FW_VIEW_SHARED_04   0x600A4359u                 /* the +04 method most screens share */
+#define FW_VIEW_NOP         0x600A434Du                 /* an empty method */
+#define FW_VIEW_FLAG_18     0x600A4351u                 /* the +18 / +1C flags SETTINGS uses: return 0 */
+#define FW_VIEW_FLAG_1C     0x600A4355u
+enum { FW_KEY_EDIT = 0x01, FW_KEY_OPT = 0x02, FW_KEY_RIGHT = 0x04, FW_KEY_PLAY = 0x08, FW_KEY_SHIFT = 0x10,
+       FW_KEY_DOWN = 0x20, FW_KEY_UP = 0x40, FW_KEY_LEFT = 0x80 };
+
+/* Teensyduino's crash record (CrashReport): written by the fault handler, kept across the reboot */
+#define fw_fault_info       ((const volatile uint32_t *)0x2027FF80u)
+
+#endif

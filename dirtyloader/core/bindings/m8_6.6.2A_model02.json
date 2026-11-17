@@ -4,12 +4,12 @@
   "load_addr": "0x60000000",
   "derived_by": "dirtyloader.re.trace (entry -> startup -> main -> loop/yield)",
   "symbols": {
-    "entry":   "0x60001649",
+    "entry": "0x60001649",
     "startup": "0x60001430",
-    "main":    "0x600AE04C",
-    "setup":   "0x60082374",
-    "loop":    "0x60081BD4",
-    "yield":   "0x600B4DC0"
+    "main": "0x600AE04C",
+    "setup": "0x60082374",
+    "loop": "0x60081BD4",
+    "yield": "0x600B4DC0"
   },
   "hook_sites": {
     "BOOT": {
@@ -25,10 +25,282 @@
       "note": "entire M8 application frame; descend into loop() for RENDER/INPUT"
     }
   },
-  "loop_subsystems_partial": ["0x6007BBB4", "0x6007C6C0"],
+  "loop_subsystems_partial": [
+    "0x6007BBB4",
+    "0x6007C6C0"
+  ],
   "notes": [
     "yield (0x600B4DC0) is a long-branch veneer to the real yield().",
     "UI strings are accessed by computed index with no static xref; RENDER/AUDIO",
     "hooks require descending into loop()'s subsystems in Ghidra, not string xrefs."
-  ]
+  ],
+  "loader": {
+    "c_at": "0x601F0000",
+    "ram": "0x0002B8D0",
+    "ram_end": "0x0002FF80",
+    "veneers": "0x0002FF80",
+    "itcm_load": "0x60001680",
+    "fw_header": "m8-model02/fw.h",
+    "load_at": "0x6008243C",
+    "view_switch": true,
+    "settings_row": {
+      "template": "0x601D245C",
+      "attrs": "0x3C4",
+      "literals": [
+        "0x60074BF4",
+        "0x60074BFC",
+        "0x600753CC"
+      ],
+      "row": 22,
+      "attr_like": 7,
+      "field_y": 14,
+      "text": " MODS (TELOS) {OPEN}",
+      "note": "Model:02's SYSTEM SETTINGS has two more rows than headless (BATT.CHARGING row 20, FIRMWARE UPDATE row 21): the MODS row goes in row 22, field 14"
+    },
+    "calls": {
+      "0x600AF46E": {
+        "fn": "core_midi_read",
+        "event": "MIDI",
+        "note": "usb_midi_read's bl usb_midi_read_message (0x600AF3C0)"
+      }
+    },
+    "sysex_handler": {
+      "ptr": "0x20040748",
+      "stock": "0x600A65B5",
+      "note": "set at 0x60089650"
+    },
+    "phrase_slots": {
+      "redraw": "0x20001888",
+      "edited": "0x2000188C"
+    },
+    "note": "core 0.5 for Model:02, from the headless core's sites found again in 6.6.2A (code matched by instruction runs, data through the literals the matched code loads; the map with its evidence: docs/MODEL02-PORT.md). Free flash past the image (ends 0x601EB000) up to the EEPROM emulation at 0x60FC0000; the ITCM tail after the firmware's ITCM code (0x2B8D0). Built, not run on a Model:02 unit."
+  },
+  "core": {
+    "BOOT": {
+      "kind": "call_post",
+      "patch_at": "0x600AE04E",
+      "target": "0x60082374",
+      "note": "headless 0x600A28FA: main bl setup; m2 bindings hook_sites.BOOT"
+    },
+    "TICK": {
+      "kind": "call_pre",
+      "patch_at": "0x600AE052",
+      "target": "0x60081BD4",
+      "note": "headless 0x600A28FE: main bl loop; m2 bindings hook_sites.TICK"
+    },
+    "DRAW": {
+      "kind": "call_pre",
+      "patch_at": "0x60081C62",
+      "target": "0x6004B514",
+      "note": "headless 0x6007FAB8: loop: ui update 0x6004BFF0 then bl frame_refresh(display 0x200137F8), as headless"
+    },
+    "KEY": {
+      "kind": "call_pre",
+      "patch_at": "0x60081C56",
+      "target": "0x6004C6C8",
+      "note": "headless 0x6007FBA0: loop: bl input router(ui, action); docs ev_key 0x60081C56"
+    },
+    "VIEW": {
+      "kind": "entry",
+      "patch_at": "0x6004C13C",
+      "note": "headless 0x6004A96C: set_view entry"
+    },
+    "SONG_LOAD": {
+      "kind": "entry",
+      "patch_at": "0x60063638",
+      "note": "headless 0x60062154: AUTOSAVE/TEMPLATE/Backup/PREVIEW SONG strings in the same order; setup calls it with AUTOSAVE; no PLUGIN_STATE check in m2; 3 args (no r3)"
+    },
+    "SONG_SAVE": {
+      "kind": "entry",
+      "patch_at": "0x6007DAE8",
+      "note": "headless 0x6007AFC0: same body (sd_ready, fw_sd+0x480, FsBaseFile, M8VERSION users); r1 = path"
+    },
+    "NOTE": {
+      "kind": "itcm_entry",
+      "patch_at": "0x0002464C",
+      "note": "headless 0x22BDC: run match (normalised 10-insn runs, unique); 4 callers"
+    },
+    "PLAY": {
+      "kind": "entry",
+      "patch_at": "0x6009A410",
+      "note": "headless 0x60090618: same field writes (+0x29 mode, +0x2C=0, +0x28=1, +0x38=-1.0) on clock 0x2000D218; caller 0x6008BFF4. m2 has no seq r0: r1 = mode. Not 0x6009A528 (that is pause)"
+    },
+    "STOP": {
+      "kind": "entry",
+      "patch_at": "0x6009A55C",
+      "note": "headless 0x600907A4: clears clock+0x28 and walks the players, as headless; FIRMWARE-MAP stop 0x6009A55C; no args"
+    },
+    "SERIAL": {
+      "kind": "entry",
+      "patch_at": "0x60079A7C",
+      "note": "headless 0x6007846C: run match (normalised 10-insn runs, unique)"
+    },
+    "MIDI_OUT": {
+      "kind": "entry",
+      "patch_at": "0x600AEF3C",
+      "note": "headless 0x600A3238: run match (normalised 10-insn runs, unique)"
+    },
+    "TEMPO": {
+      "kind": "entry",
+      "patch_at": "0x6009A6C0",
+      "note": "headless 0x60090978: see sym.set_tempo"
+    },
+    "SEQ_TICK": {
+      "kind": "itcm_entry",
+      "patch_at": "0x000234FC",
+      "note": "headless 0x21A64: 2 callers agree; headless note says ported from m2 0x60024B7C (= run 0x234FC)"
+    },
+    "NOTE_OFF": {
+      "kind": "itcm_entry",
+      "patch_at": "0x00024530",
+      "note": "headless 0x22AC0: run match (normalised 10-insn runs, unique); 4 callers; headless note m2 0x25BB0 is load-0x1680 = run 0x24530"
+    },
+    "ROW": {
+      "kind": "itcm_mid",
+      "patch_at": "0x00026558",
+      "args": [
+        "r4"
+      ],
+      "note": "headless 0x24B7C: same code inside the per-track update (m2 0x26028, 5 callers agree): mov #-1; str [r4,#0x1EC]; ldrb rX,[r4,#0x15]; cmp; beq"
+    },
+    "FX_ROW": {
+      "kind": "itcm_entry",
+      "patch_at": "0x00024854",
+      "note": "headless 0x22DE4: run match (normalised 10-insn runs, unique); 10 callers; FIRMWARE-MAP applier 0x24854"
+    },
+    "FX_COMMAND": {
+      "kind": "itcm_entry",
+      "patch_at": "0x00027124",
+      "note": "headless 0x258EC: caller agrees; FIRMWARE-MAP executor 0x27124"
+    },
+    "MOD_APPLY@FM": {
+      "kind": "itcm_mid",
+      "patch_at": "0x0000C9CA",
+      "args": [
+        "r0",
+        "r4",
+        "r5",
+        "#0"
+      ],
+      "taken_to": "0x0000CA1A",
+      "note": "headless 0xCC8A: run match (normalised 10-insn runs, unique); FIRMWARE-MAP switch, subs/cmp before the tbb/tbh; taken_to branch checked"
+    },
+    "MOD_APPLY@HYPER": {
+      "kind": "itcm_mid",
+      "patch_at": "0x0000E54C",
+      "args": [
+        "r0",
+        "r4",
+        "r5",
+        "#1"
+      ],
+      "taken_to": "0x0000E59C",
+      "note": "headless 0xE80C: run match (normalised 10-insn runs, unique); FIRMWARE-MAP switch, subs/cmp before the tbb/tbh; taken_to branch checked"
+    },
+    "MOD_APPLY@MACRO": {
+      "kind": "itcm_mid",
+      "patch_at": "0x00011854",
+      "args": [
+        "r0",
+        "r4",
+        "r5",
+        "#2"
+      ],
+      "taken_to": "0x000118A4",
+      "note": "headless 0x11B14: run match (normalised 10-insn runs, unique); FIRMWARE-MAP switch, subs/cmp before the tbb/tbh; taken_to branch checked"
+    },
+    "MOD_APPLY@SAMPLER": {
+      "kind": "itcm_mid",
+      "patch_at": "0x00014398",
+      "args": [
+        "r0",
+        "r4",
+        "r5",
+        "#3"
+      ],
+      "taken_to": "0x000143EA",
+      "note": "headless 0x1473C: run match (normalised 10-insn runs, unique); FIRMWARE-MAP switch, subs/cmp before the tbb/tbh; taken_to branch checked"
+    },
+    "MOD_APPLY@WAV": {
+      "kind": "itcm_mid",
+      "patch_at": "0x000171B4",
+      "args": [
+        "r0",
+        "r4",
+        "r5",
+        "#4"
+      ],
+      "taken_to": "0x000171FA",
+      "note": "headless 0x175D4: run match (normalised 10-insn runs, unique); FIRMWARE-MAP switch, subs/cmp before the tbb/tbh; taken_to branch checked"
+    },
+    "MOD_APPLY@EXTERNAL": {
+      "kind": "itcm_mid",
+      "patch_at": "0x0000B37E",
+      "args": [
+        "r0",
+        "r4",
+        "r6",
+        "#5"
+      ],
+      "taken_to": "0x0000B3CE",
+      "note": "headless 0xB63E: run match (normalised 10-insn runs, unique); FIRMWARE-MAP switch, subs/cmp before the tbb/tbh; taken_to branch checked"
+    },
+    "MOD_APPLY@SAMPLER0": {
+      "kind": "itcm_mid",
+      "patch_at": "0x00012866",
+      "args": [
+        "r3",
+        "r4",
+        "r5",
+        "#3"
+      ],
+      "taken_to": "0x000128B8",
+      "note": "headless 0x12B2E: run match (normalised 10-insn runs, unique); FIRMWARE-MAP switch, subs/cmp before the tbb/tbh; taken_to branch checked"
+    },
+    "MUTE": {
+      "kind": "entry",
+      "patch_at": "0x6003A4B4",
+      "note": "headless 0x60038940: run match (normalised 10-insn runs, unique); 11 callers"
+    },
+    "INST_LOAD": {
+      "kind": "entry",
+      "patch_at": "0x6007E78C",
+      "note": "headless 0x6007BDD0: run match (normalised 10-insn runs, unique)"
+    },
+    "INST_SAVE": {
+      "kind": "entry",
+      "patch_at": "0x6007EE38",
+      "note": "headless 0x6007C47C: run match (normalised 10-insn runs, unique)"
+    },
+    "PARAM_SET": {
+      "kind": "entry",
+      "patch_at": "0x60055200",
+      "note": "headless 0x60053B30: same body after the push (5 callers agree)"
+    },
+    "STEP_EDIT": {
+      "kind": "entry",
+      "patch_at": "0x60061768",
+      "note": "headless 0x6006025C: run match (normalised 10-insn runs, unique); phrase view vtable +0x38 slot 0x2000188C"
+    },
+    "INST_CLEAR": {
+      "kind": "entry",
+      "patch_at": "0x60082AD8",
+      "note": "headless 0x6007FF34: run match (normalised 10-insn runs, unique); 10 callers"
+    },
+    "LIVE_NOTE": {
+      "kind": "itcm_entry",
+      "patch_at": "0x00024DE0",
+      "note": "headless 0x23374: run match (normalised 10-insn runs, unique); 4 callers; headless note m2 0x24DE0"
+    },
+    "INST_COPY": {
+      "kind": "entry",
+      "patch_at": "0x60056918",
+      "note": "headless 0x6005524C: run match (normalised 10-insn runs, unique); 2 callers"
+    },
+    "INST_PASTE": {
+      "kind": "entry",
+      "patch_at": "0x60055F60",
+      "note": "headless 0x60054894: masked-imm run; 7 callers"
+    }
+  }
 }

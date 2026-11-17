@@ -88,10 +88,13 @@ def link(stock: M8Firmware, stock_sha256: str, mods: List[Mod]) -> M8Firmware:
     fw = M8Firmware(version=stock.version, load_addr=stock.load_addr, payload=bytearray(stock.payload))
     end = max((s.addr + s.len for m in mods for s in m.sites), default=0)
     if end > fw.load_addr + len(fw.payload):
-        if fw.model != 0:
+        image_end = fw.load_addr + len(fw.payload)
+        past = [m for m in mods if any(s.addr + s.len > image_end for s in m.sites)]
+        if fw.model != 0 and not all("core:loader" in (m.resources or {}).get("names", []) for m in past):
             raise M8FWError(f"a site ends at 0x{end:08X}, past the end of the firmware image")
-        # M8 Headless ships as Intel HEX, which can carry bytes anywhere in the Teensy's flash: pad the image
-        # with erased flash (0xFF) so sites past its end hash-check and apply like any other
+        # M8 Headless ships as Intel HEX, which can carry bytes anywhere in the Teensy's flash; a Model:02 .bin
+        # records its payload length, so core's loader (core:loader) may grow it too: pad the image with erased
+        # flash (0xFF) so sites past its end hash-check and apply like any other
         fw.payload += b"\xff" * (end - fw.load_addr - len(fw.payload))
     patches: List[Patch] = []
     for m in mods:

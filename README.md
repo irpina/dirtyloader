@@ -113,6 +113,7 @@ docs/FORMAT.md     the .m8mod specification
 docs/CORE-EVENTS.md   the hook bus: events, prototypes, sites, core tables (Elekloader-style)
 docs/LOADER.md        mods on the SD card (TELOS for the M8): transfer, MODS page, song lists, the core API
 docs/PARITY-DN1.md    Elekloader's Digitone mk1 core and TELOS, feature by feature, against the M8 core
+docs/MODEL02-PORT.md  core 0.5 on the Model:02 (6.6.2A): how each site was found again, what differs
 docs/FIRMWARE-MAP.md  the whole-firmware map (memory map, layout, threads, drivers, classes)
 dirtyloader/re/    RE tools: memmap, layout, switches, vtables, params, objects, ghidra_map, fwmap
 ```

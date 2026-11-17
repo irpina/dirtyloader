@@ -830,11 +830,39 @@ static const void *const page_vt[8] = {
     (const void *)page_draw, (const void *)FW_VIEW_NOP, (const void *)FW_VIEW_FLAG_18, (const void *)FW_VIEW_FLAG_1C,
 };
 
+/* Is core's screen reachable as view FW_VIEW_FREE? Headless: core put it in the firmware's views table. Model:02's
+   set_view is a switch whose case for that id does nothing; core_view (ev_view, order 0) does the switch then. */
+static int page_installed(void)
+{
+#if FW_HAS_VIEW_TABLE
+    return fw_views[FW_VIEW_FREE] == &ram->page_view;
+#else
+    return ram->page_view.vt == page_vt;
+#endif
+}
+
+#if !FW_HAS_VIEW_TABLE
+/* set_view(ui, id) for core's id: leave the current screen (+0x14), make core's the current one (ui + 4, the id at
+   +0x15, the previous at +0x17) and enter it, as the firmware's cases do; then take the call. */
+int core_view(void *ui, int id)
+{
+    if (id != FW_VIEW_FREE || !page_installed()) return 0;
+    uint8_t *u = (uint8_t *)ui;
+    void *old = *(void **)(u + 4);
+    if (old) ((void (*)(void *))(*(const void *const *const *)old)[5])(old);
+    u[0x17] = u[FW_UI_VIEW];
+    u[FW_UI_VIEW] = (uint8_t)id;
+    *(void **)(u + 4) = &ram->page_view;
+    page_enter(&ram->page_view, 0);
+    return 1;
+}
+#endif
+
 /* ev_key, order 0: EDIT on the settings row core adds opens the page */
 int core_key(void *ui, int action)
 {
     if (((uint8_t *)ui)[FW_UI_VIEW] == FW_VIEW_SETTINGS && fw_settings[5] == SETTINGS_MODS_Y
-        && action == FW_KEY_EDIT && fw_views[FW_VIEW_FREE] == &ram->page_view) {
+        && action == FW_KEY_EDIT && page_installed()) {
         ram->page_mode = 0;
         fw_set_view(ui, FW_VIEW_FREE);
         return 1;
@@ -1076,7 +1104,7 @@ static void core_track(void *obj)
 {
     ((update_fn)ram->track_orig)(obj);
     if (!ram->track_subs) return;
-    uint8_t *strip = (uint8_t *)obj + FW_TRACK_MAIN;
+    uint8_t *strip = FW_TRACK_STRIP(obj);
     uint8_t **q = *(uint8_t ***)(strip + 0x20);
     uint32_t inputs = strip[0x18];                  /* the track sends on ports 0/1, and 2/3 while it crossfades */
     for (uint32_t p = 0; q && p + 1 < inputs && p < 4; p += 2)
@@ -1103,7 +1131,7 @@ static void core_delay(void *obj) { fx_in(obj, FW_FX_DELAY, 0); ((update_fn)ram-
 static void core_reverb(void *obj) { if (!fx_in(obj, FW_FX_REVERB, 1)) ((update_fn)ram->reverb_orig)(obj); }
 static void core_clock(void *obj)
 {
-    if (ram->params_subs) fire3(EV_PARAMS_W, (uint32_t)fw_audio_engine, 0, 0);
+    if (ram->params_subs) fire3(EV_PARAMS_W, (uint32_t)FW_CLOCK_OBJ, 0, 0);
     ((update_fn)ram->clock_orig)(obj);
 }
 
@@ -1214,7 +1242,7 @@ static int api_page_add(const struct dl_page *p)
 }
 static void api_page_open(const struct dl_page *p)
 {
-    if (!p || fw_views[FW_VIEW_FREE] != &ram->page_view) return;
+    if (!p || !page_installed()) return;
     uint32_t here = fw_ui[FW_UI_VIEW];
     ram->page_back = here == FW_VIEW_FREE ? (ram->page_mode == 2 ? ram->page_back
                                              : ram->page_mode == 3 ? PAGE_BACK_MENU : PAGE_BACK_MODS) : here;
@@ -1329,7 +1357,7 @@ static void menu_draw_all(void)
 
 static void menu_show(uint32_t back)
 {
-    if (fw_views[FW_VIEW_FREE] != &ram->page_view) return;
+    if (!page_installed()) return;
     uint32_t here = fw_ui[FW_UI_VIEW];
     ram->menu_back = here == FW_VIEW_FREE ? back : here;
     ram->menu_sel = 0;
@@ -1679,18 +1707,23 @@ void core_boot(void)
         ram->nmods = 0;
         flash_hooks(orders);
     }
+#if FW_HAS_VIEW_TABLE
     if (!fw_views[FW_VIEW_FREE]) {                  /* the MODS page takes the firmware's free view slot */
         zero(&ram->page_view, sizeof ram->page_view);
         ram->page_view.vt = page_vt;
         fw_views[FW_VIEW_FREE] = &ram->page_view;
     }
+#else
+    zero(&ram->page_view, sizeof ram->page_view);   /* set_view has no table: core_view switches to it (ev_view) */
+    ram->page_view.vt = page_vt;
+#endif
     if (FW_VECTORS[FW_AUDIO_VECTOR] != ((uint32_t)core_audio | 1)) {   /* ev_render_in / ev_render_out */
         ram->audio_orig = FW_VECTORS[FW_AUDIO_VECTOR];
         __asm volatile("dsb" ::: "memory");
         FW_VECTORS[FW_AUDIO_VECTOR] = (uint32_t)core_audio | 1;
     }
     {                                               /* ev_audio_out */
-        volatile uint32_t *vt = *(volatile uint32_t **)(fw_audio_engine + FW_AUDIO_TAP);
+        volatile uint32_t *vt = *(volatile uint32_t **)(FW_AUDIO_TAP_OBJ);
         ram->audio_subs = 0;
         for (uint32_t i = 0; i < ram->count; i++) if (ram->table[i].event == 0x0032u) ram->audio_subs = 1;
         if (vt && vt[0] != ((uint32_t)core_tap | 1)) {

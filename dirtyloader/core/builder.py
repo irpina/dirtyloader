@@ -630,7 +630,7 @@ def build_core03_mod(fw: M8Firmware, stock_sha256: str, bindings: dict) -> Mod:
         defines["SETTINGS_MODS_Y"] = str(int(row["field_y"]))
     calls = {int(a, 16): c for a, c in ld.get("calls", {}).items()}   # a bl that calls core's C instead
     entries = ["core_early", "core_load", "core_boot", "core_serial", "core_key", "core_tick", "core_song_load",
-               "core_song_save"] + [c["fn"] for c in calls.values()]
+               "core_song_save"] + [c["fn"] for c in calls.values()] + (["core_view"] if ld.get("view_switch") else [])
     c_img, syms = cc.build_fixed([CORE03_SOURCE], c_at, entries, defines)
     if c_at < fw.load_addr + len(fw.payload):
         raise RuntimeError(f"loader address 0x{c_at:08X} is inside the stock image")
@@ -704,7 +704,8 @@ def build_core03_mod(fw: M8Firmware, stock_sha256: str, bindings: dict) -> Mod:
                    if "SERIAL" in events else [])
                   + [{"event": ev, "handler": syms[fn] | 1, "order": 0}
                      for ev, fn in (("KEY", "core_key"), ("TICK", "core_tick"), ("SONG_LOAD", "core_song_load"),
-                                    ("SONG_SAVE", "core_song_save")) if ev in events],
+                                    ("SONG_SAVE", "core_song_save"), ("VIEW", "core_view"))
+                     if ev in events and fn in syms],
         resources={"names": ["core:hook-table", "core:region", "core:loader", "core:itcm-tail"]},
     )
     return mod

@@ -102,6 +102,8 @@ typedef int (*fw_inst_save_fn)(void *songs, const char *path, int slot);
  * same blocks. audio_block_t: +0 ref count (u8), +4 float data[64]. */
 #define fw_audio_engine     ((uint8_t *)0x2000BE80u)
 #define FW_AUDIO_TAP        0x9308u
+#define FW_AUDIO_TAP_OBJ    (fw_audio_engine + FW_AUDIO_TAP)        /* the tap object (core's ev_audio_out) */
+#define FW_CLOCK_OBJ        (fw_audio_engine + 0x390u)               /* the sequencer clock (ev_render_params' argument) */
 /* More of the graph (classes are unique unless noted; each vtable's update slot is in RAM):
  * - the 8 track voices: class slot 0x20002348; +0x3D the track; +0x38 the instrument; each transmits its block
  *   pair to its main strip (+0x3E4) and its reverb, delay and MFX sends (+0x450, +0x4BC, +0x528)
@@ -114,6 +116,7 @@ typedef int (*fw_inst_save_fn)(void *songs, const char *path, int slot);
 #define FW_SLOT_REVERB      0x20002814u
 #define FW_SLOT_CLOCK       0x20001E94u
 #define FW_TRACK_MAIN       0x3E4u
+#define FW_TRACK_STRIP(voice) ((uint8_t *)(voice) + FW_TRACK_MAIN)     /* a track voice's main strip (it contains it) */
 /* The phrase view (object 0x2001AD90, phrase number at +4): its vtable is in RAM. +0x34 redraws after a bulk edit
  * (cut / clear, paste, interpolate, rotate, the FILL generators, transposing a selection), +0x38 after a cell. */
 #define fw_phrase_view      ((uint8_t *)0x2001AD90u)
@@ -131,7 +134,8 @@ typedef void *(*fw_audio_alloc_fn)(void);
 #define fw_mute_mask        (*(volatile uint8_t *)0x2000C410u)  /* a bit per track */
 #define fw_solo_mask        (*(volatile uint8_t *)0x2000C414u)
 #define fw_seq_engine       ((uint8_t *)0x2001ADDCu)              /* ev_seq_tick's argument */
-#define fw_sequencer        ((uint8_t *)0x2000BE80u)              /* +0x3B8: playing */
+#define fw_sequencer        ((uint8_t *)0x2000BE80u)              /* +FW_SEQ_PLAYING: playing */
+#define FW_SEQ_PLAYING      0x3B8u
 #define FW_PLAYER(t)        ((uint8_t *)0x2001ADF0u + 0x248 * (t))   /* a track's player: +0xC track, +0x4C the row */
 enum { FW_ENGINE_FM, FW_ENGINE_HYPER, FW_ENGINE_MACRO, FW_ENGINE_SAMPLER, FW_ENGINE_WAV, FW_ENGINE_EXTERNAL,
        FW_ENGINE_MIDI_OUT, FW_ENGINES };
@@ -180,6 +184,7 @@ typedef int (*fw_serial_putc_fn)(int c);                       /* usb_serial_put
 #define fw_views            ((void *volatile *)0x20000B24u)
 #define FW_VIEWS            30
 #define FW_VIEW_FREE        7                           /* the empty slot core's MODS page takes */
+#define FW_HAS_VIEW_TABLE   1                           /* set_view reads fw_views (Model:02: a switch) */
 #define FW_VIEW_SETTINGS    0x1C
 #define fw_settings         ((volatile uint8_t *)0x2001CCECu)   /* SYSTEM SETTINGS: +4 cursor x, +5 cursor y */
 #define fw_grid             ((uint8_t *)0x20019160u)

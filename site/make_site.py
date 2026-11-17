@@ -29,7 +29,7 @@ MODS_DIR = os.path.join(HERE, "mods")
 
 # Only the stdlib runtime path is shipped to the browser; RE tooling and tests are not.
 SKIP_DIRS = {"re", "__pycache__", "bindings"}
-SKIP_FILES = {"mkmod.py", "lint.py", "cli.py", "__main__.py", "builder.py", "build_headless.py",
+SKIP_FILES = {"mkmod.py", "lint.py", "cli.py", "__main__.py", "builder.py", "build_headless.py", "build_model02.py",
               "cc.py", "serialport.py", "unit.py", "m8screen.py"}           # compiler and serial ports: not in the browser
 SKIP_PREFIX = ("test_",)
 

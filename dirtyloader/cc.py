@@ -70,7 +70,7 @@ def _link(sources: Sequence[str], script: str, defines: Dict[str, str], work: st
     with open(ld, "w", newline="\n") as f:
         f.write(script)
     elf = os.path.join(work, tag + ".elf")
-    args = list(CFLAGS) + ["-I" + _path(SDK_INCLUDE)] + ["-I" + _path(i) for i in includes]
+    args = list(CFLAGS) + ["-I" + _path(i) for i in includes] + ["-I" + _path(SDK_INCLUDE)]   # callers' first
     args += [f"-D{k}={v}" for k, v in defines.items()]
     args += ["-nostdlib", "-nostartfiles", "-Wl,--gc-sections", "-Wl,-T," + _path(ld), "-o", _path(elf)]
     args += ["-Wl,--undefined=" + r for r in roots]          # entry points --gc-sections must keep
