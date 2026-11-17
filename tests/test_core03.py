@@ -55,7 +55,9 @@ class TestCore03(unittest.TestCase):
         loader = [s for s in self.core.sites if s.addr == C_AT][0]
         self.assertEqual(len(out.payload), C_AT - LOAD + loader.len)              # padded to fit the loader
         self.assertEqual(struct.unpack_from("<HH", out.payload, 0x208), (3, abi.MAX_HOOKS))  # layout 3
-        self.assertEqual(bytes(out.payload[0x210:0x410]), bytes(0x200))         # no flash-linked hooks
+        ev, fl, fn = struct.unpack_from(abi.HOOK_ENTRY_FMT, out.payload, 0x210)   # core_tick, order 0
+        self.assertEqual((ev, fl), (int(abi.Event.TICK), abi.FLAG_ENABLED))
+        self.assertTrue(C_AT < fn < C_AT + loader.len and fn & 1)
 
     def test_boot_stub_runs_the_loader_around_setup(self):
         out_img = self.builder.build_core02(self.fw, BINDINGS, ram=RAM, early=C_AT + 0x100, boot=C_AT + 0x200,

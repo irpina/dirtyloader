@@ -57,6 +57,8 @@ class Event(IntEnum):
     MOD_APPLY = 0x0053   # a modulator targets a destination past the stock list (audio thread)
     TEMPO = 0x0060       # the tempo is set
     TRANSPORT = 0x0061   # play / pause / stop
+    SONG_LOAD = 0x0070   # a song file is about to be loaded
+    SONG_SAVE = 0x0071   # a song file is about to be saved
     # earlier names, same ids (core 0.1 files may use them)
     RENDER = 0x0020
     AUDIO_BLOCK = 0x0030
@@ -93,6 +95,8 @@ EVENTS = {
                                "void f(int engine, void *voice, void *mod, int dest)", "site pinned"),
     Event.TEMPO: EventInfo("ev_tempo", "ui", True, "int f(float bpm)", "site pinned"),
     Event.TRANSPORT: EventInfo("ev_transport", "ui", True, "int f(int state)", "site pinned"),
+    Event.SONG_LOAD: EventInfo("ev_song_load", "ui", False, "void f(void *songs, const char *path)", "site pinned"),
+    Event.SONG_SAVE: EventInfo("ev_song_save", "ui", False, "void f(void *songs, const char *path)", "site pinned"),
 }
 
 

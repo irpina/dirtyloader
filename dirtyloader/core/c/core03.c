@@ -47,6 +47,10 @@ struct core_ram {
     struct { const void *const *vt; uint8_t body[0x3C]; } page_view;
     uint32_t page_n, page_sel, page_dirty, last_action;
     struct { char name[NAME_MAX]; uint8_t on; } page[MAX_MODS];
+    /* songs and their mods: core_tick writes / checks <song>.mods after the firmware's own save / load */
+    uint32_t booted, song_pending, page_mode, prev_view, nwant, song_result, song_at, song_tries;
+    char song[128];
+    struct { char name[NAME_MAX]; } want[MAX_MODS];
 };
 #define ram ((struct core_ram *)CORE_RAM)
 #define AREA_START ((CORE_RAM + sizeof(struct core_ram) + 7u) & ~7u)
@@ -289,10 +293,11 @@ static uint32_t le32(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | 
 static void put32(uint8_t *p, uint32_t v) { p[0] = v; p[1] = v >> 8; p[2] = v >> 16; p[3] = v >> 24; }
 
 /* "/dirtyloader/" + a relative name of [A-Za-z0-9._-/], no "..", under 64 bytes */
-static int dl_path(char *out, const uint8_t *name, uint32_t n)
+/* "/dirtyloader/" + a relative name; with `anywhere` (reads only) an absolute path is taken as it is */
+static int dl_path_in(char *out, const uint8_t *name, uint32_t n, int anywhere)
 {
-    if (!n || n > 63 || name[0] == '/') return 0;
-    char *o = put(out, "/dirtyloader/");
+    if (!n || n > 63 || (name[0] == '/' && !anywhere)) return 0;
+    char *o = name[0] == '/' ? out : put(out, "/dirtyloader/");
     for (uint32_t i = 0; i < n; i++) {
         uint8_t c = name[i];
         int ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_'
@@ -303,6 +308,13 @@ static int dl_path(char *out, const uint8_t *name, uint32_t n)
     *o = 0;
     return 1;
 }
+__attribute__((unused)) static int dl_path(char *out, const uint8_t *name, uint32_t n) { return dl_path_in(out, name, n, 0); }
+static int rd_path(char *out, const uint8_t *name, uint32_t n) { return dl_path_in(out, name, n, 1); }
+#ifdef PUT_ANYWHERE
+#define PUT_PATH rd_path
+#else
+#define PUT_PATH dl_path
+#endif
 
 static int f_seek(struct fw_file *f, uint32_t pos)
 {
@@ -366,7 +378,7 @@ static void serve(uint8_t cmd, uint8_t seq, const uint8_t *p, uint32_t len)
     }
     if (cmd == C_LIST) {                                /* names in /dirtyloader/<payload>, one per line */
         struct fw_file dir;
-        if (!dl_path(path, p, len) || !f_open(&dir, path, FW_O_READ)) { reply(cmd, seq, S_PATH, 0, 0); return; }
+        if (!rd_path(path, p, len) || !f_open(&dir, path, FW_O_READ)) { reply(cmd, seq, S_PATH, 0, 0); return; }
         uint32_t n = 0;
         for (;;) {
             zero(&f, sizeof f);
@@ -383,7 +395,7 @@ static void serve(uint8_t cmd, uint8_t seq, const uint8_t *p, uint32_t len)
         return;
     }
     if (cmd == C_PUT) {                                 /* offset u32, name len u8, name, data */
-        if (len < 5 || len < 5u + p[4] || !dl_path(path, p + 5, p[4])) { reply(cmd, seq, S_PATH, 0, 0); return; }
+        if (len < 5 || len < 5u + p[4] || !PUT_PATH(path, p + 5, p[4])) { reply(cmd, seq, S_PATH, 0, 0); return; }
         uint32_t off = le32(p), skip = 5u + p[4];
         int oflag = off ? FW_O_RDWR : (FW_O_RDWR | FW_O_CREAT | FW_O_TRUNC);
         if (!f_open(&f, path, oflag)) { reply(cmd, seq, S_IO, 0, 0); return; }
@@ -394,7 +406,7 @@ static void serve(uint8_t cmd, uint8_t seq, const uint8_t *p, uint32_t len)
         return;
     }
     if (cmd == C_CHECK) {                               /* name -> size u32, crc32 u32 */
-        if (!dl_path(path, p, len) || !f_open(&f, path, FW_O_READ)) { reply(cmd, seq, S_PATH, 0, 0); return; }
+        if (!rd_path(path, p, len) || !f_open(&f, path, FW_O_READ)) { reply(cmd, seq, S_PATH, 0, 0); return; }
         uint32_t size = 0, crc = 0;
         int k;
         while ((k = f_read(&f, out, 512)) > 0) { crc = crc32(crc, out, (uint32_t)k); size += (uint32_t)k; }
@@ -405,7 +417,7 @@ static void serve(uint8_t cmd, uint8_t seq, const uint8_t *p, uint32_t len)
         return;
     }
     if (cmd == C_GET) {                                 /* offset u32, max u16, name len u8, name -> data */
-        if (len < 7 || len < 7u + p[6] || !dl_path(path, p + 7, p[6])) { reply(cmd, seq, S_PATH, 0, 0); return; }
+        if (len < 7 || len < 7u + p[6] || !rd_path(path, p + 7, p[6])) { reply(cmd, seq, S_PATH, 0, 0); return; }
         uint32_t off = le32(p), max = p[4] | p[5] << 8;
         if (max > 512) max = 512;
         if (!f_open(&f, path, FW_O_READ)) { reply(cmd, seq, S_PATH, 0, 0); return; }
@@ -566,9 +578,56 @@ static void page_enter(void *view, int arg)
     ram->page_dirty = 1;
 }
 
+static int wanted(const char *name)
+{
+    for (uint32_t i = 0; i < ram->nwant; i++)
+        if (name_eq(ram->want[i].name, name, NAME_MAX)) return 1;
+    return 0;
+}
+
+/* LOAD SONG MODS?: what YES would do to the mods on the card, and what it cannot (not on the card) */
+static void song_draw_all(void)
+{
+    char b[64], *o;
+    for (int r = 0; r < FW_GRID_ROWS; r++) row(r, "");
+    row(3, " LOAD SONG MODS?");
+    int r = PAGE_TOP;
+    for (uint32_t i = 0; i < ram->page_n && r < 19; i++) {
+        const char *nm = ram->page[i].name;
+        int run = boot_err(nm) == 0, want = wanted(nm);
+        if (run == want) continue;
+        o = put(b, want ? "  + " : "  - ");
+        o = put(o, nm);
+        *o = 0;
+        row(r++, b);
+    }
+    for (uint32_t i = 0; i < ram->nwant && r < 19; i++) {
+        int found = 0;
+        for (uint32_t k = 0; k < ram->page_n; k++)
+            if (name_eq(ram->page[k].name, ram->want[i].name, NAME_MAX)) found = 1;
+        if (found) continue;
+        o = put(b, "  ? ");
+        o = put(o, ram->want[i].name);
+        o = put(o, "  NOT ON THE CARD");
+        *o = 0;
+        row(r++, b);
+    }
+    row(20, " + ON  - OFF  ? MISSING");
+    row(21, " EDIT YES (RESTART)   OPT NO");
+}
+
 static void page_input(void *view, int action)
 {
     ram->last_action = (uint32_t)action;
+    if (ram->page_mode) {                           /* LOAD SONG MODS? */
+        if (action == FW_KEY_EDIT) {
+            for (uint32_t i = 0; i < ram->page_n; i++) ram->page[i].on = (uint8_t)wanted(ram->page[i].name);
+            page_write();
+            restart_now();
+        }
+        if (action == FW_KEY_OPT) { ram->page_mode = 0; fw_set_view(fw_ui, (int)ram->prev_view); }
+        return;
+    }
     uint32_t rows = ram->page_n + 1;
     if (action == FW_KEY_UP && ram->page_sel) ram->page_sel--;
     else if (action == FW_KEY_DOWN && ram->page_sel + 1 < rows) ram->page_sel++;
@@ -587,7 +646,8 @@ static void page_draw(void *view)
 {
     if (!ram->page_dirty) return;
     ram->page_dirty = 0;
-    page_draw_all();
+    if (ram->page_mode) song_draw_all();
+    else page_draw_all();
 }
 
 static const void *const page_vt[8] = {
@@ -600,10 +660,105 @@ int core_key(void *ui, int action)
 {
     if (((uint8_t *)ui)[FW_UI_VIEW] == FW_VIEW_SETTINGS && fw_settings[5] == SETTINGS_MODS_Y
         && action == FW_KEY_EDIT && fw_views[FW_VIEW_FREE] == &ram->page_view) {
+        ram->page_mode = 0;
         fw_set_view(ui, FW_VIEW_FREE);
         return 1;
     }
     return 0;
+}
+
+/* ---- songs and their mods ------------------------------------------------------------------------------------
+ * After a save, <song>.mods lists the mods that were running (file, id, version per line). After a load (not
+ * the boot's own), when the list differs from what runs, the MODS page asks LOAD SONG MODS?. A song saved
+ * without a list says nothing. The SD work waits for core_tick: the firmware's own file is closed by then. */
+static void song_note(const char *path, uint32_t what)
+{
+    uint32_t i = 0;
+    for (; path && path[i] && i < sizeof ram->song - 1; i++) ram->song[i] = path[i];
+    ram->song[i] = 0;
+    if (!i) return;
+    ram->song_at = fw_millis;
+    ram->song_tries = 0;
+    ram->song_pending = what;
+}
+
+void core_song_load(void *songs, const char *path)
+{
+    if (ram->booted) song_note(path, 1);            /* the AUTOSAVE load during setup() says nothing */
+}
+
+void core_song_save(void *songs, const char *path) { song_note(path, 2); }
+
+static char *mods_path(char *out)
+{
+    char *o = put(out, ram->song);
+    return put(o, ".mods");
+}
+
+static void song_saved(void)
+{
+    char path[140], *const t = (char *)(SCRATCH + STATUS_SIZE), *o = t;
+    o = put(o, "# dirtyloader: the mods running when this song was saved (file id version)\n");
+    uint32_t k = 0;
+    for (uint32_t i = 0; i < ram->nboot && k < ram->nmods; i++) {
+        if (ram->boot[i].err) continue;
+        const struct dl_mod *m = ram->mods[k++];
+        o = put(o, ram->boot[i].name); *o++ = ' ';
+        o = put(o, m->id); *o++ = ' ';
+        o = put(o, m->version); *o++ = '\n';
+    }
+    mods_path(path);
+    ram->song_result = write_file(path, t, (uint32_t)(o - t)) ? 1 : 2;
+}
+
+static int song_loaded(void)                       /* 0 done, 1 the list could not be read yet */
+{
+    char path[140];
+    struct fw_file f;
+    char *const t = (char *)(SCRATCH + STATUS_SIZE);
+    mods_path(path);
+    if (!f_open(&f, path, FW_O_READ)) return 1;     /* still busy, or saved without a list */
+    int n = f_read(&f, t, LIST_SIZE - 1);
+    fw_file_close(&f);
+    if (n < 0) return 1;
+    t[n] = 0;
+    ram->nwant = 0;
+    for (char *p = t; *p;) {
+        char *line = p;
+        while (*p && *p != '\n' && *p != '\r') p++;
+        if (*p) *p++ = 0;
+        if (*line == '#' || !*line || ram->nwant >= MAX_MODS) continue;
+        uint32_t i = 0;
+        while (line[i] && line[i] != ' ' && i < NAME_MAX - 1) { ram->want[ram->nwant].name[i] = line[i]; i++; }
+        ram->want[ram->nwant++].name[i] = 0;
+    }
+    uint32_t same = 1, running = 0;
+    for (uint32_t i = 0; i < ram->nboot; i++)
+        if (!ram->boot[i].err) { running++; if (!wanted(ram->boot[i].name)) same = 0; }
+    if (same && running == ram->nwant) return 0;
+    page_read();
+    ram->page_mode = 1;
+    ram->prev_view = fw_ui[FW_UI_VIEW];
+    fw_set_view(fw_ui, FW_VIEW_FREE);
+    return 0;
+}
+
+/* The firmware is still writing (or reading) the song for a while after its routine is entered, and a file
+   core creates meanwhile fails: wait SONG_WAIT ms, and retry a failed write, before giving up. */
+#define SONG_WAIT  300u
+#define SONG_TRIES 10u
+void core_tick(void)
+{
+    uint32_t what = ram->song_pending;
+    if (!what || !FW_SD_MOUNTED() || fw_millis - ram->song_at < SONG_WAIT) return;
+    if (what == 2) {
+        song_saved();
+        if (ram->song_result != 1 && ++ram->song_tries < SONG_TRIES) { ram->song_at = fw_millis; return; }
+        ram->song_pending = 0;
+    } else {
+        if (song_loaded() && ++ram->song_tries < SONG_TRIES) { ram->song_at = fw_millis; return; }
+        ram->song_pending = 0;
+    }
 }
 
 static void itcm_writable(void)
@@ -630,6 +785,9 @@ void core_load(void)
     uint32_t had_mods = ram->sig == RAM_SIG ? ram->nmods : 0;   /* from the boot before, if it was a reset */
 
     ram->sig = RAM_SIG;
+    ram->booted = 0;
+    ram->song_pending = 0;
+    ram->page_mode = 0;
     ram->loaded = 1;
     ram->nmods = 0;
     ram->nboot = 0;
@@ -726,6 +884,7 @@ void core_boot(void)
         ram->page_view.vt = page_vt;
         fw_views[FW_VIEW_FREE] = &ram->page_view;
     }
+    ram->booted = 1;                                /* song loads from here on are the user's */
     __asm volatile("dsb\n isb" ::: "memory");
     ram->magic = RAM_MAGIC;
 }

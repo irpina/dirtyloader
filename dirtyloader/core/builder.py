@@ -513,7 +513,8 @@ def build_core03_mod(fw: M8Firmware, stock_sha256: str, bindings: dict) -> Mod:
     row = ld.get("settings_row")
     if row:
         defines["SETTINGS_MODS_Y"] = str(int(row["field_y"]))
-    entries = ["core_early", "core_load", "core_boot", "core_serial", "core_key"]
+    entries = ["core_early", "core_load", "core_boot", "core_serial", "core_key", "core_tick", "core_song_load",
+               "core_song_save"]
     c_img, syms = cc.build_fixed([CORE03_SOURCE], c_at, entries, defines)
     if c_at < fw.load_addr + len(fw.payload):
         raise RuntimeError(f"loader address 0x{c_at:08X} is inside the stock image")
@@ -576,7 +577,9 @@ def build_core03_mod(fw: M8Firmware, stock_sha256: str, bindings: dict) -> Mod:
         target=make_target(stock, stock_sha256, bindings.get("firmware", "")), events=events, sites=sites,
         subscribe=([{"event": "SERIAL", "handler": syms["core_serial"] | 1, "order": 0}]
                    if "SERIAL" in events else [])
-                  + ([{"event": "KEY", "handler": syms["core_key"] | 1, "order": 0}] if "KEY" in events else []),
+                  + [{"event": ev, "handler": syms[fn] | 1, "order": 0}
+                     for ev, fn in (("KEY", "core_key"), ("TICK", "core_tick"), ("SONG_LOAD", "core_song_load"),
+                                    ("SONG_SAVE", "core_song_save")) if ev in events],
         resources={"names": ["core:hook-table", "core:region", "core:loader", "core:itcm-tail"]},
     )
     return mod
