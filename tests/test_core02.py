@@ -109,3 +109,46 @@ class TestCore02(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(HAVE_TOOLS, "keystone/capstone not installed")
+class TestItcmMid(unittest.TestCase):
+    """core 0.5's `itcm_mid` site: a detour inside an ITCM function (the M8's mod-apply switches)."""
+    ITCM_LOAD = LOAD + 0x3000                       # the synthetic ITCM image: run address 0 is load 0x60003000
+    SITE, EPILOGUE = 0x40, 0x60                     # run addresses
+
+    def _fw(self):
+        from dirtyloader.core.builder import _asm
+        fw = _image()
+        for run, asm in ((self.SITE - 4, "push {r4, r5, lr}\n nop"),
+                         (self.SITE, f"subs r0, #1\n cmp r0, #0xd\n bhi #{self.EPILOGUE}\n nop"),
+                         (self.EPILOGUE, "pop {r4, r5, pc}")):
+            b = _asm(asm, run)
+            fw.payload[self.ITCM_LOAD + run - LOAD:self.ITCM_LOAD + run - LOAD + len(b)] = b
+        return fw
+
+    def _build(self, site):
+        from dirtyloader.core import builder
+        b = dict(BINDINGS, core=dict(BINDINGS["core"], **{"MOD_APPLY@T": site}))
+        return builder.build_core02(self._fw(), b, ram=0x29B40, layout=3, itcm_load=self.ITCM_LOAD, veneers_at=0x2FF80)
+
+    def test_stub_keeps_state_and_takes_to_the_epilogue(self):
+        from dirtyloader.core import builder
+        img = self._build({"kind": "itcm_mid", "patch_at": hex(self.SITE), "args": ["r0", "r4", "r5", "#3"],
+                           "taken_to": hex(self.EPILOGUE)})
+        site = [s for s in img.sites if s[0] == self.ITCM_LOAD + self.SITE][0]
+        self.assertEqual(_dis(site[1], self.SITE)[0][1:], ("b.w", "#0x2ff80"))       # to the veneer
+        stub = img.stubs["MOD_APPLY@T"]
+        code = img.blob[stub - builder.REGION:][:200]
+        text = [f"{m} {o}" for _, m, o in _dis(code, stub)]
+        self.assertIn("vpush {s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12, s13, s14, s15}", text)
+        self.assertIn("push.w {r0, r1, r2, r3, ip, lr}", text)
+        self.assertIn("ldr r0, [sp, #0x48]", text)                                    # r0 as the site had it
+        self.assertIn("movw r3, #3", text)                                            # the engine constant
+        self.assertIn("subs r0, #1", text)                                            # the relocated bytes
+        self.assertIn(f"movw r0, #{self.SITE + 4 | 1:#x}", text)                     # back after them
+        self.assertIn(f"movw r0, #{self.EPILOGUE | 1:#x}", text)                     # or to the epilogue
+
+    def test_a_wrong_epilogue_is_refused(self):
+        with self.assertRaises(RuntimeError):
+            self._build({"kind": "itcm_mid", "patch_at": hex(self.SITE), "taken_to": hex(self.EPILOGUE + 2)})

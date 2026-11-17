@@ -272,7 +272,7 @@ def _decode_bl(fw: M8Firmware, at: int) -> int:
     return int(ins.op_str.lstrip("#"), 16)
 
 
-def relocate_prologue(fw: M8Firmware, fn: int, need: int = 4) -> Tuple[str, int]:
+def relocate_prologue(fw: M8Firmware, fn: int, need: int = 4, before: int = 0) -> Tuple[str, int]:
     """Assembly that does what the first >= `need` bytes of `fn` do, from anywhere, and how many bytes it covers.
     Plain instructions are copied; `ldr rX, [pc, #imm]` becomes a movw/movt of the literal's value. Anything
     else that reads the pc, any branch, or a branch elsewhere in the function back into the replaced bytes,
@@ -297,7 +297,14 @@ def relocate_prologue(fw: M8Firmware, fn: int, need: int = 4) -> Tuple[str, int]
         n += ins.size
     if n < need:
         raise RuntimeError(f"0x{fn:08X}: could not decode {need} bytes")
-    # nothing in the next 1 KB may branch into the bytes we replace (except to the entry itself)
+    # nothing in the next 1 KB may branch into the bytes we replace (except to the entry itself); for a site inside
+    # a function (`before`), nothing in the `before` bytes ahead of it either
+    if before:
+        for ins in md.disasm(bytes(fw.payload[off - before:off]), fn - before):
+            if ins.mnemonic.startswith(("b", "cb")) and ins.op_str.startswith("#"):
+                t = int(ins.op_str.lstrip("#"), 16)
+                if fn < t < fn + n:
+                    raise RuntimeError(f"0x{ins.address:08X} branches into the relocated bytes at 0x{fn:08X}")
     for ins in md.disasm(bytes(fw.payload[off:off + 0x400]), fn):
         if ins.mnemonic.startswith(("b", "cb")) and ins.op_str.startswith("#"):
             t = int(ins.op_str.lstrip("#"), 16)
@@ -343,7 +350,7 @@ def build_core02(fw: M8Firmware, bindings: dict, ram: int = 0, early: int = 0, b
     dispatch = emit(_dispatch02_asm(TABLE, abi.MAX_HOOKS, ram))
     sites, stubs, veneers = [], {}, []
     for name, s in bindings["core"].items():
-        ev = by_name(name)
+        ev = by_name(name.split("@")[0])                 # "MOD_APPLY@FM": one event, several sites
         take = EVENTS[ev].takeable
         word = _ev_word(ev, take)
         at = int(s["patch_at"], 16)
@@ -439,9 +446,71 @@ def build_core02(fw: M8Firmware, bindings: dict, ram: int = 0, early: int = 0, b
             new = _asm(f"b.w #{ven}", run)
             new += b"\x00\xbf" * ((n - len(new)) // 2)
             at = load
+        elif kind == "itcm_mid":
+            # ITCM code, inside a function: registers, flags and s0-s15 are live, so the stub keeps them all and
+            # returns through a stack slot. "args" says where the handler's r0-r3 come from (a register or
+            # "#n"); "taken_to" (takeable events) is where a taken event goes: the function's own epilogue,
+            # which the stock reaches from the site with the stack as it is (checked: the replaced bytes are
+            # followed by a conditional branch there).
+            if not (itcm_load and veneers_at):
+                raise RuntimeError(f"{name}: an itcm_mid site needs the ITCM load base and a veneer area")
+            if len(veneers) >= MAX_VENEERS:
+                raise RuntimeError("too many ITCM sites for the veneer table")
+            run = at
+            load = itcm_load + run
+            prologue, n = relocate_prologue(fw, load, before=0x400)
+            back = (run + n) | 1
+            slot = {f"r{i}": 64 + 8 + 4 * i for i in range(4)}           # r0-r3 as pushed, past s0-s15 and sub sp
+            moves = []
+            for i, src in enumerate(s.get("args", ["r0", "r1", "r2", "r3"])):
+                if src.startswith("#"):
+                    moves.append(f"movw r{i}, #{int(src[1:], 0)}")
+                elif src in slot:
+                    moves.append(f"ldr r{i}, [sp, #{slot[src]}]")
+                else:
+                    moves.append(f"mov r{i}, {src}")
+            def leave(to: int) -> str:
+                return f"""
+                    sub  sp, #8
+                    str  r0, [sp]
+                    movw r0, #{to & 0xFFFF}
+                    movt r0, #{to >> 16}
+                    str  r0, [sp, #4]
+                    pop  {{r0, pc}}"""
+            taken_to = int(s["taken_to"], 16) if "taken_to" in s else 0
+            if take and not taken_to:
+                raise RuntimeError(f"{name}: a takeable event inside a function needs taken_to")
+            if taken_to:
+                nxt = next(_md().disasm(bytes(fw.payload[fw.addr_to_offset(load + n):][:4]), run + n), None)
+                if nxt is None or not nxt.mnemonic.startswith("b") or int(nxt.op_str.lstrip("#"), 16) != taken_to:
+                    raise RuntimeError(f"{name}: the instruction after the site does not branch to {s['taken_to']}")
+            stub = emit(f"""
+                push  {{r0, r1, r2, r3, ip, lr}}
+                vpush {{s0-s15}}
+                sub   sp, #8
+                {chr(10).join(moves)}
+                {_set_ip(word)}
+                bl    #{dispatch}
+                add   sp, #8
+                {"cmp r0, #0" if taken_to else ""}
+                {"bne taken" if taken_to else ""}
+                vpop  {{s0-s15}}
+                pop   {{r0, r1, r2, r3, ip, lr}}
+                {prologue}
+                {leave(back)}
+            {"taken:" if taken_to else ""}
+                {"vpop {s0-s15}" if taken_to else ""}
+                {"pop {r0, r1, r2, r3, ip, lr}" if taken_to else ""}
+                {leave(taken_to | 1) if taken_to else ""}
+            """)
+            ven = veneers_at + 8 * len(veneers)
+            veneers.append((ven, stub | 1))
+            new = _asm(f"b.w #{ven}", run)
+            new += b"\x00\xbf" * ((n - len(new)) // 2)
+            at = load
         else:
             raise RuntimeError(f"{name}: unknown site kind {kind!r} (one of {KINDS02})")
-        stubs[ev.name] = stub
+        stubs[name] = stub
         sites.append((at, new, f"{ev.name} ({kind}) -> stub 0x{stub:08X}"))
 
     for at, fn in (calls_before or {}).items():
@@ -480,7 +549,7 @@ def build_core02_mod(fw: M8Firmware, stock_sha256: str, bindings: dict) -> Mod:
     for at, new, note in img.sites:
         o = fw.addr_to_offset(at)
         sites.append(Site.from_bytes(at, bytes(fw.payload[o:o + len(new)]), new, "code", note))
-    events = list(img.stubs)
+    events = list(dict.fromkeys(n.split("@")[0] for n in img.stubs))
     return Mod(
         id="core", version=CORE02_VERSION, title="dirtyloader core", author="dirtyloader", category="Core",
         license="GPL-2.0-or-later",
@@ -541,7 +610,7 @@ def build_asm_mod(fw: M8Firmware, stock_sha256: str, mod_id: str, title: str, ca
 # core 0.2's hook bus plus the SD-card loader in dirtyloader/core/c/core03.c (docs/LOADER.md). The C is
 # compiled with arm-none-eabi-gcc (dirtyloader.cc) and placed in free flash past the stock image; its state
 # and the mods it loads live in the free ITCM tail. Bound per firmware by the bindings' "loader" block.
-CORE03_VERSION = "0.4.0"
+CORE03_VERSION = "0.5.0"
 CORE03_SOURCE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "c", "core03.c")
 
 
@@ -623,7 +692,7 @@ def build_core03_mod(fw: M8Firmware, stock_sha256: str, bindings: dict) -> Mod:
                 raise RuntimeError(f"0x{lit:08X} names neither of the settings templates")
             sites.append(Site.from_bytes(lit, bytes(fw.payload[o:o + 4]), struct.pack("<I", t_at + v - tpl), "data",
                                          "SYSTEM SETTINGS: the templates are core's copy"))
-    events = list(img.stubs) + [c["event"] for c in calls.values()]
+    events = list(dict.fromkeys([n.split("@")[0] for n in img.stubs] + [c["event"] for c in calls.values()]))
     mod = Mod(
         id="core", version=CORE03_VERSION, title="dirtyloader core", author="dirtyloader", category="Core",
         license="GPL-2.0-or-later",

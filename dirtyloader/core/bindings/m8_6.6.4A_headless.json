@@ -32,40 +32,241 @@
     "itcm_load": "0x60001680",
     "fw_header": "m8-headless/fw.h",
     "load_at": "0x6007F0CC",
-    "calls": {"0x600A376A": {"fn": "core_midi_read", "event": "MIDI",
-                             "note": "usb_midi_read's bl usb_midi_read_message (0x600A36BC): core reads the packet, raises ev_midi, and hands it on unless a handler took it"}},
-    "settings_row": {"template": "0x601C631C", "attrs": "0x3C4", "literals": ["0x600739BC", "0x600739C4", "0x60074018"],
-                     "row": 21, "attr_like": 7, "field_y": 12, "text": " MODS (TELOS) {OPEN}",
-                     "note": "SYSTEM SETTINGS' layout: a text template of 24 rows of 40 characters, fields in braces numbered by row in order (BACKLIGHT 0 .. KEY DELAY 11), and its colours 0x3C4 bytes on. Its enter passes both to 0x6009AF74(grid, text, colours) from the literal 0x60074018 (the colours' address, text = it - 0x3C4); 0x600739BC/C4 are getters' copies. Core points all three at a copy whose row 21, the first blank after the last field, is field row 12, coloured like THEME (row 7)."},
-    "note": "core 0.3: the C loader goes in free flash past the image (ends 0x601DD400); its state and the loaded mods go in the ITCM tail after the firmware's ITCM code (0x29B40) up to the end of the 6 ITCM banks (GPR17 0xAAAAAFFF = 192 KB). MPU region 1 (ITCM, RASR 0x07080025, read-only) is made read/write by core_early. load_at is the bl 0x6008FDA8 in setup() just after the card is mounted (0x6007A3FC at 0x6007F0BC) and before audio starts or the autosave loads: core_load reads the card there, because SdFat calls after setup() broke the firmware's own card reads. SdFat: FsBaseFile::open 0x600A0894 on the SdFs volume 0x200376EC (sdk/include/m8-headless/fw.h)."
+    "calls": {
+      "0x600A376A": {
+        "fn": "core_midi_read",
+        "event": "MIDI",
+        "note": "usb_midi_read's bl usb_midi_read_message (0x600A36BC): core reads the packet, raises ev_midi, and hands it on unless a handler took it"
+      }
+    },
+    "settings_row": {
+      "template": "0x601C631C",
+      "attrs": "0x3C4",
+      "literals": [
+        "0x600739BC",
+        "0x600739C4",
+        "0x60074018"
+      ],
+      "row": 21,
+      "attr_like": 7,
+      "field_y": 12,
+      "text": " MODS (TELOS) {OPEN}",
+      "note": "SYSTEM SETTINGS' layout: a text template of 24 rows of 40 characters, fields in braces numbered by row in order (BACKLIGHT 0 .. KEY DELAY 11), and its colours 0x3C4 bytes on. Its enter passes both to 0x6009AF74(grid, text, colours) from the literal 0x60074018 (the colours' address, text = it - 0x3C4); 0x600739BC/C4 are getters' copies. Core points all three at a copy whose row 21, the first blank after the last field, is field row 12, coloured like THEME (row 7)."
+    },
+    "note": "core 0.3: the C loader goes in free flash past the image (ends 0x601DD400); its state and the loaded mods go in the ITCM tail after the firmware's ITCM code (0x29B40) up to the end of the 6 ITCM banks (GPR17 0xAAAAAFFF = 192 KB). MPU region 1 (ITCM, RASR 0x07080025, read-only) is made read/write by core_early. load_at is the bl 0x6008FDA8 in setup() just after the card is mounted (0x6007A3FC at 0x6007F0BC) and before audio starts or the autosave loads: core_load reads the card there, because SdFat calls after setup() broke the firmware's own card reads. SdFat: FsBaseFile::open 0x600A0894 on the SdFs volume 0x200376EC (sdk/include/m8-headless/fw.h).",
+    "sysex_handler": {
+      "ptr": "0x20040654",
+      "stock": "0x6009C0B9",
+      "note": "usbMIDI's partial SysEx handler pointer; the firmware sets it to 0x6009C0B9 in setup (0x600869B0). core_boot chains it for ev_sysex."
+    }
   },
   "core": {
-    "BOOT":  {"kind": "call_post", "patch_at": "0x600A28FA", "target": "0x6007F030",
-              "note": "main(): bl setup; BOOT handlers run once after setup() returns"},
-    "TICK":  {"kind": "call_pre",  "patch_at": "0x600A28FE", "target": "0x6007F02C",
-              "note": "main(): bl loop; TICK handlers run before every loop()"},
-    "DRAW":  {"kind": "call_pre",  "patch_at": "0x6007FAB8", "target": "0x60049CE0",
-              "note": "loop(): bl frame_refresh(display 0x2001A4F4), after the screen's update (0x6004A820 -> view +0x0C) and before the frame goes out"},
-    "KEY":   {"kind": "call_pre",  "patch_at": "0x6007FBA0", "target": "0x6004ADEC",
-              "note": "loop(): bl ui_input(ui 0x2001C1A4, action); action = the chord's key bits (EDIT 01 OPT 02 RIGHT 04 PLAY 08 SHIFT 10 DOWN 20 UP 40 LEFT 80)"},
-    "VIEW":  {"kind": "entry",     "patch_at": "0x6004A96C",
-              "note": "set_view(ui, id): leaves the old screen, fw_views[id] (0x20000B24, 30 slots, 7 empty), enters the new one"},
-    "SONG_LOAD": {"kind": "entry", "patch_at": "0x60062154",
-                  "note": "the song loader (songs 0x2001C8FC, path, flag): the AUTOSAVE at setup() and every LOAD"},
-    "SONG_SAVE": {"kind": "entry", "patch_at": "0x6007AFC0",
-                  "note": "the song writer (?, path, ...): writes M8VERSION and the song to path"},
-    "NOTE":  {"kind": "itcm_entry", "patch_at": "0x22BDC",
-              "note": "note on, ITCM (load 0x6002425C): (player, instrument, ...) at the start of every note: from playback (via 0x269B8, the per-track pending-instrument poll), preview (0x23374) and row fire (0x23A7C); the note and velocity go to player +0x21C / +0x21E just after. Players are 0x2001ADF0 + 0x248 x track. Checked on hardware: one call per played note."},
-    "PLAY":  {"kind": "entry",     "patch_at": "0x60090618",
-              "note": "the sequencer starts: sets the play flag (sequencer object 0x2000BE80 + 0x3B8 = 1), (seq, mode)"},
-    "STOP":  {"kind": "entry",     "patch_at": "0x600907A4",
-              "note": "the sequencer stops: clears the play flag; called from 0x60088E3C"},
-    "SERIAL": {"kind": "entry",    "patch_at": "0x6007846C",
-               "note": "the m8c command parser (obj): drains USB serial into a 6-byte buffer and runs E/R/D/C/K/P/S. Called from loop and from the render screens' polling (24 sites); core's handler takes requests that start with 0xD1."},
-    "MIDI_OUT": {"kind": "entry",  "patch_at": "0x600A3238",
-                 "note": "usb_midi_write_packed(packet): every USB MIDI packet the M8 sends (clock, notes, CCs, SysEx)"},
-    "TEMPO": {"kind": "entry",     "patch_at": "0x60090978",
-              "note": "set_tempo(clock_owner, float bpm): bpm in s0, stored at [[0x60090A10]]+0x3C0 inside AudioNoInterrupts"}
+    "BOOT": {
+      "kind": "call_post",
+      "patch_at": "0x600A28FA",
+      "target": "0x6007F030",
+      "note": "main(): bl setup; BOOT handlers run once after setup() returns"
+    },
+    "TICK": {
+      "kind": "call_pre",
+      "patch_at": "0x600A28FE",
+      "target": "0x6007F02C",
+      "note": "main(): bl loop; TICK handlers run before every loop()"
+    },
+    "DRAW": {
+      "kind": "call_pre",
+      "patch_at": "0x6007FAB8",
+      "target": "0x60049CE0",
+      "note": "loop(): bl frame_refresh(display 0x2001A4F4), after the screen's update (0x6004A820 -> view +0x0C) and before the frame goes out"
+    },
+    "KEY": {
+      "kind": "call_pre",
+      "patch_at": "0x6007FBA0",
+      "target": "0x6004ADEC",
+      "note": "loop(): bl ui_input(ui 0x2001C1A4, action); action = the chord's key bits (EDIT 01 OPT 02 RIGHT 04 PLAY 08 SHIFT 10 DOWN 20 UP 40 LEFT 80)"
+    },
+    "VIEW": {
+      "kind": "entry",
+      "patch_at": "0x6004A96C",
+      "note": "set_view(ui, id): leaves the old screen, fw_views[id] (0x20000B24, 30 slots, 7 empty), enters the new one"
+    },
+    "SONG_LOAD": {
+      "kind": "entry",
+      "patch_at": "0x60062154",
+      "note": "the song loader (songs 0x2001C8FC, path, flag): the AUTOSAVE at setup() and every LOAD"
+    },
+    "SONG_SAVE": {
+      "kind": "entry",
+      "patch_at": "0x6007AFC0",
+      "note": "the song writer (?, path, ...): writes M8VERSION and the song to path"
+    },
+    "NOTE": {
+      "kind": "itcm_entry",
+      "patch_at": "0x22BDC",
+      "note": "note on, ITCM (load 0x6002425C): (player, instrument, ...) at the start of every note: from playback (via 0x269B8, the per-track pending-instrument poll), preview (0x23374) and row fire (0x23A7C); the note and velocity go to player +0x21C / +0x21E just after. Players are 0x2001ADF0 + 0x248 x track. Checked on hardware: one call per played note."
+    },
+    "PLAY": {
+      "kind": "entry",
+      "patch_at": "0x60090618",
+      "note": "the sequencer starts: sets the play flag (sequencer object 0x2000BE80 + 0x3B8 = 1), (seq, mode)"
+    },
+    "STOP": {
+      "kind": "entry",
+      "patch_at": "0x600907A4",
+      "note": "the sequencer stops: clears the play flag; called from 0x60088E3C"
+    },
+    "SERIAL": {
+      "kind": "entry",
+      "patch_at": "0x6007846C",
+      "note": "the m8c command parser (obj): drains USB serial into a 6-byte buffer and runs E/R/D/C/K/P/S. Called from loop and from the render screens' polling (24 sites); core's handler takes requests that start with 0xD1."
+    },
+    "MIDI_OUT": {
+      "kind": "entry",
+      "patch_at": "0x600A3238",
+      "note": "usb_midi_write_packed(packet): every USB MIDI packet the M8 sends (clock, notes, CCs, SysEx)"
+    },
+    "TEMPO": {
+      "kind": "entry",
+      "patch_at": "0x60090978",
+      "note": "set_tempo(clock_owner, float bpm): bpm in s0, stored at [[0x60090A10]]+0x3C0 inside AudioNoInterrupts"
+    },
+    "SEQ_TICK": {
+      "kind": "itcm_entry",
+      "patch_at": "0x21A64",
+      "note": "the tick processor (load 0x600230E4), r0 = sequencer engine 0x2001ADDC; called once per sub-tick (192 a beat) by the clock node's drain (run 0x21CF4, only call 0x6002339E); it runs the 8 per-track updates. Ported from Model:02 0x60024B7C."
+    },
+    "NOTE_OFF": {
+      "kind": "itcm_entry",
+      "patch_at": "0x22AC0",
+      "note": "note off (load 0x60024140): (player, 0 release / 1 kill); calls the instrument's vt+0x1C. Reached from the player tick (OFF 0x80, KIL countdown), row fire before a retrigger, and key release. Model:02 0x25BB0."
+    },
+    "ROW": {
+      "kind": "itcm_mid",
+      "patch_at": "0x24B7C",
+      "args": [
+        "r4"
+      ],
+      "note": "the sequencer's row fire, inside the per-track update 0x24650 (load 0x600261FC): reached only on a new row; r4 = player, the 9-byte row at [player+0x4C]; note-on and the FX applier follow."
+    },
+    "FX_ROW": {
+      "kind": "itcm_entry",
+      "patch_at": "0x22DE4",
+      "note": "phrase FX applier (load 0x60024464), 72 cases: (player, column 0-2, cmd, value, [sp] flag). Model:02 0x25ED4."
+    },
+    "FX_COMMAND": {
+      "kind": "itcm_entry",
+      "patch_at": "0x258EC",
+      "note": "table FX executor (load 0x60026F6C), 78 cases (cmp r8,#0x4D; tbh): (table runner, column, cmd, value, [sp] flag); called from the dispatch wrapper 0x263F4. Model:02 0x287A4."
+    },
+    "MOD_APPLY@FM": {
+      "kind": "itcm_mid",
+      "patch_at": "0xCC8A",
+      "args": [
+        "r0",
+        "r4",
+        "r5",
+        "#0"
+      ],
+      "taken_to": "0xCCDA",
+      "note": "FM: the modulation destination switch (subs/cmp before the tbb/tbh); taken goes to the shared epilogue, as an out-of-range destination does. Model:02 port."
+    },
+    "MOD_APPLY@HYPER": {
+      "kind": "itcm_mid",
+      "patch_at": "0xE80C",
+      "args": [
+        "r0",
+        "r4",
+        "r5",
+        "#1"
+      ],
+      "taken_to": "0xE85C",
+      "note": "HYPER: the modulation destination switch (subs/cmp before the tbb/tbh); taken goes to the shared epilogue, as an out-of-range destination does. Model:02 port."
+    },
+    "MOD_APPLY@MACRO": {
+      "kind": "itcm_mid",
+      "patch_at": "0x11B14",
+      "args": [
+        "r0",
+        "r4",
+        "r5",
+        "#2"
+      ],
+      "taken_to": "0x11B64",
+      "note": "MACRO: the modulation destination switch (subs/cmp before the tbb/tbh); taken goes to the shared epilogue, as an out-of-range destination does. Model:02 port."
+    },
+    "MOD_APPLY@SAMPLER": {
+      "kind": "itcm_mid",
+      "patch_at": "0x1473C",
+      "args": [
+        "r0",
+        "r4",
+        "r5",
+        "#3"
+      ],
+      "taken_to": "0x1478E",
+      "note": "SAMPLER: the modulation destination switch (subs/cmp before the tbb/tbh); taken goes to the shared epilogue, as an out-of-range destination does. Model:02 port."
+    },
+    "MOD_APPLY@WAV": {
+      "kind": "itcm_mid",
+      "patch_at": "0x175D4",
+      "args": [
+        "r0",
+        "r4",
+        "r5",
+        "#4"
+      ],
+      "taken_to": "0x1761A",
+      "note": "WAV: the modulation destination switch (subs/cmp before the tbb/tbh); taken goes to the shared epilogue, as an out-of-range destination does. Model:02 port."
+    },
+    "MOD_APPLY@EXTERNAL": {
+      "kind": "itcm_mid",
+      "patch_at": "0xB63E",
+      "args": [
+        "r0",
+        "r4",
+        "r6",
+        "#5"
+      ],
+      "taken_to": "0xB68E",
+      "note": "EXTERNAL: the modulation destination switch (subs/cmp before the tbb/tbh); taken goes to the shared epilogue, as an out-of-range destination does. Model:02 port."
+    },
+    "MOD_APPLY@SAMPLER0": {
+      "kind": "itcm_mid",
+      "patch_at": "0x12B2E",
+      "args": [
+        "r3",
+        "r4",
+        "r5",
+        "#3"
+      ],
+      "taken_to": "0x12B80",
+      "note": "SAMPLER0: the modulation destination switch (subs/cmp before the tbb/tbh); taken goes to the shared epilogue, as an out-of-range destination does. Model:02 port."
+    },
+    "MUTE": {
+      "kind": "entry",
+      "patch_at": "0x60038940",
+      "note": "apply a track's mute/solo (mixer 0x2000C260, track 0-7): every mute/solo path calls it for each of the 8 tracks; mute mask mixer+0x1B0, solo mask +0x1B4"
+    },
+    "INST_LOAD": {
+      "kind": "entry",
+      "patch_at": "0x6007BDD0",
+      "note": "load an .m8i into a slot (songs 0x2001C8FC, path, slot, 0)"
+    },
+    "INST_SAVE": {
+      "kind": "entry",
+      "patch_at": "0x6007C47C",
+      "note": "save a slot to an .m8i (songs, path, slot)"
+    },
+    "PARAM_SET": {
+      "kind": "entry",
+      "patch_at": "0x60053B30",
+      "note": "the instrument view's field changed (instview, field, old): pushes the value to the playing tracks; new value **(view+8), slot view+0xC"
+    },
+    "STEP_EDIT": {
+      "kind": "entry",
+      "patch_at": "0x6006025C",
+      "note": "the phrase view's cell-edited method (vt+0x38): (view, cell, n, column, [sp] row); phrase *(u8*)(view+4). Bulk edits (clear, paste) may not reach it."
+    }
   },
   "notes": [
     "loop (0x6007F02C) is a b.w veneer to the real loop at 0x6007FC54.",

@@ -28,7 +28,7 @@ class FakeUnit:
         assert len(data) == 6 + n and (sum(data[1:5 + n]) & 0xFF) == data[5 + n]
         status, reply = 0, b""
         if cmd == U.C_INFO:
-            reply = b"dirtyloader core 0.3\n"
+            reply = b"dirtyloader core 0.5\n"
         elif cmd == U.C_MKDIRS:
             self.dirs = True
         elif cmd == U.C_LIST:

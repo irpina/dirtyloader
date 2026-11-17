@@ -79,7 +79,34 @@ typedef uint32_t (*fw_midi_read_fn)(void);
 typedef void (*fw_midi_write_fn)(uint32_t packet);
 #define fw_usb_midi_read_message ((fw_midi_read_fn)0x600A36BDu)
 #define fw_usb_midi_write_packed ((fw_midi_write_fn)0x600A3239u)
-#define FW_MIDI_READ_CALL   0x600A376Au     /* usb_midi_read's bl usb_midi_read_message: core's ev_midi site */
+#define FW_MIDI_READ_CALL   0x600A376Au
+/* usbMIDI's partial-SysEx handler (data, len, last): the firmware sets it to 0x6009C0B9 in setup(); core 0.5 chains it */
+#define fw_sysex_handler    (*(volatile uint32_t *)0x20040654u)
+#define fw_usb_configuration (*(volatile uint8_t *)0x2004159Fu)   /* nonzero once the host configured USB */     /* usb_midi_read's bl usb_midi_read_message: core's ev_midi site */
+
+/* ---- the song, the mixer, the sequencer (Ghidra, core 0.5's sites) ---------------------------------------------
+ * The song in RAM; the firmware's accessors return pointers into it: a phrase step is 9 bytes (note, velocity,
+ * instrument, 3 x (command, value)), an instrument 0xD7 bytes. */
+#define fw_song             ((uint8_t *)0x2025F674u)
+#define FW_PHRASE_STEP(p, s) (fw_song + 0xA6C + (p) * 0x90 + (s) * 9)
+#define FW_INSTRUMENT(i)    (fw_song + 0x139BC + (i) * 0xD7)
+#define fw_mixer            ((uint8_t *)0x2000C260u)
+/* The audio engine (a float Teensy Audio graph: 64-frame blocks of float, 44.1 kHz, ~689 blocks a second) is the
+ * object at 0x2000BE80 (the sequencer's). Its objects sit at fixed offsets; each has a vtable in RAM whose first
+ * slot is update(). The tap at +0x9308 gets the master's output and passes it on to USB; the I2S branch shares the
+ * same blocks. audio_block_t: +0 ref count (u8), +4 float data[64]. */
+#define fw_audio_engine     ((uint8_t *)0x2000BE80u)
+#define FW_AUDIO_TAP        0x9308u
+#define FW_AUDIO_FRAMES     64
+#define FW_AUDIO_RATE       44100
+typedef void *(*fw_audio_alloc_fn)(void);
+#define fw_audio_alloc      ((fw_audio_alloc_fn)0x0001AB5Du)        /* AudioStream::allocate (ITCM): ref count 1 */
+#define fw_mute_mask        (*(volatile uint8_t *)0x2000C410u)  /* a bit per track */
+#define fw_solo_mask        (*(volatile uint8_t *)0x2000C414u)
+#define fw_seq_engine       ((uint8_t *)0x2001ADDCu)              /* ev_seq_tick's argument */
+#define fw_sequencer        ((uint8_t *)0x2000BE80u)              /* +0x3B8: playing */
+#define FW_PLAYER(t)        ((uint8_t *)0x2001ADF0u + 0x248 * (t))   /* a track's player: +0xC track, +0x4C the row */
+enum { FW_ENGINE_FM, FW_ENGINE_HYPER, FW_ENGINE_MACRO, FW_ENGINE_SAMPLER, FW_ENGINE_WAV, FW_ENGINE_EXTERNAL };
 
 /* core 0.4's API for mods (dl/core.h): a pointer to it sits after core's hook table (bindings: loader.ram +
  * 0x208). dl_core() checks it. */

@@ -69,6 +69,9 @@ struct core_ram {
     uint32_t midi_head, midi_tail;
     uint32_t armed, armed_at;      /* the guard says ARMD until the boot has run ARMED_MS */
     uint32_t crash[8];             /* Teensyduino's crash record as the boot found it; [0] 0: none */
+    uint32_t tap_orig, audio_subs;   /* the tap's update() core_tap wraps; ev_audio_out has handlers */
+    uint32_t sysex_orig;           /* the firmware's SysEx handler core_sysex hands chunks on to */
+    uint32_t usb_last;             /* usb_configuration as ev_usb last reported it; 0xFF before the first */
 };
 _Static_assert(__builtin_offsetof(struct core_ram, api) == 0x208, "dl/core.h: DL_CORE_PTR is the RAM + 0x208");
 #ifdef DL_CORE_PTR
@@ -168,7 +171,7 @@ static void restart_now(void)
 #define G_SKIP 0x50494B53u   /* "SKIP" */
 #define G_ARMD 0x444D5241u   /* "ARMD": a boot with mods has not run ARMED_MS yet (core_tick writes GOOD after) */
 #define ARMED_MS 10000u
-enum { SKIP_NONE, SKIP_CRASH, SKIP_GUARD, SKIP_HANG };
+enum { SKIP_NONE, SKIP_CRASH, SKIP_GUARD, SKIP_HANG, SKIP_HOST };
 static uint32_t read_guard(void)
 {
     struct fw_file f;
@@ -285,7 +288,7 @@ done:
 #define PKT_MARK  0xD1
 #define PKT_REPLY 0xF1
 #define PKT_MAX   1100u                             /* payload bytes; the request lands in SCRATCH */
-enum { C_INFO = 1, C_LIST, C_PUT, C_CHECK, C_GET, C_MKDIRS, C_RESTART, C_PEEK, C_DELETE };
+enum { C_INFO = 1, C_LIST, C_PUT, C_CHECK, C_GET, C_MKDIRS, C_RESTART, C_PEEK, C_DELETE, C_POKE };
 enum { S_OK = 0, S_BAD, S_SUM, S_PATH, S_IO, S_NOCARD, S_TIMEOUT, S_CMD };
 
 static int rx_peek(void)
@@ -390,7 +393,7 @@ static void serve(uint8_t cmd, uint8_t seq, const uint8_t *p, uint32_t len)
     }
     if (cmd == C_INFO) {
         char *o = (char *)out;
-        o = put(o, "dirtyloader core 0.4\nfirmware ");
+        o = put(o, "dirtyloader core 0.5\nfirmware ");
         o = put_hex(o, DL_FW);
         o = put(o, "\nsd ");
         o = put(o, FW_SD_MOUNTED() ? "mounted" : "none");
@@ -407,6 +410,13 @@ static void serve(uint8_t cmd, uint8_t seq, const uint8_t *p, uint32_t len)
         uint32_t at = le32(p), n = p[4] | p[5] << 8;
         if (n > 512) n = 512;
         reply(cmd, seq, S_OK, (const void *)at, n);
+        return;
+    }
+    if (cmd == C_POKE) {                                /* address u32, bytes: write RAM (development, tests) */
+        uint32_t at = len >= 4 ? le32(p) : 0, n = len - 4;
+        if (len < 5 || at < 0x20000000u || at + n > 0x20280000u) { reply(cmd, seq, S_BAD, 0, 0); return; }
+        for (uint32_t i = 0; i < n; i++) ((volatile uint8_t *)at)[i] = p[4 + i];
+        reply(cmd, seq, S_OK, 0, 0);
         return;
     }
     if (!FW_SD_MOUNTED()) { reply(cmd, seq, S_NOCARD, 0, 0); return; }
@@ -601,6 +611,7 @@ static void page_draw_all(void)
     for (int r = 0; r < FW_GRID_ROWS; r++) row(r, "");
     o = put(b, ram->skipped == SKIP_CRASH ? " MODS (TELOS)   SKIPPED: A CRASH"
              : ram->skipped == SKIP_HANG ? " MODS (TELOS)   SKIPPED: NO 10 S RUN"
+             : ram->skipped == SKIP_HOST ? " MODS (TELOS)   SKIPPED: SAFE BOOT"
              : ram->skipped ? " MODS (TELOS)   SKIPPED" : " MODS (TELOS)");
     *o = 0;
     row(3, b);
@@ -918,8 +929,12 @@ static int song_loaded(void)                       /* 0 done, 1 the list could n
    core creates meanwhile fails: wait SONG_WAIT ms, and retry a failed write, before giving up. */
 #define SONG_WAIT  300u
 #define SONG_TRIES 10u
+#define EV_USB_W 0x0003u
+static int fire(uint32_t word, uint32_t a0, uint32_t a1);
 void core_tick(void)
 {
+    uint32_t usb = fw_usb_configuration != 0;
+    if (usb != ram->usb_last) { ram->usb_last = usb; fire(EV_USB_W, usb, 0); }
     if (ram->armed && ram->booted && fw_millis - ram->armed_at >= ARMED_MS && FW_SD_MOUNTED()) {
         if (write_file(GUARD_PATH, "GOOD", 4)) ram->armed = 0;   /* this set runs: no hang at boot */
         else ram->armed_at += 1000;
@@ -957,6 +972,40 @@ static int fire(uint32_t word, uint32_t a0, uint32_t a1)
     register uint32_t fn __asm__("r3") = CORE_DISPATCH;
     __asm volatile("blx r3" : "+r"(r0), "+r"(r1), "+r"(ip), "+r"(fn) : : "r2", "lr", "memory", "cc");
     return (int)r0;
+}
+static int fire3(uint32_t word, uint32_t a0, uint32_t a1, uint32_t a2)
+{
+    register uint32_t r0 __asm__("r0") = a0;
+    register uint32_t r1 __asm__("r1") = a1;
+    register uint32_t r2 __asm__("r2") = a2;
+    register uint32_t ip __asm__("ip") = word;
+    register uint32_t fn __asm__("r3") = CORE_DISPATCH;
+    __asm volatile("blx r3" : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(ip), "+r"(fn) : : "lr", "memory", "cc");
+    return (int)r0;
+}
+
+/* ev_audio_out: the tap's update() (vtable slot 0, in RAM) gets the master output's two blocks first: a handler
+   processes them in place (insert: USB, the recorder and I2S all get it) or writes them (exclusive). A silent
+   output has no blocks: with handlers, core allocates zeroed ones so they can write. */
+#define EV_AUDIO_OUT_W (0x0032u | TAKE)
+static void core_tap(void *obj)
+{
+    uint8_t **q = *(uint8_t ***)((uint8_t *)obj + 0x20);
+    if (ram->audio_subs && q) {
+        for (int i = 0; i < 2; i++)
+            if (!q[i] && (q[i] = fw_audio_alloc()) != 0) zero(q[i] + 4, FW_AUDIO_FRAMES * 4);
+        if (q[0] && q[1]) fire3(EV_AUDIO_OUT_W, (uint32_t)(q[0] + 4), (uint32_t)(q[1] + 4), FW_AUDIO_FRAMES);
+    }
+    ((void (*)(void *))ram->tap_orig)(obj);
+}
+
+/* ev_sysex: usbMIDI's SysEx handler pointer (FW_SYSEX_HANDLER) is the firmware's, set in setup(); core_boot
+   puts core_sysex there and keeps the firmware's to call when no handler takes the chunk. */
+#define EV_SYSEX_W (0x0047u | TAKE)
+static void core_sysex(const uint8_t *data, uint32_t len, uint32_t last)
+{
+    if (fire3(EV_SYSEX_W, (uint32_t)data, len, last)) return;
+    if (ram->sysex_orig) ((void (*)(const uint8_t *, uint32_t, uint32_t))ram->sysex_orig)(data, len, last);
 }
 
 /* ev_render_in / ev_render_out: the audio library renders each block in the software interrupt (IRQ 70, vector
@@ -1088,6 +1137,29 @@ void core_early(void)
 }
 
 
+/* The skip key at power-on, for a unit without keys: `python -m dirtyloader.unit safe` keeps sending SAFE_MAGIC
+   over USB serial while the unit boots. core_load runs about 0.3 s after reset; a computer has configured USB
+   within ~10 ms of that, and the tool's first bytes arrive ~160 ms later (measured on the Teensy). So core waits
+   up to USB_WAIT_MS for USB, then listens SAFE_MS: a boot costs ~0.35 s more on a computer, 0.25 s on a charger.
+   The bytes are all >= 0x80: they start no m8c command (ASCII) and are not core's request mark (0xD1). */
+#define USB_WAIT_MS 250u
+#define SAFE_MS 350u
+static int safe_boot_asked(void)
+{
+    static const uint8_t want[] = { 0xF5, 0xDA, 0xA5, 0xFE, 0xC4, 0xB7, 0 };
+    uint32_t t0 = fw_millis, k = 0;
+    while (!fw_usb_configuration && fw_millis - t0 < USB_WAIT_MS) { }
+    if (!fw_usb_configuration) return 0;
+    t0 = fw_millis;
+    while (fw_millis - t0 < SAFE_MS) {
+        uint8_t c;
+        if (!fw_rx_available || fw_serial_read(&c, 1) != 1) continue;
+        k = c == want[k] ? k + 1 : c == want[0];
+        if (!want[k]) return 1;
+    }
+    return 0;
+}
+
 void core_load(void)
 {
     uint16_t orders[SLOTS];
@@ -1104,6 +1176,7 @@ void core_load(void)
     ram->midi_head = ram->midi_tail = 0;
     ram->armed = 0;
     ram->song[0] = 0;
+    ram->usb_last = 0xFFu;
     ram->loaded = 1;
     ram->nmods = 0;
     ram->nboot = 0;
@@ -1112,7 +1185,7 @@ void core_load(void)
     if (!FW_SD_MOUNTED())
         return;
 
-    o = put(o, "dirtyloader core 0.4\nmods area ");
+    o = put(o, "dirtyloader core 0.5\nmods area ");
     o = put_dec(o, AREA_END - AREA_START);
     o = put(o, " bytes at ");
     o = put_hex(o, AREA_START);
@@ -1120,6 +1193,7 @@ void core_load(void)
 
     int skip = SKIP_NONE;
     uint32_t guard = read_guard();
+    int host_skip = safe_boot_asked();
     zero(ram->crash, sizeof ram->crash);
     if (crashed())
         for (uint32_t i = 0; i < 8; i++) ram->crash[i] = fw_fault_info[i];
@@ -1129,6 +1203,10 @@ void core_load(void)
         o = put(o, "), so no mods were loaded.\n");
         write_file(GUARD_PATH, "SKIP", 4);
         skip = SKIP_CRASH;
+    } else if (host_skip) {
+        o = put(o, "safe boot: the host asked (python -m dirtyloader.unit safe), so no mods were loaded.\n");
+        write_file(GUARD_PATH, "SKIP", 4);
+        skip = SKIP_HOST;
     } else if (guard == G_ARMD) {
         o = put(o, "crash guard: the last boot with mods did not run 10 s (a hang, or the power went), so no mods "
                    "were loaded.\n");
@@ -1198,6 +1276,11 @@ void core_load(void)
             o = put(o, "\n");
         }
     }
+    /* ev_card_ready: the card is up and the firmware has not used it; mods are loaded, ev_boot comes later. The
+       dispatcher does not use ram->table yet (no magic), so core calls the handlers itself. */
+    for (uint32_t i = 0; i < ram->count; i++)
+        if (ram->table[i].event == 0x0002u && (ram->table[i].flags & FLAG_ENABLED))
+            ((void (*)(int))ram->table[i].fn)(1);
     o = put(o, "hooks ");
     o = put_dec(o, ram->count);
     o = put(o, "\n");
@@ -1220,6 +1303,19 @@ void core_boot(void)
         ram->audio_orig = FW_VECTORS[FW_AUDIO_VECTOR];
         __asm volatile("dsb" ::: "memory");
         FW_VECTORS[FW_AUDIO_VECTOR] = (uint32_t)core_audio | 1;
+    }
+    {                                               /* ev_audio_out */
+        volatile uint32_t *vt = *(volatile uint32_t **)(fw_audio_engine + FW_AUDIO_TAP);
+        ram->audio_subs = 0;
+        for (uint32_t i = 0; i < ram->count; i++) if (ram->table[i].event == 0x0032u) ram->audio_subs = 1;
+        if (vt && vt[0] != ((uint32_t)core_tap | 1)) {
+            ram->tap_orig = vt[0];
+            vt[0] = (uint32_t)core_tap | 1;
+        }
+    }
+    if (fw_sysex_handler != (uint32_t)core_sysex) {   /* ev_sysex */
+        ram->sysex_orig = fw_sysex_handler;
+        fw_sysex_handler = (uint32_t)core_sysex;
     }
     ram->booted = 1;                                /* song loads from here on are the user's */
     ram->armed_at = fw_millis;

@@ -49,7 +49,7 @@ class TestCore03(unittest.TestCase):
 
     def test_core_links_past_the_image(self):
         from dirtyloader.linker import link
-        self.assertEqual(self.core.version, "0.4.0")
+        self.assertEqual(self.core.version, "0.5.0")
         self.assertEqual(self.core.target["payload_len"], len(self.fw.payload))   # targets the stock image
         out = link(self.fw, self.sha, [self.core])
         loader = [s for s in self.core.sites if s.addr == C_AT][0]

@@ -41,27 +41,39 @@ class Event(IntEnum):
     bindings, not here. In mod.json / .m8mod a mod may name an event as `TICK` or, as on
     Elekloader, `ev_tick`."""
     BOOT = 0x0001        # once, after setup(), before the first loop()
+    CARD_READY = 0x0002  # the SD card is up, before the firmware uses it (core 0.4: right after loading mods)
+    USB = 0x0003         # USB configured or lost (core 0.4, from ev_tick)
     TICK = 0x0010        # each loop() iteration (UI thread)
     DRAW = 0x0020        # each UI frame, before it is pushed to the display
     RENDER_IN = 0x0030   # audio block entry (audio thread, IRQ 70)
     RENDER_OUT = 0x0031  # audio block exit
+    AUDIO_OUT = 0x0032   # the master output block, before USB / I2S (insert or exclusive audio)
     KEY = 0x0040         # an input action, before the current view handles it
     VIEW = 0x0041        # a screen change (set_view)
     TOUCH = 0x0042       # a touch frame, before the stock touch engine
     MIDI = 0x0043        # a MIDI message in (headless: each USB MIDI packet)
     SETTINGS = 0x0044    # the settings screen is built (design only)
+    SYSEX = 0x0047       # a USB MIDI SysEx chunk arrives (headless)
     SERIAL = 0x0045      # the m8c serial parser is about to read the USB serial input (headless)
     MIDI_OUT = 0x0046    # a USB MIDI packet is about to be sent (headless)
     NOTE = 0x0050        # a row fires on a track (audio thread)
     FX_COMMAND = 0x0051  # an FX command runs (per-tick executor, audio thread)
     FX_ROW = 0x0052      # a row's FX column is applied at row fire (audio thread)
-    MOD_APPLY = 0x0053   # a modulator targets a destination past the stock list (audio thread)
+    MOD_APPLY = 0x0053   # a modulator is applied to its destination (audio thread)
+    NOTE_OFF = 0x0054    # a track's note is released or killed (audio thread)
+    ROW = 0x0055         # the sequencer fires a new row on a track (audio thread)
     TEMPO = 0x0060       # the tempo is set
     TRANSPORT = 0x0061   # play / pause / stop
     PLAY = 0x0062        # the sequencer starts
     STOP = 0x0063        # the sequencer stops
+    SEQ_TICK = 0x0064    # each sequencer tick (192 a beat; audio thread)
+    MUTE = 0x0065        # a track's mute / solo state is applied
     SONG_LOAD = 0x0070   # a song file is about to be loaded
     SONG_SAVE = 0x0071   # a song file is about to be saved
+    INST_LOAD = 0x0072   # an instrument file is about to be loaded into a slot
+    INST_SAVE = 0x0073   # an instrument slot is about to be saved to a file
+    PARAM_SET = 0x0080   # an instrument parameter was edited
+    STEP_EDIT = 0x0081   # phrase cells were edited
     # earlier names, same ids (core 0.1 files may use them)
     RENDER = 0x0020
     AUDIO_BLOCK = 0x0030
@@ -79,10 +91,13 @@ class EventInfo:
 
 EVENTS = {
     Event.BOOT: EventInfo("ev_boot", "ui", False, "void f(void)", "implemented (headless)"),
+    Event.CARD_READY: EventInfo("ev_card_ready", "ui", False, "void f(int mounted)", "implemented (headless)"),
+    Event.USB: EventInfo("ev_usb", "ui", False, "void f(int configured)", "implemented (headless)"),
     Event.TICK: EventInfo("ev_tick", "ui", False, "void f(void)", "implemented (Model:02, headless)"),
     Event.DRAW: EventInfo("ev_draw", "ui", False, "void f(void *ui)", "implemented (headless)"),
     Event.RENDER_IN: EventInfo("ev_render_in", "audio", False, "void f(void)", "implemented (headless)"),
     Event.RENDER_OUT: EventInfo("ev_render_out", "audio", False, "void f(void)", "implemented (headless)"),
+    Event.AUDIO_OUT: EventInfo("ev_audio_out", "audio", True, "int f(float *left, float *right, int frames)", "implemented (headless)"),
     Event.KEY: EventInfo("ev_key", "ui", True, "int f(void *ui, int action)", "implemented (headless)"),
     Event.VIEW: EventInfo("ev_view", "ui", True, "int f(void *ui, int view)", "implemented (headless)"),
     Event.TOUCH: EventInfo("ev_touch", "ui", True, "int f(struct m8_touch *t)", "site pinned"),
@@ -91,12 +106,21 @@ EVENTS = {
     Event.SETTINGS: EventInfo("ev_settings", "ui", False, "void f(void *menu)", "design only"),
     Event.SERIAL: EventInfo("ev_serial", "ui", True, "int f(void *m8c)", "implemented (headless)"),
     Event.NOTE: EventInfo("ev_note", "audio", True, "int f(void *player, int instrument)", "implemented (headless)"),
-    Event.FX_COMMAND: EventInfo("ev_fx_command", "audio", True, "int f(int track, int cmd, int value)",
-                                "site pinned"),
-    Event.FX_ROW: EventInfo("ev_fx_row", "audio", True, "int f(int track, int column, int cmd, int value)",
-                            "site pinned"),
-    Event.MOD_APPLY: EventInfo("ev_mod_apply", "audio", False,
-                               "void f(int engine, void *voice, void *mod, int dest)", "site pinned"),
+    Event.FX_COMMAND: EventInfo("ev_fx_command", "audio", True, "int f(void *runner, int column, int cmd, int value)",
+                                "implemented (headless: table FX)"),
+    Event.FX_ROW: EventInfo("ev_fx_row", "audio", True, "int f(void *player, int column, int cmd, int value)",
+                            "implemented (headless: phrase FX)"),
+    Event.MOD_APPLY: EventInfo("ev_mod_apply", "audio", True, "int f(int dest, void *modulator, void *target, int engine)",
+                               "implemented (headless: 6 engines)"),
+    Event.NOTE_OFF: EventInfo("ev_note_off", "audio", True, "int f(void *player, int kill)", "implemented (headless)"),
+    Event.ROW: EventInfo("ev_row", "audio", False, "void f(void *player)", "implemented (headless)"),
+    Event.SEQ_TICK: EventInfo("ev_seq_tick", "audio", True, "int f(void *engine)", "implemented (headless)"),
+    Event.MUTE: EventInfo("ev_mute", "ui", True, "int f(void *mixer, int track)", "implemented (headless)"),
+    Event.INST_LOAD: EventInfo("ev_inst_load", "ui", True, "int f(void *songs, const char *path, int slot)", "implemented (headless)"),
+    Event.INST_SAVE: EventInfo("ev_inst_save", "ui", True, "int f(void *songs, const char *path, int slot)", "implemented (headless)"),
+    Event.PARAM_SET: EventInfo("ev_param_set", "ui", False, "void f(void *instview, int field, int old)", "implemented (headless)"),
+    Event.STEP_EDIT: EventInfo("ev_step_edit", "ui", False, "void f(void *phraseview, uint8_t *cell, int n, int column)", "implemented (headless)"),
+    Event.SYSEX: EventInfo("ev_sysex", "ui", True, "int f(const uint8_t *data, int len, int last)", "implemented (headless)"),
     Event.TEMPO: EventInfo("ev_tempo", "ui", True, "int f(float bpm)", "implemented (headless)"),
     Event.TRANSPORT: EventInfo("ev_transport", "ui", True, "int f(int state)", "site pinned"),
     Event.PLAY: EventInfo("ev_play", "ui", True, "int f(void *seq, int mode)", "implemented (headless)"),

@@ -9,6 +9,7 @@ Put mods on an M8 over USB: core 0.3 stores them on the SD card and loads them a
     python -m dirtyloader.unit clear                    delete every mod on the card
     python -m dirtyloader.unit status                   what core loaded at the last boot (status.txt)
     python -m dirtyloader.unit good                     clear the crash guard
+    python -m dirtyloader.unit safe                     boot once without mods (run it, then plug in / reset)
     python -m dirtyloader.unit restart
 
 Close m8c first: the port is shared. The wire format (docs/LOADER.md, "Transfer"): a request is 0xD1, cmd,
@@ -28,7 +29,8 @@ from typing import List, Optional, Tuple
 from dirtyloader.serialport import open_m8, SerialPort
 
 MARK, REPLY = 0xD1, 0xF1
-C_INFO, C_LIST, C_PUT, C_CHECK, C_GET, C_MKDIRS, C_RESTART, C_PEEK, C_DELETE = range(1, 10)
+SAFE_MAGIC = bytes([0xF5, 0xDA, 0xA5, 0xFE, 0xC4, 0xB7])   # core_load's safe-boot request (no m8c command)
+C_INFO, C_LIST, C_PUT, C_CHECK, C_GET, C_MKDIRS, C_RESTART, C_PEEK, C_DELETE, C_POKE = range(1, 11)
 STATUS = {0: "ok", 1: "bad request", 2: "checksum", 3: "bad path or no such file", 4: "SD error",
           5: "no SD card", 6: "timeout", 7: "unknown command"}
 CHUNK = 1024
@@ -124,6 +126,11 @@ class Unit:
             out += self.request(C_PEEK, struct.pack("<IH", addr + len(out), k))
         return out
 
+    def poke(self, addr: int, data: bytes) -> None:
+        """Write the unit's RAM (development and tests: 0x20000000..0x20280000 only)."""
+        for off in range(0, len(data), 512):
+            self.request(C_POKE, struct.pack("<I", addr + off) + data[off:off + 512])
+
     def restart(self) -> None:
         self.request(C_RESTART)
 
@@ -168,6 +175,54 @@ class Unit:
         return name
 
 
+def safe_boot(port_name: Optional[str], wait: float) -> int:
+    """The skip key at power-on (core 0.4): send SAFE_MAGIC over and over while the unit boots; core_load looks for it
+    and loads no mods. Run it, then plug the unit in (or reset it)."""
+    from dirtyloader.serialport import find_m8_ports
+    deadline = time.monotonic() + wait
+    if find_m8_ports():                                  # up already: its status is the last boot's
+        print("the M8 is up: reset it or unplug it and plug it back in")
+        while find_m8_ports():
+            if time.monotonic() > deadline:
+                print("the M8 did not restart", file=sys.stderr)
+                return 1
+            time.sleep(0.02)
+    else:
+        print("waiting for the M8: plug it in now")
+    while time.monotonic() < deadline:
+        ports = [port_name] if port_name else find_m8_ports()
+        for p in ports:
+            try:
+                u = Unit(port=open_m8(p))
+            except Exception:
+                continue
+            try:
+                t = time.monotonic()
+                while time.monotonic() - t < 20:          # a reset drops the port: the outer loop reopens it
+                    u.port.write(SAFE_MAGIC * 8)
+                    time.sleep(0.02)
+                    try:
+                        status = u.get("status.txt").decode("ascii", "replace")
+                    except UnitError:
+                        continue
+                    if "safe boot" in status:
+                        print("booted without mods (the MODS page's RESTART, or `good`, loads them again)")
+                        return 0
+                    if "dirtyloader core" in status:
+                        print("the unit booted with its mods: it was already up, or does not have core 0.4")
+                        return 1
+            except OSError:
+                pass
+            finally:
+                try:
+                    u.close()
+                except OSError:
+                    pass
+        time.sleep(0.05)
+    print("no M8 appeared", file=sys.stderr)
+    return 1
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m dirtyloader.unit", description=__doc__.split("\n\n")[0])
     ap.add_argument("--port", help="serial port (default: the first M8 found)")
@@ -183,8 +238,12 @@ def main(argv=None) -> int:
         sub.add_parser(c).add_argument("name")
     sub.add_parser("status")
     sub.add_parser("good")
+    s = sub.add_parser("safe")
+    s.add_argument("--wait", type=float, default=60.0, help="seconds to wait for the unit")
     sub.add_parser("restart")
     args = ap.parse_args(argv)
+    if args.cmd == "safe":
+        return safe_boot(args.port, args.wait)
     u = Unit(name=args.port)
     try:
         if args.cmd == "info":
