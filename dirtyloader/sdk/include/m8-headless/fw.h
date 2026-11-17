@@ -91,12 +91,30 @@ typedef void (*fw_midi_write_fn)(uint32_t packet);
 #define FW_PHRASE_STEP(p, s) (fw_song + 0xA6C + (p) * 0x90 + (s) * 9)
 #define FW_INSTRUMENT(i)    (fw_song + 0x139BC + (i) * 0xD7)
 #define fw_mixer            ((uint8_t *)0x2000C260u)
+#define fw_songs            ((void *)0x2001C8FCu)                 /* the song loader/writer's object */
+typedef int (*fw_inst_load_fn)(void *songs, const char *path, int slot, int flag);
+typedef int (*fw_inst_save_fn)(void *songs, const char *path, int slot);
+#define fw_inst_load        ((fw_inst_load_fn)0x6007BDD1u)       /* ev_inst_load's routine (flag 0) */
+#define fw_inst_save        ((fw_inst_save_fn)0x6007C47Du)       /* ev_inst_save's routine */
 /* The audio engine (a float Teensy Audio graph: 64-frame blocks of float, 44.1 kHz, ~689 blocks a second) is the
  * object at 0x2000BE80 (the sequencer's). Its objects sit at fixed offsets; each has a vtable in RAM whose first
  * slot is update(). The tap at +0x9308 gets the master's output and passes it on to USB; the I2S branch shares the
  * same blocks. audio_block_t: +0 ref count (u8), +4 float data[64]. */
 #define fw_audio_engine     ((uint8_t *)0x2000BE80u)
 #define FW_AUDIO_TAP        0x9308u
+/* More of the graph (classes are unique unless noted; each vtable's update slot is in RAM):
+ * - the 8 track voices: class slot 0x20002348; +0x3D the track; +0x38 the instrument; each transmits its block
+ *   pair to its main strip (+0x3E4) and its reverb, delay and MFX sends (+0x450, +0x4BC, +0x528)
+ * - send effects: MFX +0x3D08 (slot 0x20002B58, stereo in), delay +0x3A0C (slot 0x20002D50, mono in), reverb
+ *   +0x7E50 (slot 0x20002814, stereo in, also gets the delay and MFX returns); they run after the tracks
+ * - the sequencer clock +0x390 (slot 0x20001E94): first in each block, before the tracks */
+#define FW_SLOT_TRACK       0x20002348u
+#define FW_SLOT_MFX         0x20002B58u
+#define FW_SLOT_DELAY       0x20002D50u
+#define FW_SLOT_REVERB      0x20002814u
+#define FW_SLOT_CLOCK       0x20001E94u
+#define FW_TRACK_MAIN       0x3E4u
+enum { FW_FX_MFX, FW_FX_DELAY, FW_FX_REVERB };
 #define FW_AUDIO_FRAMES     64
 #define FW_AUDIO_RATE       44100
 typedef void *(*fw_audio_alloc_fn)(void);
@@ -106,7 +124,15 @@ typedef void *(*fw_audio_alloc_fn)(void);
 #define fw_seq_engine       ((uint8_t *)0x2001ADDCu)              /* ev_seq_tick's argument */
 #define fw_sequencer        ((uint8_t *)0x2000BE80u)              /* +0x3B8: playing */
 #define FW_PLAYER(t)        ((uint8_t *)0x2001ADF0u + 0x248 * (t))   /* a track's player: +0xC track, +0x4C the row */
-enum { FW_ENGINE_FM, FW_ENGINE_HYPER, FW_ENGINE_MACRO, FW_ENGINE_SAMPLER, FW_ENGINE_WAV, FW_ENGINE_EXTERNAL };
+enum { FW_ENGINE_FM, FW_ENGINE_HYPER, FW_ENGINE_MACRO, FW_ENGINE_SAMPLER, FW_ENGINE_WAV, FW_ENGINE_EXTERNAL,
+       FW_ENGINE_MIDI_OUT, FW_ENGINES };
+/* Each engine's class vtable is in RAM (DTCM .data): +0xF8 name(eng, dest) and +0x104 count(eng) list its
+ * modulation destinations (0 = OFF). A modulator keeps dest in the low nibble of its first byte (instrument +0x3F
+ * + 6 x mod), so an engine has at most 16. Stock counts: 15, SAMPLER and EXTERNAL 14. Order: FW_ENGINE_*. */
+#define FW_ENGINE_VTABLES   { 0x20001810u, 0x20001EE0u, 0x200020A8u, 0x20002664u, 0x20001CACu, 0x2000288Cu, 0x20001A50u }
+#define FW_VT_DEST_NAME     0xF8u
+#define FW_VT_DEST_COUNT    0x104u
+#define FW_MOD_DESTS_MAX    16
 
 /* core 0.4's API for mods (dl/core.h): a pointer to it sits after core's hook table (bindings: loader.ram +
  * 0x208). dl_core() checks it. */

@@ -266,6 +266,11 @@
       "kind": "entry",
       "patch_at": "0x6006025C",
       "note": "the phrase view's cell-edited method (vt+0x38): (view, cell, n, column, [sp] row); phrase *(u8*)(view+4). Bulk edits (clear, paste) may not reach it."
+    },
+    "INST_CLEAR": {
+      "kind": "entry",
+      "patch_at": "0x6007FF34",
+      "note": "clear an instrument slot (song 0x2025F674, slot, full): the pool's delete, and the instrument loader before it loads"
     }
   },
   "notes": [

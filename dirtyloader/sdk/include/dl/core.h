@@ -20,7 +20,7 @@
 #include <stdint.h>
 
 #define DL_CORE_MAGIC   0x34434C44u      /* "DLC4" */
-#define DL_CORE_VERSION 0x00000400u      /* 0.4 */
+#define DL_CORE_VERSION 0x00000500u      /* 0.5: inst_load, inst_save */
 
 /* A screen of a mod's own (core-dn1's Mod Menu entry and mod page in one). Core shows it in the firmware's free
  * view slot: from the MODS page (RIGHT on the mod's row, which shows ">" when it has a page), or when the mod
@@ -69,6 +69,17 @@ struct dl_core {
 
     const volatile uint32_t *last_crash;     /* Teensyduino's crash record the boot found ([6] is the pc), or 0 */
     const char *song;                        /* the song last loaded or saved ("" before any) */
+
+    /* 0.5 (check version >= 0x500): an instrument file into a slot (0x00-0x7F), or a slot to a file, as the
+       instrument screen's LOAD / SAVE do (ev_inst_load / ev_inst_save see them). Nonzero on success. UI thread. */
+    int (*inst_load)(const char *path, int slot);
+    int (*inst_save)(const char *path, int slot);
+
+    /* 0.5: a modulation destination added to an engine's list (FW_ENGINE_*): it shows in the instrument MODS
+       page's DEST and can be picked like a stock one; ev_mod_apply gets its index as `dest` (the stock code does
+       nothing with it). Returns that index, or 0 when the engine's list is full (16, the storage's limit). Call
+       at ev_boot; the name must stay valid. */
+    int (*mod_dest_add)(int engine, const char *name);
 };
 
 /* USB MIDI packets: byte 0 is cable << 4 | CIN (the status's high nibble for channel messages), then the bytes */

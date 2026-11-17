@@ -8,7 +8,8 @@ struct { uint32_t boot, tick, draw, key, view, tempo, render_in, render_out, son
                   last_key, last_view, note, note_args[4], play, stop, midi, last_midi, midi_out, last_midi_out,
                   card_ready, usb, last_usb,
                   seq_tick, note_off, row, fx_row, fx_command, mod_apply, mod_engines, mute, inst_load, inst_save,
-                  param_set, step_edit, sysex, audio_out; } selftest_counts;
+                  param_set, step_edit, sysex, audio_out, inst_clear,
+                  track_audio, track_mask, fx_audio, fx_mask, render_params; } selftest_counts;
 
 static void on_boot(void) { selftest_counts.boot++; }
 static void on_tick(void) { selftest_counts.tick++; }
@@ -55,6 +56,10 @@ static int on_inst_save(void *songs, const char *path, int slot) { selftest_coun
 static void on_param_set(void *view, int field, int old) { selftest_counts.param_set++; }
 static void on_step_edit(void *view, uint8_t *cell, int n, int column) { selftest_counts.step_edit++; }
 static int on_sysex(const uint8_t *data, int len, int last) { selftest_counts.sysex++; return 0; }
+static int on_inst_clear(void *song, int slot, int full) { selftest_counts.inst_clear++; return 0; }
+static void on_track_audio(float *l, float *r, int track) { selftest_counts.track_audio++; selftest_counts.track_mask |= 1u << (track & 31); }
+static void on_fx_audio(int stage, float *l, float *r) { selftest_counts.fx_audio++; selftest_counts.fx_mask |= 1u << (stage & 31); }
+static void on_render_params(void *engine) { selftest_counts.render_params++; }
 static int on_audio_out(float *left, float *right, int frames) { selftest_counts.audio_out++; return 0; }
 
 DL_MOD("core-selftest", "0.1.0", "Core self-test",
@@ -70,4 +75,6 @@ DL_MOD("core-selftest", "0.1.0", "Core self-test",
        DL_ON(EV_FX_ROW, 90, on_fx_row), DL_ON(EV_FX_COMMAND, 90, on_fx_command), DL_ON(EV_MOD_APPLY, 90, on_mod_apply),
        DL_ON(EV_MUTE, 90, on_mute), DL_ON(EV_INST_LOAD, 90, on_inst_load), DL_ON(EV_INST_SAVE, 90, on_inst_save),
        DL_ON(EV_PARAM_SET, 90, on_param_set), DL_ON(EV_STEP_EDIT, 90, on_step_edit), DL_ON(EV_SYSEX, 90, on_sysex),
-       DL_ON(EV_AUDIO_OUT, 40, on_audio_out));
+       DL_ON(EV_AUDIO_OUT, 40, on_audio_out), DL_ON(EV_INST_CLEAR, 90, on_inst_clear),
+       DL_ON(EV_TRACK_AUDIO, 90, on_track_audio), DL_ON(EV_FX_AUDIO, 90, on_fx_audio),
+       DL_ON(EV_RENDER_PARAMS, 90, on_render_params));

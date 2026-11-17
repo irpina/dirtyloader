@@ -51,7 +51,7 @@ struct core_ram {
     /* the MODS page (TELOS): a screen in the firmware's free view slot */
     struct { const void *const *vt; uint8_t body[0x3C]; } page_view;
     uint32_t page_n, page_sel, page_dirty, last_action;
-    struct { char name[NAME_MAX]; uint8_t on; } page[MAX_MODS];
+    struct { char name[NAME_MAX]; uint8_t on, check; } page[MAX_MODS];   /* check: E<n> found when switching on */
     /* songs and their mods: core_tick writes / checks <song>.mods after the firmware's own save / load */
     uint32_t booted, song_pending, page_mode, prev_view, nwant, song_result, song_at, song_tries;
     uint32_t audio_orig;           /* the audio interrupt core_audio wraps */
@@ -69,7 +69,10 @@ struct core_ram {
     uint32_t midi_head, midi_tail;
     uint32_t armed, armed_at;      /* the guard says ARMD until the boot has run ARMED_MS */
     uint32_t crash[8];             /* Teensyduino's crash record as the boot found it; [0] 0: none */
-    uint32_t tap_orig, audio_subs;   /* the tap's update() core_tap wraps; ev_audio_out has handlers */
+    uint32_t dest_name_orig[FW_ENGINES], dest_count_orig[FW_ENGINES], dest_stock[FW_ENGINES], dest_n[FW_ENGINES];
+    const char *dest_extra[FW_ENGINES][FW_MOD_DESTS_MAX];
+    uint32_t tap_orig, audio_subs;
+    uint32_t track_orig, mfx_orig, delay_orig, reverb_orig, clock_orig, track_subs, fx_subs, params_subs;   /* the tap's update() core_tap wraps; ev_audio_out has handlers */
     uint32_t sysex_orig;           /* the firmware's SysEx handler core_sysex hands chunks on to */
     uint32_t usb_last;             /* usb_configuration as ev_usb last reported it; 0xFF before the first */
 };
@@ -530,7 +533,7 @@ static void page_read(void)
         char *nm = ram->page[ram->page_n].name;
         int k = f.fat ? fw_fat_name(f.fat, nm, NAME_MAX) : fw_exfat_name(f.exfat, nm, NAME_MAX);
         fw_file_close(&f);
-        if (k > 4 && name_eq(nm + k - 4, ".m8x", 5)) ram->page[ram->page_n++].on = 0;
+        if (k > 4 && name_eq(nm + k - 4, ".m8x", 5)) { ram->page[ram->page_n].check = 0; ram->page[ram->page_n++].on = 0; }
     }
     fw_file_close(&dir);
     char *const list = (char *)(SCRATCH + STATUS_SIZE);
@@ -631,6 +634,7 @@ static void page_draw_all(void)
         while (k++ < 27) *o++ = ' ';
         int e = boot_err(nm);
         if (ram->page[i].on && e > 0) { *o++ = 'E'; o = put_dec(o, (uint32_t)e); }
+        else if (!ram->page[i].on && ram->page[i].check) { *o++ = 'E'; o = put_dec(o, ram->page[i].check); *o++ = '!'; }
         else if (ram->page[i].on) o = put(o, e == 0 ? "ON" : "+ON");
         else o = put(o, e == 0 ? "-OFF" : "OFF");
         if (page_of_file(nm)) o = put(o, " >");
@@ -700,6 +704,49 @@ static void song_draw_all(void)
 static void api_page_open(const struct dl_page *p);
 static void api_page_close(void);
 
+/* The check before switching on (core 0.5; TELOS lists it as "not yet"): what core_load would refuse, found
+   now. The file is read once: the header, the size against the mods area, the CRC of image and relocations, and
+   the dl_mod header's magic, ABI and firmware. A refusal leaves the mod off and shows E<n>! on its row. */
+static int check_m8x(const char *name)
+{
+    char path[96];
+    char *o = put(path, "/dirtyloader/mods/");
+    for (uint32_t i = 0; name[i] && o < path + sizeof path - 1; i++) *o++ = name[i];
+    *o = 0;
+    struct fw_file f;
+    struct m8x h;
+    if (!f_open(&f, path, FW_O_READ)) return E_OPEN;
+    int err = 0;
+    uint8_t *buf = (uint8_t *)SCRATCH;               /* status text area: free after boot */
+    if (!read_exact(&f, &h, sizeof h) || h.magic != M8X_MAGIC || h.image < sizeof(struct dl_mod)) { err = E_HEADER; goto done; }
+    uint32_t tail = h.nrel * 4 > h.bss ? h.nrel * 4 : h.bss;
+    if (h.image + tail > AREA_END - AREA_START) { err = E_SPACE; goto done; }
+    uint32_t left = h.image + h.nrel * 4, crc = 0, first = 1;
+    while (left) {
+        uint32_t n = left < STATUS_SIZE ? left : STATUS_SIZE;
+        if (!read_exact(&f, buf, n)) { err = E_READ; goto done; }
+        if (first) {
+            const struct dl_mod *m = (const struct dl_mod *)buf;
+            if (m->magic != DL_MOD_MAGIC || m->abi != DL_ABI) { err = E_MOD; goto done; }
+            if (m->fw && m->fw != DL_FW) { err = E_FIRMWARE; goto done; }
+            first = 0;
+        }
+        crc = crc32(crc, buf, n);
+        left -= n;
+    }
+    if (crc != h.crc) err = E_CRC;
+done:
+    fw_file_close(&f);
+    return err;
+}
+
+static void page_set(uint32_t i, uint8_t on)
+{
+    if (on && FW_SD_MOUNTED() && (ram->page[i].check = (uint8_t)check_m8x(ram->page[i].name)) != 0) return;
+    ram->page[i].on = on;
+    page_write();
+}
+
 static void page_input(void *view, int action)
 {
     ram->last_action = (uint32_t)action;
@@ -727,14 +774,13 @@ static void page_input(void *view, int action)
             write_file(GUARD_PATH, "GOOD", 4);
             restart_now();
         }
-        ram->page[ram->page_sel].on ^= 1;
-        page_write();
+        page_set(ram->page_sel, !ram->page[ram->page_sel].on);
     }
     else if ((action == FW_KEY_RIGHT || action == FW_KEY_LEFT) && ram->page_sel < ram->page_n) {
         const struct dl_page *pg = page_of_file(ram->page[ram->page_sel].name);
         if (action == FW_KEY_RIGHT && pg) { api_page_open(pg); return; }
         uint8_t on = action == FW_KEY_RIGHT;          /* as TELOS: RIGHT on, LEFT off */
-        if (ram->page[ram->page_sel].on != on) { ram->page[ram->page_sel].on = on; page_write(); }
+        if (ram->page[ram->page_sel].on != on) page_set(ram->page_sel, on);
     }
     ram->page_dirty = 1;
 }
@@ -999,6 +1045,50 @@ static void core_tap(void *obj)
     ((void (*)(void *))ram->tap_orig)(obj);
 }
 
+/* ev_track_audio, ev_fx_audio, ev_render_params: the same idea at other objects of the graph (fw.h). A track's
+   blocks are read after its update, from its main strip's input queue: the same blocks reach its three sends, so
+   a change in place is heard everywhere. A send effect's input is handed over before the effect runs. */
+#define EV_TRACK_AUDIO_W 0x0033u
+#define EV_FX_AUDIO_W    0x0034u
+#define EV_PARAMS_W      0x0035u
+typedef void (*update_fn)(void *);
+static void core_track(void *obj)
+{
+    ((update_fn)ram->track_orig)(obj);
+    if (!ram->track_subs) return;
+    uint8_t *strip = (uint8_t *)obj + FW_TRACK_MAIN;
+    uint8_t **q = *(uint8_t ***)(strip + 0x20);
+    uint32_t inputs = strip[0x18];                  /* the track sends on ports 0/1, and 2/3 while it crossfades */
+    for (uint32_t p = 0; q && p + 1 < inputs && p < 4; p += 2)
+        if (q[p] && q[p + 1])
+            fire3(EV_TRACK_AUDIO_W, (uint32_t)(q[p] + 4), (uint32_t)(q[p + 1] + 4), ((uint8_t *)obj)[0x3D]);
+}
+static void fx_in(void *obj, uint32_t stage, int stereo)
+{
+    uint8_t **q = *(uint8_t ***)((uint8_t *)obj + 0x20);
+    if (!ram->fx_subs || !q || !q[0] || (stereo && !q[1])) return;
+    fire3(EV_FX_AUDIO_W, stage, (uint32_t)(q[0] + 4), stereo ? (uint32_t)(q[1] + 4) : 0);
+}
+static void core_mfx(void *obj) { fx_in(obj, FW_FX_MFX, 1); ((update_fn)ram->mfx_orig)(obj); }
+static void core_delay(void *obj) { fx_in(obj, FW_FX_DELAY, 0); ((update_fn)ram->delay_orig)(obj); }
+static void core_reverb(void *obj) { fx_in(obj, FW_FX_REVERB, 1); ((update_fn)ram->reverb_orig)(obj); }
+static void core_clock(void *obj)
+{
+    if (ram->params_subs) fire3(EV_PARAMS_W, (uint32_t)fw_audio_engine, 0, 0);
+    ((update_fn)ram->clock_orig)(obj);
+}
+
+static uint32_t has_subs(uint16_t ev)
+{
+    for (uint32_t i = 0; i < ram->count; i++) if (ram->table[i].event == ev) return 1;
+    return 0;
+}
+static void wrap_slot(uint32_t slot, uint32_t *orig, void (*fn)(void *))
+{
+    volatile uint32_t *s = (volatile uint32_t *)slot;
+    if (*s != ((uint32_t)fn | 1)) { *orig = *s; *s = (uint32_t)fn | 1; }
+}
+
 /* ev_sysex: usbMIDI's SysEx handler pointer (FW_SYSEX_HANDLER) is the firmware's, set in setup(); core_boot
    puts core_sysex there and keeps the firmware's to call when no handler takes the chunk. */
 #define EV_SYSEX_W (0x0047u | TAKE)
@@ -1095,10 +1185,63 @@ static void api_midi_receive(uint32_t packet)
 }
 static void api_midi_send(uint32_t packet) { fw_usb_midi_write_packed(packet); }
 
+/* core_mod_dests: each engine's destination getters (vtable +0xF8 name, +0x104 count, in RAM) are swapped for
+   these the first time a mod adds a destination to that engine; `this`'s vtable says which engine it is. */
+static const uint32_t ENGINE_VT[FW_ENGINES] = FW_ENGINE_VTABLES;
+static int engine_of(const void *eng)
+{
+    uint32_t vt = *(const uint32_t *)eng;
+    for (int i = 0; i < FW_ENGINES; i++) if (ENGINE_VT[i] == vt) return i;
+    return -1;
+}
+static uint32_t core_dest_count(void *eng)
+{
+    int i = engine_of(eng);
+    return i < 0 ? 1 : ram->dest_stock[i] + ram->dest_n[i];
+}
+static const char *core_dest_name(void *eng, uint32_t dest)
+{
+    int i = engine_of(eng);
+    if (i < 0) return "";
+    uint32_t n = ram->dest_stock[i] + ram->dest_n[i];
+    if (dest >= n) dest = n - 1;
+    if (dest < ram->dest_stock[i])                  /* the stock getter clamps with the count: below it, fine */
+        return ((const char *(*)(void *, uint32_t))ram->dest_name_orig[i])(eng, dest);
+    return ram->dest_extra[i][dest - ram->dest_stock[i]];
+}
+static int api_mod_dest_add(int engine, const char *name)
+{
+    if (engine < 0 || engine >= FW_ENGINES || !name) return 0;
+    volatile uint32_t *vt = (volatile uint32_t *)ENGINE_VT[engine];
+    if (vt[FW_VT_DEST_COUNT / 4] != ((uint32_t)core_dest_count | 1)) {
+        ram->dest_name_orig[engine] = vt[FW_VT_DEST_NAME / 4];
+        ram->dest_count_orig[engine] = vt[FW_VT_DEST_COUNT / 4];
+        uint32_t as_engine = ENGINE_VT[engine];     /* an object whose vtable is this engine's: the getter is
+                                                       `movs r0, #N` and reads nothing, but give it the right one */
+        ram->dest_stock[engine] = ((uint32_t (*)(void *))ram->dest_count_orig[engine])(&as_engine);
+        ram->dest_n[engine] = 0;
+        vt[FW_VT_DEST_NAME / 4] = (uint32_t)core_dest_name | 1;
+        vt[FW_VT_DEST_COUNT / 4] = (uint32_t)core_dest_count | 1;
+    }
+    if (ram->dest_stock[engine] + ram->dest_n[engine] >= FW_MOD_DESTS_MAX) return 0;
+    ram->dest_extra[engine][ram->dest_n[engine]++] = name;
+    return (int)(ram->dest_stock[engine] + ram->dest_n[engine] - 1);
+}
+static int api_inst_load(const char *path, int slot)
+{
+    if (slot < 0 || slot > 0x7F || !FW_SD_MOUNTED()) return 0;
+    return fw_inst_load(fw_songs, path, slot, 0);
+}
+static int api_inst_save(const char *path, int slot)
+{
+    if (slot < 0 || slot > 0x7F || !FW_SD_MOUNTED()) return 0;
+    return fw_inst_save(fw_songs, path, slot);
+}
+
 static const struct dl_core api = {
     DL_CORE_MAGIC, DL_CORE_VERSION, sizeof(struct dl_core),
     api_restart, api_page_add, api_page_open, api_page_close, api_song_data, api_file_read, api_file_write,
-    api_midi_receive, api_midi_send, ram->crash, ram->song,
+    api_midi_receive, api_midi_send, ram->crash, ram->song, api_inst_load, api_inst_save, api_mod_dest_add,
 };
 
 static void itcm_writable(void)
@@ -1313,6 +1456,16 @@ void core_boot(void)
             vt[0] = (uint32_t)core_tap | 1;
         }
     }
+    ram->track_subs = has_subs(EV_TRACK_AUDIO_W);   /* the graph's objects: wrapped only for a subscriber */
+    ram->fx_subs = has_subs(EV_FX_AUDIO_W);
+    ram->params_subs = has_subs(EV_PARAMS_W);
+    if (ram->track_subs) wrap_slot(FW_SLOT_TRACK, &ram->track_orig, core_track);
+    if (ram->fx_subs) {
+        wrap_slot(FW_SLOT_MFX, &ram->mfx_orig, core_mfx);
+        wrap_slot(FW_SLOT_DELAY, &ram->delay_orig, core_delay);
+        wrap_slot(FW_SLOT_REVERB, &ram->reverb_orig, core_reverb);
+    }
+    if (ram->params_subs) wrap_slot(FW_SLOT_CLOCK, &ram->clock_orig, core_clock);
     if (fw_sysex_handler != (uint32_t)core_sysex) {   /* ev_sysex */
         ram->sysex_orig = fw_sysex_handler;
         fw_sysex_handler = (uint32_t)core_sysex;

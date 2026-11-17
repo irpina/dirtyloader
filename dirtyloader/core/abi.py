@@ -48,6 +48,9 @@ class Event(IntEnum):
     RENDER_IN = 0x0030   # audio block entry (audio thread, IRQ 70)
     RENDER_OUT = 0x0031  # audio block exit
     AUDIO_OUT = 0x0032   # the master output block, before USB / I2S (insert or exclusive audio)
+    TRACK_AUDIO = 0x0033 # a track's rendered block, before its mixer strip and sends
+    FX_AUDIO = 0x0034    # a send effect's input block, before it runs (MFX, delay, reverb)
+    RENDER_PARAMS = 0x0035  # once per audio block, before the sequencer and the tracks
     KEY = 0x0040         # an input action, before the current view handles it
     VIEW = 0x0041        # a screen change (set_view)
     TOUCH = 0x0042       # a touch frame, before the stock touch engine
@@ -72,6 +75,7 @@ class Event(IntEnum):
     SONG_SAVE = 0x0071   # a song file is about to be saved
     INST_LOAD = 0x0072   # an instrument file is about to be loaded into a slot
     INST_SAVE = 0x0073   # an instrument slot is about to be saved to a file
+    INST_CLEAR = 0x0074  # an instrument slot is about to be cleared
     PARAM_SET = 0x0080   # an instrument parameter was edited
     STEP_EDIT = 0x0081   # phrase cells were edited
     # earlier names, same ids (core 0.1 files may use them)
@@ -98,6 +102,9 @@ EVENTS = {
     Event.RENDER_IN: EventInfo("ev_render_in", "audio", False, "void f(void)", "implemented (headless)"),
     Event.RENDER_OUT: EventInfo("ev_render_out", "audio", False, "void f(void)", "implemented (headless)"),
     Event.AUDIO_OUT: EventInfo("ev_audio_out", "audio", True, "int f(float *left, float *right, int frames)", "implemented (headless)"),
+    Event.TRACK_AUDIO: EventInfo("ev_track_audio", "audio", False, "void f(float *left, float *right, int track)", "implemented (headless)"),
+    Event.FX_AUDIO: EventInfo("ev_fx_audio", "audio", False, "void f(int stage, float *left, float *right)", "implemented (headless)"),
+    Event.RENDER_PARAMS: EventInfo("ev_render_params", "audio", False, "void f(void *engine)", "implemented (headless)"),
     Event.KEY: EventInfo("ev_key", "ui", True, "int f(void *ui, int action)", "implemented (headless)"),
     Event.VIEW: EventInfo("ev_view", "ui", True, "int f(void *ui, int view)", "implemented (headless)"),
     Event.TOUCH: EventInfo("ev_touch", "ui", True, "int f(struct m8_touch *t)", "site pinned"),
@@ -118,6 +125,7 @@ EVENTS = {
     Event.MUTE: EventInfo("ev_mute", "ui", True, "int f(void *mixer, int track)", "implemented (headless)"),
     Event.INST_LOAD: EventInfo("ev_inst_load", "ui", True, "int f(void *songs, const char *path, int slot)", "implemented (headless)"),
     Event.INST_SAVE: EventInfo("ev_inst_save", "ui", True, "int f(void *songs, const char *path, int slot)", "implemented (headless)"),
+    Event.INST_CLEAR: EventInfo("ev_inst_clear", "ui", True, "int f(void *song, int slot, int full)", "implemented (headless)"),
     Event.PARAM_SET: EventInfo("ev_param_set", "ui", False, "void f(void *instview, int field, int old)", "implemented (headless)"),
     Event.STEP_EDIT: EventInfo("ev_step_edit", "ui", False, "void f(void *phraseview, uint8_t *cell, int n, int column)", "implemented (headless)"),
     Event.SYSEX: EventInfo("ev_sysex", "ui", True, "int f(const uint8_t *data, int len, int last)", "implemented (headless)"),
