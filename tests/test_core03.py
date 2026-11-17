@@ -49,7 +49,7 @@ class TestCore03(unittest.TestCase):
 
     def test_core_links_past_the_image(self):
         from dirtyloader.linker import link
-        self.assertEqual(self.core.version, "0.3.0")
+        self.assertEqual(self.core.version, "0.4.0")
         self.assertEqual(self.core.target["payload_len"], len(self.fw.payload))   # targets the stock image
         out = link(self.fw, self.sha, [self.core])
         loader = [s for s in self.core.sites if s.addr == C_AT][0]
@@ -77,6 +77,20 @@ class TestCore03(unittest.TestCase):
         text = [f"{m} {o_}" for _, m, o_ in _dis(bytes(self.core.sites[0].data(self.fw))[stub - abi.CORE_REGION_ADDR:][:16], stub)]
         self.assertTrue(text[1].startswith("bl #0x6001"))                       # core_load, in the C loader
         self.assertEqual(text[3], f"b.w #0x{INNER:x}")                          # then the original call
+
+    def test_call_site_goes_straight_to_core_c(self):
+        from dirtyloader.core.builder import _asm
+        fw = _headless()                                    # INNER calls a leaf: that bl becomes core's C
+        leaf, at = INNER + 0x20, INNER + 2
+        for addr, asm in ((INNER, f"push {{r3, lr}}; bl #{leaf}; pop {{r3, pc}}"), (leaf, "bx lr")):
+            code = _asm(asm, addr)
+            fw.payload[addr - LOAD:addr - LOAD + len(code)] = code
+        b = dict(BINDINGS, loader=dict(BINDINGS["loader"], calls={hex(at): {"fn": "core_midi_read", "event": "MIDI"}}))
+        core = self.builder.build_core03_mod(fw, hashlib.sha256(bytes(fw.payload)).hexdigest(), b)
+        self.assertIn("MIDI", core.events)
+        site = [s for s in core.sites if s.addr == at][0]
+        target = int(_dis(bytes.fromhex(site.new[0][1]), at)[0][2].lstrip("#"), 16)
+        self.assertTrue(C_AT <= target < C_AT + 0x4000)                         # into core's C, no stub
 
     def test_hex_carries_bytes_past_the_stock_end(self):
         from dirtyloader.linker import link
@@ -109,6 +123,18 @@ class TestM8x(unittest.TestCase):
         self.assertTrue({8, 12, 16, 20} <= set(m["relocations"]))
         subs = struct.unpack_from("<I", img, 20)[0]
         self.assertTrue({subs + 4 + 8 * i for i in range(3)} <= set(m["relocations"]))
+
+    def test_struct_copies_link_against_the_sdk_libc(self):
+        import os, tempfile
+        src = "\n".join(['#include "dl/mod.h"', "struct big { unsigned w[40]; };", "struct big a, b;",
+                         "static void on_tick(void) { a = b; }",
+                         'DL_MOD("copy", "0.1.0", "t", DL_ON(EV_TICK, 50, on_tick));', ""])
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "copy.c")
+            open(path, "w").write(src)
+            blob, info = cc.build_m8x([path])                                    # gcc calls memcpy for a = b
+        self.assertIn("memcpy", info["symbols"])
+        self.assertEqual(cc.parse_m8x(blob)["id"], "copy")
 
     def test_corruption_is_refused(self):
         bad = bytearray(self.blob)

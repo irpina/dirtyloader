@@ -111,6 +111,8 @@ site/              the GitHub Pages in-browser builder (index.html, app.js, make
 tests/             firmware-free unit tests (synthetic image; run in CI)
 docs/FORMAT.md     the .m8mod specification
 docs/CORE-EVENTS.md   the hook bus: events, prototypes, sites, core tables (Elekloader-style)
+docs/LOADER.md        mods on the SD card (TELOS for the M8): transfer, MODS page, song lists, the core API
+docs/PARITY-DN1.md    Elekloader's Digitone mk1 core and TELOS, feature by feature, against the M8 core
 docs/FIRMWARE-MAP.md  the whole-firmware map (memory map, layout, threads, drivers, classes)
 dirtyloader/re/    RE tools: memmap, layout, switches, vtables, params, objects, ghidra_map, fwmap
 ```

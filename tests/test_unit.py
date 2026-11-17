@@ -57,6 +57,9 @@ class FakeUnit:
                 reply = d[off:off + min(mx, 512)]
         elif cmd == U.C_RESTART:
             self.restarted = True
+        elif cmd == U.C_DELETE:
+            if self.files.pop(p.decode(), None) is None:
+                status = 3
         else:
             status = 7
         self.out += self.noise + slip(bytes([U.REPLY, cmd, seq, status]) + reply)
@@ -113,6 +116,22 @@ class TestUnit(unittest.TestCase):
         self.u.set_active(["a.m8x"])
         U.Unit.set_active(self.u, [n for n in self.u.active() if n != "a.m8x"])
         self.assertEqual(self.u.active(), [])
+
+    def test_add_off_then_remove(self):
+        import tempfile, os
+        data = _m8x(bytes(16))
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "quiet.m8x")
+            open(path, "wb").write(data)
+            self.u.add(path, on=False)
+        self.assertIn("mods/quiet.m8x", self.fake.files)
+        self.assertEqual(self.u.active(), [])
+        self.u.set_active(["quiet.m8x"])
+        self.u.remove("quiet.m8x")
+        self.assertNotIn("mods/quiet.m8x", self.fake.files)
+        self.assertEqual(self.u.active(), [])
+        with self.assertRaises(U.UnitError):
+            self.u.delete("mods/quiet.m8x")
 
     def test_errors_surface(self):
         with self.assertRaises(U.UnitError):

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/* core 0.3: load mods from the SD card at boot (docs/LOADER.md).
+/* core 0.4: load mods from the SD card at boot, and serve them (docs/LOADER.md).
  *
  * Runs from flash past the end of the stock image and keeps all of its state in the free ITCM tail, so it has
  * no .data or .bss of its own. Three entry points, all called from stubs the builder places:
@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include "dl/mod.h"
 #include CORE_FW_H
+#include "dl/core.h"
 
 /* ---- layout, shared with dirtyloader/core/builder.py (build_core03_mod) -------------------------------- */
 #ifndef CORE_RAM
@@ -28,6 +29,9 @@
 #define MAX_MODS     16
 #define NAME_MAX     28                /* an .m8x file name the MODS page and the boot record keep */
 #define FLAG_ENABLED 1u
+#define MAX_PAGES    8
+#define MAX_DATA     8
+#define MIDI_Q       8
 
 struct hook { uint16_t event, flags; void *fn; };
 
@@ -35,6 +39,7 @@ struct core_ram {
     uint32_t magic;
     uint32_t count;
     struct hook table[SLOTS];
+    const struct dl_core *api;   /* +0x208, DL_CORE_PTR: mods find core's API here */
     uint32_t sig;                /* RAM_SIG once core_load has run; ITCM survives a reset, not a power cycle */
     uint32_t loaded;             /* core_load ran this boot */
     uint32_t next;               /* next free byte of the mods' area */
@@ -53,7 +58,23 @@ struct core_ram {
     uint32_t skipped;              /* the crash guard skipped the mods this boot */
     char song[128];
     struct { char name[NAME_MAX]; } want[MAX_MODS];
+    /* core 0.4: mods' pages and song data, MIDI played in by mods, the hang guard, the crash the boot found */
+    const struct dl_page *pages[MAX_PAGES];
+    uint32_t npages;
+    const struct dl_page *cur_page;
+    uint32_t page_back;            /* the view a mod page was opened over; PAGE_BACK_MODS: the MODS page */
+    const struct dl_song_data *data[MAX_DATA];
+    uint32_t ndata, data_done;
+    uint32_t midi_q[MIDI_Q];
+    uint32_t midi_head, midi_tail;
+    uint32_t armed, armed_at;      /* the guard says ARMD until the boot has run ARMED_MS */
+    uint32_t crash[8];             /* Teensyduino's crash record as the boot found it; [0] 0: none */
 };
+_Static_assert(__builtin_offsetof(struct core_ram, api) == 0x208, "dl/core.h: DL_CORE_PTR is the RAM + 0x208");
+#ifdef DL_CORE_PTR
+_Static_assert(DL_CORE_PTR == CORE_RAM + 0x208, "the device header's DL_CORE_PTR is not this core's");
+#endif
+#define PAGE_BACK_MODS 0xFFu
 #define ram ((struct core_ram *)CORE_RAM)
 #define AREA_START ((CORE_RAM + sizeof(struct core_ram) + 7u) & ~7u)
 /* boot-time scratch for status.txt and active.txt at the top of ITCM, off the main stack */
@@ -110,6 +131,20 @@ static int f_write(struct fw_file *f, const void *buf, uint32_t n)
     return -1;
 }
 static int read_exact(struct fw_file *f, void *buf, uint32_t n) { return f_read(f, buf, n) == (int)n; }
+static int f_seek(struct fw_file *f, uint32_t pos)
+{
+    if (f->fat) return fw_fat_seek(f->fat, pos);
+    if (f->exfat) return fw_exfat_seek(f->exfat, 0, pos);
+    return 0;
+}
+static int f_remove(const char *path)
+{
+    struct fw_file f;
+    if (!f_open(&f, path, FW_O_RDWR)) return 0;
+    int ok = f.fat ? fw_fat_remove(f.fat) : f.exfat ? fw_exfat_remove(f.exfat) : 0;
+    fw_file_close(&f);
+    return ok;
+}
 
 static int write_file(const char *path, const char *text, uint32_t n)
 {
@@ -131,6 +166,9 @@ static void restart_now(void)
  * (or no file) means load. Writing GOOD there (dirtyloader sd does) re-enables the mods. */
 #define GUARD_PATH "/dirtyloader/guard"
 #define G_SKIP 0x50494B53u   /* "SKIP" */
+#define G_ARMD 0x444D5241u   /* "ARMD": a boot with mods has not run ARMED_MS yet (core_tick writes GOOD after) */
+#define ARMED_MS 10000u
+enum { SKIP_NONE, SKIP_CRASH, SKIP_GUARD, SKIP_HANG };
 static uint32_t read_guard(void)
 {
     struct fw_file f;
@@ -247,7 +285,7 @@ done:
 #define PKT_MARK  0xD1
 #define PKT_REPLY 0xF1
 #define PKT_MAX   1100u                             /* payload bytes; the request lands in SCRATCH */
-enum { C_INFO = 1, C_LIST, C_PUT, C_CHECK, C_GET, C_MKDIRS, C_RESTART, C_PEEK };
+enum { C_INFO = 1, C_LIST, C_PUT, C_CHECK, C_GET, C_MKDIRS, C_RESTART, C_PEEK, C_DELETE };
 enum { S_OK = 0, S_BAD, S_SUM, S_PATH, S_IO, S_NOCARD, S_TIMEOUT, S_CMD };
 
 static int rx_peek(void)
@@ -313,7 +351,7 @@ static int dl_path_in(char *out, const uint8_t *name, uint32_t n, int anywhere)
     *o = 0;
     return 1;
 }
-__attribute__((unused)) static int dl_path(char *out, const uint8_t *name, uint32_t n) { return dl_path_in(out, name, n, 0); }
+static int dl_path(char *out, const uint8_t *name, uint32_t n) { return dl_path_in(out, name, n, 0); }
 static int rd_path(char *out, const uint8_t *name, uint32_t n) { return dl_path_in(out, name, n, 1); }
 #ifdef PUT_ANYWHERE
 #define PUT_PATH rd_path
@@ -321,12 +359,6 @@ static int rd_path(char *out, const uint8_t *name, uint32_t n) { return dl_path_
 #define PUT_PATH dl_path
 #endif
 
-static int f_seek(struct fw_file *f, uint32_t pos)
-{
-    if (f->fat) return fw_fat_seek(f->fat, pos);
-    if (f->exfat) return fw_exfat_seek(f->exfat, 0, pos);
-    return 0;
-}
 
 static int mkdirs(const char *path)
 {
@@ -350,6 +382,7 @@ static void serve(uint8_t cmd, uint8_t seq, const uint8_t *p, uint32_t len)
     struct fw_file f;
 
     if (cmd == C_RESTART) {
+        if (ram->armed && FW_SD_MOUNTED()) write_file(GUARD_PATH, "GOOD", 4);   /* asked for: not a hang */
         reply(cmd, seq, S_OK, 0, 0);
         uint32_t t = fw_millis;
         while (fw_millis - t < 50) { }                  /* let the reply leave */
@@ -357,7 +390,7 @@ static void serve(uint8_t cmd, uint8_t seq, const uint8_t *p, uint32_t len)
     }
     if (cmd == C_INFO) {
         char *o = (char *)out;
-        o = put(o, "dirtyloader core 0.3\nfirmware ");
+        o = put(o, "dirtyloader core 0.4\nfirmware ");
         o = put_hex(o, DL_FW);
         o = put(o, "\nsd ");
         o = put(o, FW_SD_MOUNTED() ? "mounted" : "none");
@@ -419,6 +452,11 @@ static void serve(uint8_t cmd, uint8_t seq, const uint8_t *p, uint32_t len)
         put32(out, size);
         put32(out + 4, crc);
         reply(cmd, seq, k < 0 ? S_IO : S_OK, out, 8);
+        return;
+    }
+    if (cmd == C_DELETE) {                              /* name: a file under /dirtyloader */
+        if (!dl_path(path, p, len)) { reply(cmd, seq, S_PATH, 0, 0); return; }
+        reply(cmd, seq, f_remove(path) ? S_OK : S_PATH, 0, 0);
         return;
     }
     if (cmd == C_GET) {                                 /* offset u32, max u16, name len u8, name -> data */
@@ -538,11 +576,32 @@ static int page_changed(void)
     return 0;
 }
 
+/* the running mod an .m8x file became, and the page it added */
+static const struct dl_mod *mod_of_file(const char *name)
+{
+    uint32_t k = 0;
+    for (uint32_t i = 0; i < ram->nboot && k < ram->nmods; i++) {
+        if (ram->boot[i].err) continue;
+        if (name_eq(ram->boot[i].name, name, NAME_MAX)) return ram->mods[k];
+        k++;
+    }
+    return 0;
+}
+static const struct dl_page *page_of_file(const char *name)
+{
+    const struct dl_mod *m = mod_of_file(name);
+    for (uint32_t i = 0; m && i < ram->npages; i++)
+        if (ram->pages[i]->mod && seq(ram->pages[i]->mod, m->id)) return ram->pages[i];
+    return 0;
+}
+
 static void page_draw_all(void)
 {
     char b[64], *o;
     for (int r = 0; r < FW_GRID_ROWS; r++) row(r, "");
-    o = put(b, ram->skipped ? " MODS (TELOS)   SKIPPED: A CRASH" : " MODS (TELOS)");
+    o = put(b, ram->skipped == SKIP_CRASH ? " MODS (TELOS)   SKIPPED: A CRASH"
+             : ram->skipped == SKIP_HANG ? " MODS (TELOS)   SKIPPED: NO 10 S RUN"
+             : ram->skipped ? " MODS (TELOS)   SKIPPED" : " MODS (TELOS)");
     *o = 0;
     row(3, b);
     for (uint32_t i = 0; i <= ram->page_n; i++) {
@@ -563,6 +622,7 @@ static void page_draw_all(void)
         if (ram->page[i].on && e > 0) { *o++ = 'E'; o = put_dec(o, (uint32_t)e); }
         else if (ram->page[i].on) o = put(o, e == 0 ? "ON" : "+ON");
         else o = put(o, e == 0 ? "-OFF" : "OFF");
+        if (page_of_file(nm)) o = put(o, " >");
         *o = 0;
         row(PAGE_TOP + (int)i, b);
     }
@@ -574,11 +634,14 @@ static void page_draw_all(void)
     o = put(o, " BYTES IN USE");
     *o = 0;
     row(20, b);
-    row(21, " EDIT ON/OFF   OPT BACK");
+    row(21, " EDIT ON/OFF  LEFT OFF  RIGHT ON");    /* the firmware draws its track list from column 34 */
+    row(22, " RIGHT ON A > ROW: THE MOD'S PAGE");
+    row(23, " OPT BACK");
 }
 
 static void page_enter(void *view, int arg)
 {
+    if (ram->page_mode == 2) { ram->page_dirty = 1; return; }   /* a mod's page */
     if (FW_SD_MOUNTED()) page_read();
     else ram->page_n = 0;
     ram->page_sel = 0;
@@ -623,9 +686,18 @@ static void song_draw_all(void)
     row(21, " EDIT YES (RESTART)   OPT NO");
 }
 
+static void api_page_open(const struct dl_page *p);
+static void api_page_close(void);
+
 static void page_input(void *view, int action)
 {
     ram->last_action = (uint32_t)action;
+    if (ram->page_mode == 2) {                      /* a mod's page */
+        const struct dl_page *p = ram->cur_page;
+        if (p && p->key && p->key(action)) return;
+        if (action == FW_KEY_OPT) api_page_close();
+        return;
+    }
     if (ram->page_mode) {                           /* LOAD SONG MODS? */
         if (action == FW_KEY_EDIT) {
             for (uint32_t i = 0; i < ram->page_n; i++) ram->page[i].on = (uint8_t)wanted(ram->page[i].name);
@@ -647,6 +719,12 @@ static void page_input(void *view, int action)
         ram->page[ram->page_sel].on ^= 1;
         page_write();
     }
+    else if ((action == FW_KEY_RIGHT || action == FW_KEY_LEFT) && ram->page_sel < ram->page_n) {
+        const struct dl_page *pg = page_of_file(ram->page[ram->page_sel].name);
+        if (action == FW_KEY_RIGHT && pg) { api_page_open(pg); return; }
+        uint8_t on = action == FW_KEY_RIGHT;          /* as TELOS: RIGHT on, LEFT off */
+        if (ram->page[ram->page_sel].on != on) { ram->page[ram->page_sel].on = on; page_write(); }
+    }
     ram->page_dirty = 1;
 }
 
@@ -654,6 +732,16 @@ static void page_update(void *view) { }
 
 static void page_draw(void *view)
 {
+    if (ram->page_mode == 2) {                      /* a mod's page: cleared once, then the mod draws */
+        const struct dl_page *p = ram->cur_page;
+        if (ram->page_dirty) {
+            ram->page_dirty = 0;
+            for (int r = 0; r < FW_GRID_ROWS; r++) row(r, "");
+            if (p && p->title) { char b[44], *o = put(b, " "); o = put(o, p->title); *o = 0; row(3, b); }
+        }
+        if (p && p->draw) p->draw();
+        return;
+    }
     if (!ram->page_dirty) return;
     ram->page_dirty = 0;
     if (ram->page_mode) song_draw_all();
@@ -681,6 +769,7 @@ int core_key(void *ui, int action)
  * After a save, <song>.mods lists the mods that were running (file, id, version per line). After a load (not
  * the boot's own), when the list differs from what runs, the MODS page asks LOAD SONG MODS?. A song saved
  * without a list says nothing. The SD work waits for core_tick: the firmware's own file is closed by then. */
+/* what: 1 a load (the user's: data, then LOAD SONG MODS?), 2 a save, 3 the boot's load (data only) */
 static void song_note(const char *path, uint32_t what)
 {
     uint32_t i = 0;
@@ -689,20 +778,92 @@ static void song_note(const char *path, uint32_t what)
     if (!i) return;
     ram->song_at = fw_millis;
     ram->song_tries = 0;
+    ram->data_done = 0;
     ram->song_pending = what;
 }
 
 void core_song_load(void *songs, const char *path)
 {
-    if (ram->booted) song_note(path, 1);            /* the AUTOSAVE load during setup() says nothing */
+    song_note(path, ram->booted ? 1 : 3);           /* the AUTOSAVE load during setup(): its data, no prompt */
 }
 
 void core_song_save(void *songs, const char *path) { song_note(path, 2); }
 
-static char *mods_path(char *out)
+static char *mods_path(char *out)                  /* put() does not terminate: these do */
 {
-    char *o = put(out, ram->song);
-    return put(o, ".mods");
+    char *o = put(put(out, ram->song), ".mods");
+    *o = 0;
+    return o;
+}
+
+/* <song>.dldata: "DLD1", count u32, then per block: id[24], size u32, the bytes */
+#define DATA_MAGIC 0x31444C44u
+#define DATA_ID    24u
+static char *data_path(char *out)
+{
+    char *o = put(put(out, ram->song), ".dldata");
+    *o = 0;
+    return o;
+}
+
+static int data_save(void)
+{
+    if (!ram->ndata) return 1;
+    char path[140];
+    struct fw_file f;
+    data_path(path);
+    if (!f_open(&f, path, FW_O_RDWR | FW_O_CREAT | FW_O_TRUNC)) return 0;
+    uint32_t h[2] = { DATA_MAGIC, ram->ndata };
+    int ok = f_write(&f, h, 8) == 8;
+    for (uint32_t i = 0; ok && i < ram->ndata; i++) {
+        const struct dl_song_data *d = ram->data[i];
+        char id[DATA_ID];
+        zero(id, sizeof id);
+        for (uint32_t k = 0; d->id[k] && k < DATA_ID - 1; k++) id[k] = d->id[k];
+        ok = f_write(&f, id, DATA_ID) == DATA_ID && f_write(&f, &d->size, 4) == 4
+             && f_write(&f, d->data, d->size) == (int)d->size;
+    }
+    fw_file_close(&f);
+    return ok;
+}
+
+/* 0 done, 1 the card is still busy: try again */
+static int data_load(void)
+{
+    if (!ram->ndata || ram->data_done) return 0;
+    char path[140];
+    struct fw_file f;
+    uint32_t got[MAX_DATA];
+    zero(got, sizeof got);
+    data_path(path);
+    if (f_open(&f, path, FW_O_READ)) {
+        uint32_t h[2], pos = 8;
+        if (read_exact(&f, h, 8) && h[0] == DATA_MAGIC) {
+            for (uint32_t b = 0; b < h[1] && b < 64; b++) {
+                char id[DATA_ID];
+                uint32_t size;
+                if (!read_exact(&f, id, DATA_ID) || !read_exact(&f, &size, 4)) break;
+                pos += DATA_ID + 4;
+                id[DATA_ID - 1] = 0;
+                for (uint32_t i = 0; i < ram->ndata; i++) {
+                    const struct dl_song_data *d = ram->data[i];
+                    if (!name_eq(d->id, id, DATA_ID)) continue;
+                    uint32_t n = size < d->size ? size : d->size;
+                    if (read_exact(&f, d->data, n)) got[i] = n ? n : 1;
+                }
+                pos += size;
+                if (!f_seek(&f, pos)) break;
+            }
+        }
+        fw_file_close(&f);
+    } else {
+        if (!f_open(&f, ram->song, FW_O_READ)) return 1;  /* the card is busy: the song itself will not open */
+        fw_file_close(&f);                                /* the song has no data */
+    }
+    ram->data_done = 1;
+    for (uint32_t i = 0; i < ram->ndata; i++)
+        if (ram->data[i]->loaded) ram->data[i]->loaded(got[i]);
+    return 0;
 }
 
 static void song_saved(void)
@@ -718,7 +879,7 @@ static void song_saved(void)
         o = put(o, m->version); *o++ = '\n';
     }
     mods_path(path);
-    ram->song_result = write_file(path, t, (uint32_t)(o - t)) ? 1 : 2;
+    ram->song_result = write_file(path, t, (uint32_t)(o - t)) && data_save() ? 1 : 2;
 }
 
 static int song_loaded(void)                       /* 0 done, 1 the list could not be read yet */
@@ -759,6 +920,10 @@ static int song_loaded(void)                       /* 0 done, 1 the list could n
 #define SONG_TRIES 10u
 void core_tick(void)
 {
+    if (ram->armed && ram->booted && fw_millis - ram->armed_at >= ARMED_MS && FW_SD_MOUNTED()) {
+        if (write_file(GUARD_PATH, "GOOD", 4)) ram->armed = 0;   /* this set runs: no hang at boot */
+        else ram->armed_at += 1000;
+    }
     uint32_t what = ram->song_pending;
     if (!what || !FW_SD_MOUNTED() || fw_millis - ram->song_at < SONG_WAIT) return;
     if (what == 2) {
@@ -766,7 +931,13 @@ void core_tick(void)
         if (ram->song_result != 1 && ++ram->song_tries < SONG_TRIES) { ram->song_at = fw_millis; return; }
         ram->song_pending = 0;
     } else {
-        if (song_loaded() && ++ram->song_tries < SONG_TRIES) { ram->song_at = fw_millis; return; }
+        int busy = data_load();
+        if (!busy && what == 1) busy = song_loaded();
+        if (busy && ++ram->song_tries < SONG_TRIES) { ram->song_at = fw_millis; return; }
+        if (busy && !ram->data_done) {               /* never readable: tell the mods there is nothing */
+            ram->data_done = 1;
+            for (uint32_t i = 0; i < ram->ndata; i++) if (ram->data[i]->loaded) ram->data[i]->loaded(0);
+        }
         ram->song_pending = 0;
     }
 }
@@ -801,6 +972,86 @@ static void core_audio(void)
     fire(EV_RENDER_OUT_W, 0, 0);
 }
 
+/* ev_midi: usb_midi_read's call of usb_midi_read_message comes here. Packets mods played in (midi_receive) go
+   first; a packet a handler takes is dropped, and the next one is read. */
+#define EV_MIDI_W (0x0043u | TAKE)
+uint32_t core_midi_read(void)
+{
+    for (;;) {
+        uint32_t pk;
+        if (ram->midi_head != ram->midi_tail) pk = ram->midi_q[ram->midi_tail++ % MIDI_Q];
+        else pk = fw_usb_midi_read_message();
+        if (!pk || !fire(EV_MIDI_W, pk, 0)) return pk;
+    }
+}
+
+/* ---- the API for mods (dl/core.h) --------------------------------------------------------------------------- */
+static void api_restart(void)
+{
+    if (ram->armed && FW_SD_MOUNTED()) write_file(GUARD_PATH, "GOOD", 4);       /* asked for: not a hang */
+    uint32_t t = fw_millis;
+    while (fw_millis - t < 50) { }                  /* let USB send what it has */
+    restart_now();
+}
+static int api_page_add(const struct dl_page *p)
+{
+    if (!p || ram->npages >= MAX_PAGES) return 0;
+    ram->pages[ram->npages++] = p;
+    return 1;
+}
+static void api_page_open(const struct dl_page *p)
+{
+    if (!p || fw_views[FW_VIEW_FREE] != &ram->page_view) return;
+    uint32_t here = fw_ui[FW_UI_VIEW];
+    ram->page_back = here == FW_VIEW_FREE ? (ram->page_mode == 2 ? ram->page_back : PAGE_BACK_MODS) : here;
+    ram->cur_page = p;
+    ram->page_mode = 2;
+    ram->page_dirty = 1;
+    if (p->open) p->open();
+    if (here != FW_VIEW_FREE) fw_set_view(fw_ui, FW_VIEW_FREE);
+}
+static void api_page_close(void)
+{
+    if (ram->page_mode != 2) return;
+    ram->page_mode = 0;
+    ram->cur_page = 0;
+    if (ram->page_back == PAGE_BACK_MODS) {
+        if (FW_SD_MOUNTED()) page_read();
+        ram->page_dirty = 1;
+    } else {
+        fw_set_view(fw_ui, (int)ram->page_back);
+    }
+}
+static int api_song_data(const struct dl_song_data *d)
+{
+    if (!d || !d->id || ram->ndata >= MAX_DATA) return 0;
+    ram->data[ram->ndata++] = d;
+    return 1;
+}
+static int api_file_read(const char *path, uint32_t off, void *buf, uint32_t n)
+{
+    struct fw_file f;
+    if (!f_open(&f, path, FW_O_READ)) return -1;
+    int k = (off && !f_seek(&f, off)) ? -1 : f_read(&f, buf, n);
+    fw_file_close(&f);
+    return k;
+}
+static int api_file_write(const char *path, const void *buf, uint32_t n)
+{
+    return write_file(path, buf, n) ? (int)n : -1;
+}
+static void api_midi_receive(uint32_t packet)
+{
+    if (ram->midi_head - ram->midi_tail < MIDI_Q) ram->midi_q[ram->midi_head++ % MIDI_Q] = packet;
+}
+static void api_midi_send(uint32_t packet) { fw_usb_midi_write_packed(packet); }
+
+static const struct dl_core api = {
+    DL_CORE_MAGIC, DL_CORE_VERSION, sizeof(struct dl_core),
+    api_restart, api_page_add, api_page_open, api_page_close, api_song_data, api_file_read, api_file_write,
+    api_midi_receive, api_midi_send, ram->crash, ram->song,
+};
+
 static void itcm_writable(void)
 {
     volatile uint32_t *rnr = (uint32_t *)0xE000ED98u, *rasr = (uint32_t *)0xE000EDA0u;
@@ -833,6 +1084,7 @@ void core_early(void)
     write_veneers();
     ram->magic = 0;
     ram->loaded = 0;
+    ram->api = &api;
 }
 
 
@@ -847,6 +1099,11 @@ void core_load(void)
     ram->booted = 0;
     ram->song_pending = 0;
     ram->page_mode = 0;
+    ram->npages = ram->ndata = 0;
+    ram->cur_page = 0;
+    ram->midi_head = ram->midi_tail = 0;
+    ram->armed = 0;
+    ram->song[0] = 0;
     ram->loaded = 1;
     ram->nmods = 0;
     ram->nboot = 0;
@@ -855,22 +1112,31 @@ void core_load(void)
     if (!FW_SD_MOUNTED())
         return;
 
-    o = put(o, "dirtyloader core 0.3\nmods area ");
+    o = put(o, "dirtyloader core 0.4\nmods area ");
     o = put_dec(o, AREA_END - AREA_START);
     o = put(o, " bytes at ");
     o = put_hex(o, AREA_START);
     o = put(o, "\n");
 
-    int skip = 0;
+    int skip = SKIP_NONE;
+    uint32_t guard = read_guard();
+    zero(ram->crash, sizeof ram->crash);
+    if (crashed())
+        for (uint32_t i = 0; i < 8; i++) ram->crash[i] = fw_fault_info[i];
     if (crashed() && had_mods) {
         o = put(o, "crash guard: the last boot with mods crashed (pc ");
         o = put_hex(o, fw_fault_info[6]);
         o = put(o, "), so no mods were loaded.\n");
         write_file(GUARD_PATH, "SKIP", 4);
-        skip = 1;
-    } else if (read_guard() == G_SKIP) {
+        skip = SKIP_CRASH;
+    } else if (guard == G_ARMD) {
+        o = put(o, "crash guard: the last boot with mods did not run 10 s (a hang, or the power went), so no mods "
+                   "were loaded.\n");
+        write_file(GUARD_PATH, "SKIP", 4);
+        skip = SKIP_HANG;
+    } else if (guard == G_SKIP) {
         o = put(o, "crash guard: guard says SKIP, so no mods were loaded.\n");
-        skip = 1;
+        skip = SKIP_GUARD;
     }
     if (crashed()) forget_crash();
     ram->skipped = (uint32_t)skip;
@@ -887,6 +1153,12 @@ void core_load(void)
         }
         if (n < 0) n = 0;
         list[n] = 0;
+        for (char *q = list; *q; q++)                 /* a set to load: arm the guard until it has run 10 s */
+            if (*q != '\n' && *q != '\r' && *q != ' ') {
+                if (*q != '#') { write_file(GUARD_PATH, "ARMD", 4); ram->armed = 1; break; }
+                while (*q && *q != '\n') q++;
+                if (!*q) break;
+            }
         char *p = list;
         while (*p && o < status + STATUS_SIZE - 120) {
             char *line = p;
@@ -950,6 +1222,8 @@ void core_boot(void)
         FW_VECTORS[FW_AUDIO_VECTOR] = (uint32_t)core_audio | 1;
     }
     ram->booted = 1;                                /* song loads from here on are the user's */
+    ram->armed_at = fw_millis;
+    ram->api = &api;
     __asm volatile("dsb\n isb" ::: "memory");
     ram->magic = RAM_MAGIC;
 }

@@ -20,6 +20,7 @@ import zlib
 from typing import Dict, List, Optional, Sequence, Tuple
 
 SDK_INCLUDE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sdk", "include")
+SDK_LIBC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sdk", "lib", "dl_libc.c")
 GCC = "arm-none-eabi-gcc"
 CFLAGS = ["-mcpu=cortex-m7", "-mthumb", "-mfloat-abi=hard", "-mfpu=fpv5-d16", "-Os", "-std=gnu11",
           "-ffreestanding", "-fno-common", "-ffunction-sections", "-fdata-sections", "-fno-builtin",
@@ -132,8 +133,13 @@ def _mod_script(base: int) -> str:
 def build_m8x(sources: Sequence[str], defines: Optional[Dict[str, str]] = None,
               includes: Sequence[str] = ()) -> Tuple[bytes, dict]:
     with tempfile.TemporaryDirectory() as work:
-        a, sa = _link(sources, _mod_script(0), defines or {}, work, "a", includes)
-        b, sb = _link(sources, _mod_script(RELOC_PROBE), defines or {}, work, "b", includes)
+        libc = os.path.join(work, "dl_libc.a")             # memcpy and friends, as a library: a mod's own win
+        _run(GCC, list(CFLAGS) + ["-fno-tree-loop-distribute-patterns",   # or memcpy becomes a call to memcpy
+                                  "-c", "-o", _path(libc + ".o"), _path(SDK_LIBC)])
+        _run("arm-none-eabi-ar", ["rcs", _path(libc), _path(libc + ".o")])
+        srcs = list(sources) + [libc]
+        a, sa = _link(srcs, _mod_script(0), defines or {}, work, "a", includes)
+        b, sb = _link(srcs, _mod_script(RELOC_PROBE), defines or {}, work, "b", includes)
     if len(a) != len(b):
         raise CCError("the two links differ in size")
     image_end, bss_end = sa["__image_end"], sa["__bss_end"]

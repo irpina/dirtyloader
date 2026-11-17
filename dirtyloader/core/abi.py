@@ -48,9 +48,10 @@ class Event(IntEnum):
     KEY = 0x0040         # an input action, before the current view handles it
     VIEW = 0x0041        # a screen change (set_view)
     TOUCH = 0x0042       # a touch frame, before the stock touch engine
-    MIDI = 0x0043        # a MIDI message in (site pending)
+    MIDI = 0x0043        # a MIDI message in (headless: each USB MIDI packet)
     SETTINGS = 0x0044    # the settings screen is built (design only)
     SERIAL = 0x0045      # the m8c serial parser is about to read the USB serial input (headless)
+    MIDI_OUT = 0x0046    # a USB MIDI packet is about to be sent (headless)
     NOTE = 0x0050        # a row fires on a track (audio thread)
     FX_COMMAND = 0x0051  # an FX command runs (per-tick executor, audio thread)
     FX_ROW = 0x0052      # a row's FX column is applied at row fire (audio thread)
@@ -85,7 +86,8 @@ EVENTS = {
     Event.KEY: EventInfo("ev_key", "ui", True, "int f(void *ui, int action)", "implemented (headless)"),
     Event.VIEW: EventInfo("ev_view", "ui", True, "int f(void *ui, int view)", "implemented (headless)"),
     Event.TOUCH: EventInfo("ev_touch", "ui", True, "int f(struct m8_touch *t)", "site pinned"),
-    Event.MIDI: EventInfo("ev_midi", "ui", True, "int f(const unsigned char *msg, int port)", "site pending"),
+    Event.MIDI: EventInfo("ev_midi", "ui", True, "int f(uint32_t packet)", "implemented (headless: USB MIDI)"),
+    Event.MIDI_OUT: EventInfo("ev_midi_out", "ui", True, "int f(uint32_t packet)", "implemented (headless: USB MIDI)"),
     Event.SETTINGS: EventInfo("ev_settings", "ui", False, "void f(void *menu)", "design only"),
     Event.SERIAL: EventInfo("ev_serial", "ui", True, "int f(void *m8c)", "implemented (headless)"),
     Event.NOTE: EventInfo("ev_note", "audio", True, "int f(void *player, int instrument)", "implemented (headless)"),

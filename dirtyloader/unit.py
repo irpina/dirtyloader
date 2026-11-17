@@ -3,8 +3,10 @@ Put mods on an M8 over USB: core 0.3 stores them on the SD card and loads them a
 
     python -m dirtyloader.unit [--port COM11] info
     python -m dirtyloader.unit ls                       the .m8x files on the card, and which are on
-    python -m dirtyloader.unit add mod.m8x [...]        upload, verify and switch on (restart to load)
+    python -m dirtyloader.unit add [--off] mod.m8x ...  upload, verify and switch on (restart to load)
     python -m dirtyloader.unit on NAME | off NAME       edit /dirtyloader/active.txt
+    python -m dirtyloader.unit remove NAME [...]        delete from the card (and switch off)
+    python -m dirtyloader.unit clear                    delete every mod on the card
     python -m dirtyloader.unit status                   what core loaded at the last boot (status.txt)
     python -m dirtyloader.unit good                     clear the crash guard
     python -m dirtyloader.unit restart
@@ -26,7 +28,7 @@ from typing import List, Optional, Tuple
 from dirtyloader.serialport import open_m8, SerialPort
 
 MARK, REPLY = 0xD1, 0xF1
-C_INFO, C_LIST, C_PUT, C_CHECK, C_GET, C_MKDIRS, C_RESTART, C_PEEK = range(1, 9)
+C_INFO, C_LIST, C_PUT, C_CHECK, C_GET, C_MKDIRS, C_RESTART, C_PEEK, C_DELETE = range(1, 10)
 STATUS = {0: "ok", 1: "bad request", 2: "checksum", 3: "bad path or no such file", 4: "SD error",
           5: "no SD card", 6: "timeout", 7: "unknown command"}
 CHUNK = 1024
@@ -125,6 +127,10 @@ class Unit:
     def restart(self) -> None:
         self.request(C_RESTART)
 
+    def delete(self, name: str) -> None:
+        """Delete a file under /dirtyloader (core 0.4)."""
+        self.request(C_DELETE, name.encode())
+
     # -- the mod set --------------------------------------------------------------
     def active(self) -> List[str]:
         try:
@@ -138,7 +144,13 @@ class Unit:
         self.put(ACTIVE, (text + "".join(n + "\n" for n in names)).encode("ascii"))
         self.put("guard", b"GOOD")                       # a new set gets a fresh try
 
-    def add(self, path: str) -> str:
+    def remove(self, name: str) -> None:
+        act = self.active()
+        if name in act:
+            self.set_active([n for n in act if n != name])
+        self.delete("mods/" + name)
+
+    def add(self, path: str, on: bool = True) -> str:
         data = open(path, "rb").read()
         from dirtyloader.cc import parse_m8x
         parse_m8x(data)                                  # refuse anything the core would refuse
@@ -149,8 +161,10 @@ class Unit:
         if (size, crc) != (len(data), zlib.crc32(data) & 0xFFFFFFFF):
             raise UnitError(f"{name}: verify failed (unit has {size} B, crc {crc:08x})")
         act = self.active()
-        if name not in act:
+        if on and name not in act:
             self.set_active(act + [name])
+        elif not on and name in act:
+            self.set_active([n for n in act if n != name])
         return name
 
 
@@ -161,7 +175,10 @@ def main(argv=None) -> int:
     sub.add_parser("info")
     sub.add_parser("ls")
     a = sub.add_parser("add")
+    a.add_argument("--off", action="store_true", help="upload switched off")
     a.add_argument("files", nargs="+")
+    sub.add_parser("remove").add_argument("names", nargs="+")
+    sub.add_parser("clear")
     for c in ("on", "off"):
         sub.add_parser(c).add_argument("name")
     sub.add_parser("status")
@@ -178,7 +195,7 @@ def main(argv=None) -> int:
                 print(("on   " if n in act else "off  ") + n)
         elif args.cmd == "add":
             for f in args.files:
-                print("added", u.add(f))
+                print("added", u.add(f, on=not args.off))
             print("restart the unit to load (python -m dirtyloader.unit restart)")
         elif args.cmd in ("on", "off"):
             act = [n for n in u.active() if n != args.name]
@@ -187,6 +204,14 @@ def main(argv=None) -> int:
                     raise UnitError(f"{args.name} is not on the card")
                 act.append(args.name)
             u.set_active(act)
+        elif args.cmd == "remove":
+            for n in args.names:
+                u.remove(n)
+                print("removed", n)
+        elif args.cmd == "clear":
+            for n in u.list("mods"):
+                u.remove(n)
+                print("removed", n)
         elif args.cmd == "status":
             print(u.get("status.txt").decode("ascii", "replace"), end="")
         elif args.cmd == "good":

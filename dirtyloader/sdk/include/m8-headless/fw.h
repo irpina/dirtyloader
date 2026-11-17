@@ -65,6 +65,25 @@ typedef int (*fw_fclose_fn)(void *file);
 #define fw_exfat_mkdir      ((fw_mkdir_fn)0x6009DF19u)
 #define fw_fat_fclose       ((fw_fclose_fn)0x6009EB09u)
 #define fw_exfat_fclose     ((fw_fclose_fn)0x6009D4ADu)
+/* FatFile::remove(this) / ExFatFile::remove(this): delete an open file (opened FW_O_RDWR); it is closed after */
+typedef int (*fw_remove_fn)(void *file);
+#define fw_fat_remove       ((fw_remove_fn)0x6009FF4Du)
+#define fw_exfat_remove     ((fw_remove_fn)0x6009DADDu)
+
+/* ---- USB MIDI (Teensyduino usb_midi.c) -------------------------------------------------------------------------
+ * A USB MIDI packet is a word: byte 0 cable << 4 | code index (CIN), bytes 1-3 the MIDI bytes (status first).
+ * usb_midi_read (0x600A3764, what usbMIDI.read() runs) takes one packet from usb_midi_read_message and calls
+ * the handlers the firmware set; usb_midi_write_packed queues one packet for the host. Core's ev_midi sees each
+ * packet usb_midi_read takes, ev_midi_out each packet written. */
+typedef uint32_t (*fw_midi_read_fn)(void);
+typedef void (*fw_midi_write_fn)(uint32_t packet);
+#define fw_usb_midi_read_message ((fw_midi_read_fn)0x600A36BDu)
+#define fw_usb_midi_write_packed ((fw_midi_write_fn)0x600A3239u)
+#define FW_MIDI_READ_CALL   0x600A376Au     /* usb_midi_read's bl usb_midi_read_message: core's ev_midi site */
+
+/* core 0.4's API for mods (dl/core.h): a pointer to it sits after core's hook table (bindings: loader.ram +
+ * 0x208). dl_core() checks it. */
+#define DL_CORE_PTR         0x00029D48u
 
 /* ---- USB serial (Teensyduino usb_serial.c): what m8c talks to ------------------------------------------------
  * The m8c command parser (fw_m8c_parse, 0x6007846C) drains every waiting byte; core's ev_serial handler runs at

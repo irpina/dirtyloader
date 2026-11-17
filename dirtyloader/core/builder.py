@@ -541,7 +541,7 @@ def build_asm_mod(fw: M8Firmware, stock_sha256: str, mod_id: str, title: str, ca
 # core 0.2's hook bus plus the SD-card loader in dirtyloader/core/c/core03.c (docs/LOADER.md). The C is
 # compiled with arm-none-eabi-gcc (dirtyloader.cc) and placed in free flash past the stock image; its state
 # and the mods it loads live in the free ITCM tail. Bound per firmware by the bindings' "loader" block.
-CORE03_VERSION = "0.3.0"
+CORE03_VERSION = "0.4.0"
 CORE03_SOURCE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "c", "core03.c")
 
 
@@ -559,8 +559,9 @@ def build_core03_mod(fw: M8Firmware, stock_sha256: str, bindings: dict) -> Mod:
     row = ld.get("settings_row")
     if row:
         defines["SETTINGS_MODS_Y"] = str(int(row["field_y"]))
+    calls = {int(a, 16): c for a, c in ld.get("calls", {}).items()}   # a bl that calls core's C instead
     entries = ["core_early", "core_load", "core_boot", "core_serial", "core_key", "core_tick", "core_song_load",
-               "core_song_save"]
+               "core_song_save"] + [c["fn"] for c in calls.values()]
     c_img, syms = cc.build_fixed([CORE03_SOURCE], c_at, entries, defines)
     if c_at < fw.load_addr + len(fw.payload):
         raise RuntimeError(f"loader address 0x{c_at:08X} is inside the stock image")
@@ -586,6 +587,14 @@ def build_core03_mod(fw: M8Firmware, stock_sha256: str, bindings: dict) -> Mod:
     for at, new, note in img.sites:
         o = fw.addr_to_offset(at)
         sites.append(Site.from_bytes(at, bytes(fw.payload[o:o + len(new)]), new, "code", note))
+    for at, c in calls.items():
+        # the C function makes the call itself (its address is in the device header) and raises the event
+        o = fw.addr_to_offset(at)
+        new_bl = _asm(f"bl #{syms[c['fn']]}", at)
+        if bytes(fw.payload[o:o + 2])[1] & 0xF8 != 0xF0:
+            raise RuntimeError(f"0x{at:08X} is not a bl")
+        sites.append(Site.from_bytes(at, bytes(fw.payload[o:o + 4]), new_bl, "code",
+                                     f"{c['event']}: bl -> {c['fn']} (core's C)"))
     o = fw.addr_to_offset(c_at)
     sites.append(Site.from_bytes(c_at, bytes(fw.payload[o:o + len(c_img)]), c_img, "code",
                                  f"core 0.3 loader ({len(c_img)} B, core03.c)"))
@@ -614,7 +623,7 @@ def build_core03_mod(fw: M8Firmware, stock_sha256: str, bindings: dict) -> Mod:
                 raise RuntimeError(f"0x{lit:08X} names neither of the settings templates")
             sites.append(Site.from_bytes(lit, bytes(fw.payload[o:o + 4]), struct.pack("<I", t_at + v - tpl), "data",
                                          "SYSTEM SETTINGS: the templates are core's copy"))
-    events = list(img.stubs)
+    events = list(img.stubs) + [c["event"] for c in calls.values()]
     mod = Mod(
         id="core", version=CORE03_VERSION, title="dirtyloader core", author="dirtyloader", category="Core",
         license="GPL-2.0-or-later",

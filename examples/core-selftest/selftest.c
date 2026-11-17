@@ -5,7 +5,7 @@
 #include "dl/mod.h"
 
 struct { uint32_t boot, tick, draw, key, view, tempo, render_in, render_out, song_load, song_save, serial,
-                  last_key, last_view, note, note_args[4], play, stop; } selftest_counts;
+                  last_key, last_view, note, note_args[4], play, stop, midi, last_midi, midi_out, last_midi_out; } selftest_counts;
 
 static void on_boot(void) { selftest_counts.boot++; }
 static void on_tick(void) { selftest_counts.tick++; }
@@ -30,6 +30,8 @@ static int on_note(void *player, int instrument, int a2, int a3)
 
 static int on_play(void *seq, int mode) { selftest_counts.play++; return 0; }
 static int on_stop(void) { selftest_counts.stop++; return 0; }
+static int on_midi(uint32_t packet) { selftest_counts.midi++; selftest_counts.last_midi = packet; return 0; }
+static int on_midi_out(uint32_t packet) { selftest_counts.midi_out++; selftest_counts.last_midi_out = packet; return 0; }
 
 DL_MOD("core-selftest", "0.1.0", "Core self-test",
        DL_ON(EV_BOOT, 90, on_boot), DL_ON(EV_TICK, 90, on_tick), DL_ON(EV_DRAW, 90, on_draw),
@@ -37,4 +39,5 @@ DL_MOD("core-selftest", "0.1.0", "Core self-test",
        DL_ON(EV_RENDER_IN, 90, on_render_in), DL_ON(EV_RENDER_OUT, 90, on_render_out),
        DL_ON(EV_SONG_LOAD, 90, on_song_load), DL_ON(EV_SONG_SAVE, 90, on_song_save),
        DL_ON(EV_SERIAL, 90, on_serial), DL_ON(EV_NOTE, 90, on_note),
-       DL_ON(EV_PLAY, 90, on_play), DL_ON(EV_STOP, 90, on_stop));
+       DL_ON(EV_PLAY, 90, on_play), DL_ON(EV_STOP, 90, on_stop),
+       DL_ON(EV_MIDI, 90, on_midi), DL_ON(EV_MIDI_OUT, 90, on_midi_out));
