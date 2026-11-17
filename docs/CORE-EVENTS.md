@@ -52,6 +52,10 @@ Mods subscribe with `DL_ON(EV_..., order, handler)` (`dl/mod.h`); firmware locat
 | `ev_inst_load` / `ev_inst_save` | `0x6007BDD0` / `0x6007C47C` (0.5) | `int f(void *songs, const char *path, int slot)` | take it to refuse |
 | `ev_param_set` | the instrument view's field-changed method, `0x60053B30` (0.5) | `void f(void *instview, int field, int old)` | |
 | `ev_step_edit` | the phrase view's cell-edited method, `0x6006025C` (0.5) | `void f(void *view, uint8_t *cell, int n, int column)` | not reached by bulk edits |
+| `ev_inst_clear` | the slot clear, `0x6007FF34` (0.5) | `int f(void *song, int slot, int full)` | the pool's delete; take it to keep the slot |
+| `ev_track_audio` | the track voice class's `update()` (RAM slot `0x20002348`) (0.5) | `void f(float *left, float *right, int track)` | audio thread; after the track renders, before its strip and sends: change the blocks in place |
+| `ev_fx_audio` | MFX, delay and reverb `update()` (RAM slots) (0.5) | `void f(int stage, float *left, float *right)` | audio thread; the effect's input before it runs (`FW_FX_*`; the delay is mono, `right` 0) |
+| `ev_render_params` | the sequencer clock's `update()` (RAM slot `0x20001E94`) (0.5) | `void f(void *engine)` | audio thread; first in each block |
 
 `itcm_mid` sites (core 0.5) sit inside a function, where registers, flags and s0-s15 are live. The stub keeps
 them all and returns through a stack slot. It takes the handler's arguments from any register (or a constant),

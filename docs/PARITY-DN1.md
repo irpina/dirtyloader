@@ -29,7 +29,7 @@ Status:
 | crash guard: armed for 10 s at a boot with mods; one safe boot after a crash | armed (`ARMD`) for 10 s. Either a boot that finds it armed or Teensyduino's crash record makes core load nothing (`SKIPPED` in the title) until RESTART on the page or `unit good` | done | `ARMD` → `GOOD` at 10 s; a crash → `SKIP` (twice, by accident) |
 | project mod lists, LOAD PROJECT MODS? on load | song mod lists (`<song>.mods`), LOAD SONG MODS? on load | done | save and load |
 | a skip key at power-on (TELOS: "not yet") | `python -m dirtyloader.unit safe`, since headless has no keys. It sends a marker over USB serial while the unit boots, and core listens for 350 ms once USB is up | done | the unit booted with `safe boot` in `status.txt` |
-| a check before switching on (TELOS: "not yet") | not built: as on TELOS, a refusal shows as `E<n>` after the restart | not built | |
+| a check before switching on (TELOS: "not yet") | when the MODS page switches a mod on, core reads the file and checks everything the boot would: header, size against the mods area, CRC, the `dl_mod` magic and ABI, the firmware. A refusal leaves it off and shows `E<n>!` | done | a corrupt upload showed `E5!` and stayed out of `active.txt` |
 
 ## core-dn1: the hook bus and the boot
 
@@ -54,7 +54,7 @@ Status:
 | `ev_project_saving` / `_saved`, the loads | `ev_song_save` / `ev_song_load` | done | |
 | `ev_pattern_request`, `ev_pattern_switch`, `ev_pattern_op` | the M8 has no patterns. Its song rows, chains and phrases are edited in place, with no pattern switch or pattern save. Phrase edits reach `ev_step_edit` | n/a | |
 | `ev_track_reload`, `ev_sound_load`, `ev_sound_op` (pool) | `ev_inst_load` / `ev_inst_save` (`.m8i` into or out of a slot). The M8's instrument pool has no copy/send/protect operations to hook | partly | 1 each, `/Instruments/1.m8i` |
-| `ev_sound_clear`, `core_pool_load`, `core_pool_count` | not built (the pool's clear and an API load) | not built | |
+| `ev_sound_clear`, `core_pool_load` | `ev_inst_clear(song, slot, full)` at the slot clear (the pool's delete); the API's `inst_load(path, slot)` / `inst_save(path, slot)` through the firmware's own load and save | done | pool delete → 1, slot emptied; the demo copied slot 00 into 01 through a file |
 | `ev_mute` | `ev_mute(mixer, track)` at the routine every mute and solo path applies through. It fires once per track, and the masks are at `fw_mute_mask` / `fw_solo_mask` | done | 8 per toggle |
 | `ev_trig_set`, `ev_step_note`, `ev_plock_store` / `_clear`, `ev_step_clear`, `ev_track_length` | `ev_step_edit(view, cell, n, column)`: the phrase view's cell-edited method. Bulk edits (clear, paste) may not reach it | partly | 1 per note entered |
 | `ev_param_set`, `ev_sound_live` | `ev_param_set(instview, field, old)`: an instrument field changed and its value went to the playing tracks | done | 1 per edit |
@@ -79,8 +79,9 @@ Status:
 | core-dn1 | M8 core 0.5 | status | checked |
 |---|---|---|---|
 | exclusive audio, insert audio (`core_audio`, 3.2-4.0) | `ev_audio_out(left, right, frames)`: the master output's two blocks (64 float frames, 44.1 kHz) before they go to USB and I2S. A handler processes them in place (insert) or writes them and takes the event (exclusive). Core wraps the tap's `update()` through its vtable, which lives in RAM | done | `examples/audio-tone`: 440.0 Hz recorded from the M8's USB audio |
-| `ev_render_voices` (3.1) | not built. The M8's per-track voices are Teensy Audio objects in the same engine; the hook would be their `update()` like the tap's | not built | |
-| `ev_render_params`, `ev_render_fx` | not built. The send effects are objects in the same graph | not built | |
+| `ev_render_voices` (3.1) | `ev_track_audio(left, right, track)`: each track's rendered block pair, after its voice renders and before its mixer strip and its three sends read it (both port pairs while it crossfades an instrument change). Core wraps the track voice class's `update()` | done | `examples/track-silence` zeroes track 1: the recorded output went from 6,530 RMS to silence |
+| `ev_render_params` (3.3) | `ev_render_params(engine)`: once per audio block, before the sequencer clock and the tracks run. The M8 has no single parameter-word stage (gains ramp inside each object), so this is the block's first moment, where a mod sets what the block will use | done | 2,497 in 3.6 s (one per block) |
+| `ev_render_fx` (5.0) | `ev_fx_audio(stage, left, right)`: each send effect's input (MFX, delay, reverb) just before it runs; a handler may change it. Unlike core-dn1's, taking it to replace the effect is not offered: the effect's own update must still run to release its blocks | partly | all three stages counted |
 | `ev_mod_apply` (designed for the M8 in [CORE-EVENTS.md](CORE-EVENTS.md)) | `ev_mod_apply(dest, modulator, target, engine)` at the destination switch of each engine. A handler may take it, which skips the stock destination | done | FM, HYPER, MACRO, SAMPLER, WAV, EXTERNAL: each counted |
 | `ev_fx_command`, `ev_fx_row` (the M8's own) | `ev_fx_row` (phrase FX applier), `ev_fx_command` (table FX executor) | done | 3 per row; per table tick |
 | the note queue (4.1), `ev_note_built` (5.1) | `ev_row`: the row (note, velocity, instrument, three FX) before it fires, which a handler may rewrite | done | |
@@ -96,13 +97,15 @@ Status:
 | firmware locations as exports (3.0, 3.3) | `m8-headless/fw.h`: SdFat, the UI, USB serial and MIDI, the song layout, mixer masks, the players, the audio engine, millis, the crash record | done | |
 | the C library and libgcc (3.3) | `memcpy`, `memmove`, `memset`, `memcmp` and `strlen` linked into each mod, plus `-lgcc` | done | test |
 
-## Not equivalent: the Digitone's knob pages
+## The Digitone's knob pages
 
-| core-dn1 | M8 | status |
-|---|---|---|
-| parameter slots, `core_param_override`, lane parameters, knobs on pages, LFO destination names (2.1-5.2) | The M8 has no knob pages: its parameters are fields edited with EDIT + arrows. A mod's own parameters go on its page. The M8 counterpart of adding LFO destinations is `core_mod_dests` (extend each engine's destination name list). `ev_mod_apply` gives the hook; the name list is not built | not built |
+| core-dn1 | M8 core 0.5 | status | checked |
+|---|---|---|---|
+| LFO destination names and groups (5.2), `core_param_override`'s names | `mod_dest_add(engine, name)`: a destination added to an engine's list, shown and picked in the instrument MODS page's DEST like a stock one, applied by the mod in `ev_mod_apply`. Core swaps the engine's two getters in its RAM vtable. A modulator keeps its destination in 4 bits, so each engine takes 16: one more for the 15-destination engines, two for SAMPLER and EXTERNAL | done | the demo's WAVSYNTH destination DEMO showed as `0F DEMO` and was applied 28,352 times in 1.5 s |
+| parameter slots, lane parameters, knobs on pages (2.1-5.1) | n/a as such: the M8 has no knob pages, and its parameters are fields a view edits with EDIT + arrows. A mod's own parameters go on its page (`page_add`), kept with the song (`song_data`), and stock fields are observed with `ev_param_set` | n/a | |
 
 ## Not this device
 
-The Model:02 build (6.6.2A, the `.bin` container) is a separate port of the same core. Its sites differ (it has
-a touch screen and no USB-only headless layout), so it gets its own bindings. Not built.
+The Model:02 build (6.6.2A, the `.bin` container) is a separate port of the same core: every site above has to
+be found again in that firmware (`port.py` matches code between the two). It is not built. Testing it needs a
+Model:02 unit, and this work was told to test on the spare Teensy only, not on the real M8.

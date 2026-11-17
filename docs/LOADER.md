@@ -98,6 +98,7 @@ its free view slot: one row per `.m8x` on the card, then APPLY & RESTART.
 | `OFF` | not loaded |
 | `-OFF` | running now; switched off from the next boot |
 | `E<n>` | listed in `active.txt`, but the boot refused it (load error n) |
+| `E<n>!` | not switched on: core 0.5 checks a mod when you switch it on (header, size, CRC, `dl_mod`, firmware) and refuses what the boot would |
 
 UP / DOWN move, EDIT switches the mod under the cursor (written to `active.txt` at once), RIGHT switches it on
 and LEFT off (as TELOS), EDIT on the last row restarts, OPT goes back to SYSTEM SETTINGS. The last row reads
@@ -136,6 +137,8 @@ checks it and returns 0 under an older core. Take it at `ev_boot`.
 | `midi_receive(packet)` | a USB MIDI packet played into the M8 as if from the host (ev_midi sees it first) | `core_midi_receive` |
 | `midi_send(packet)` | a USB MIDI packet to the host (ev_midi_out sees it) | `fw_sysex_send` |
 | `last_crash` | Teensyduino's crash record as the boot found it (`[0]` 0: none, `[6]` the pc) | `ev_crash` |
+| `inst_load(path, slot)`, `inst_save(path, slot)` (0.5) | an `.m8i` into a slot, or a slot to a file, through the firmware's own routines | `core_pool_load` |
+| `mod_dest_add(engine, name)` (0.5) | a modulation destination added to an engine's list (up to 16): pickable in DEST, applied in `ev_mod_apply` | LFO destination names |
 | `song` | the path of the song last loaded or saved | |
 
 `examples/core-api-demo` uses all of it: a page (song value, MIDI counts), a value kept with the song, a note
@@ -255,14 +258,15 @@ on each of FM, HYPER, MACRO, SAMPLER, WAV and EXTERNAL once MOD1 had a destinati
 `ev_step_edit` 1 per note entered, `ev_param_set` 1 per field edit, `ev_inst_save` / `ev_inst_load` 1 each,
 `ev_sysex` 1 per SysEx, `ev_card_ready` and `ev_usb` 1 at boot, `ev_audio_out` 691 a second.
 `examples/audio-tone` (exclusive audio) came out of the M8's USB audio as a 440.0 Hz sine at 0.2 of full scale,
-recorded on the PC (winmm).
+recorded on the PC (winmm). `examples/track-silence` (`ev_track_audio`) took a WAVSYNTH track's recorded output
+from 6,530 RMS to silence. `ev_fx_audio` counted all three send effects and `ev_render_params` one per block.
+The demo's added WAVSYNTH destination showed as `0F DEMO` in DEST and was applied 28,352 times in 1.5 s, and its
+LEFT copied instrument 00 into 01 through `/Instruments/api.m8i`; the pool's delete fired `ev_inst_clear`.
 
 Mods are compiled freestanding; `sdk/lib/dl_libc.c` (memcpy, memmove, memset, memcmp, strlen) and libgcc are
 linked into each, so a struct copy links. A mod's own definitions win.
 
 ## Next
 
-- A check before switching a mod on.
-- The rest of [PARITY-DN1.md](PARITY-DN1.md)'s "not built": per-voice and send-effect audio hooks, LFO
-  destination names (`core_mod_dests`), the instrument pool's clear.
+- The Model:02 port (its own bindings; needs a Model:02 unit to test).
 - The Model:02 build: its own bindings, and the `.bin` container instead of HEX.
