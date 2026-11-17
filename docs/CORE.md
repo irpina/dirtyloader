@@ -171,9 +171,14 @@ and TICK both run. TEMPO (`entry` site) has no visible handler yet and is not ex
 
 ## Core 0.3: mods from the SD card
 
-Core 0.3 adds a loader: mods are `.m8x` files on the SD card, uploaded over USB and loaded into free ITCM at
-boot, with a crash guard. Built and run on a headless Teensy 4.1. Everything about it is in
-[LOADER.md](LOADER.md).
+Core 0.3 is the M8's TELOS: mods are `.m8x` files on the SD card, uploaded over USB and loaded into free ITCM
+at boot, with a crash guard, a MODS page in SYSTEM SETTINGS, and per-song mod lists. Built and run on a
+headless Teensy 4.1. Everything about it is in [LOADER.md](LOADER.md); its events are in
+[CORE-EVENTS.md](CORE-EVENTS.md).
+
+Over core 0.2 it adds a RAM hook table in ITCM (the dispatcher switches to it when core sets its magic, `DLR3`,
+after loading), an `itcm_entry` site kind (ITCM sites reach their flash stubs through veneers at the top of
+ITCM), and the C loader `core03.c`, compiled with arm-none-eabi-gcc and placed past the image.
 
 ## ITCM hook sites need a different detour
 

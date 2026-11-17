@@ -77,17 +77,17 @@ class EventInfo:
 
 
 EVENTS = {
-    Event.BOOT: EventInfo("ev_boot", "ui", False, "void f(void)", "site pinned"),
-    Event.TICK: EventInfo("ev_tick", "ui", False, "void f(void)", "implemented"),
-    Event.DRAW: EventInfo("ev_draw", "ui", False, "void f(void *ui)", "site pinned"),
-    Event.RENDER_IN: EventInfo("ev_render_in", "audio", False, "void f(void)", "site pinned"),
-    Event.RENDER_OUT: EventInfo("ev_render_out", "audio", False, "void f(void)", "site pinned"),
-    Event.KEY: EventInfo("ev_key", "ui", True, "int f(void *ui, int action)", "site pinned"),
-    Event.VIEW: EventInfo("ev_view", "ui", True, "int f(void *ui, int view)", "site pinned"),
+    Event.BOOT: EventInfo("ev_boot", "ui", False, "void f(void)", "implemented (headless)"),
+    Event.TICK: EventInfo("ev_tick", "ui", False, "void f(void)", "implemented (Model:02, headless)"),
+    Event.DRAW: EventInfo("ev_draw", "ui", False, "void f(void *ui)", "implemented (headless)"),
+    Event.RENDER_IN: EventInfo("ev_render_in", "audio", False, "void f(void)", "implemented (headless)"),
+    Event.RENDER_OUT: EventInfo("ev_render_out", "audio", False, "void f(void)", "implemented (headless)"),
+    Event.KEY: EventInfo("ev_key", "ui", True, "int f(void *ui, int action)", "implemented (headless)"),
+    Event.VIEW: EventInfo("ev_view", "ui", True, "int f(void *ui, int view)", "implemented (headless)"),
     Event.TOUCH: EventInfo("ev_touch", "ui", True, "int f(struct m8_touch *t)", "site pinned"),
     Event.MIDI: EventInfo("ev_midi", "ui", True, "int f(const unsigned char *msg, int port)", "site pending"),
     Event.SETTINGS: EventInfo("ev_settings", "ui", False, "void f(void *menu)", "design only"),
-    Event.SERIAL: EventInfo("ev_serial", "ui", True, "int f(void *m8c)", "site pinned"),
+    Event.SERIAL: EventInfo("ev_serial", "ui", True, "int f(void *m8c)", "implemented (headless)"),
     Event.NOTE: EventInfo("ev_note", "audio", True, "int f(void *player, int instrument)", "implemented (headless)"),
     Event.FX_COMMAND: EventInfo("ev_fx_command", "audio", True, "int f(int track, int cmd, int value)",
                                 "site pinned"),
@@ -95,12 +95,12 @@ EVENTS = {
                             "site pinned"),
     Event.MOD_APPLY: EventInfo("ev_mod_apply", "audio", False,
                                "void f(int engine, void *voice, void *mod, int dest)", "site pinned"),
-    Event.TEMPO: EventInfo("ev_tempo", "ui", True, "int f(float bpm)", "site pinned"),
+    Event.TEMPO: EventInfo("ev_tempo", "ui", True, "int f(float bpm)", "implemented (headless)"),
     Event.TRANSPORT: EventInfo("ev_transport", "ui", True, "int f(int state)", "site pinned"),
     Event.PLAY: EventInfo("ev_play", "ui", True, "int f(void *seq, int mode)", "implemented (headless)"),
     Event.STOP: EventInfo("ev_stop", "ui", True, "int f(void)", "implemented (headless)"),
-    Event.SONG_LOAD: EventInfo("ev_song_load", "ui", False, "void f(void *songs, const char *path)", "site pinned"),
-    Event.SONG_SAVE: EventInfo("ev_song_save", "ui", False, "void f(void *songs, const char *path)", "site pinned"),
+    Event.SONG_LOAD: EventInfo("ev_song_load", "ui", False, "void f(void *songs, const char *path)", "implemented (headless)"),
+    Event.SONG_SAVE: EventInfo("ev_song_save", "ui", False, "void f(void *songs, const char *path)", "implemented (headless)"),
 }
 
 

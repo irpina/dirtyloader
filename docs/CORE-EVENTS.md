@@ -10,9 +10,37 @@ the Octatrack do on the Elektron side.
 
 Firmware: **6.6.2A Model:02**. Every site and location below is pinned to that build; the evidence for each is
 in [FIRMWARE-MAP.md](FIRMWARE-MAP.md) and [hooks/](hooks/). **Status:** on Model:02 6.6.2A only `ev_tick` is
-built (core 0.1). Core 0.2, with the argument-passing dispatcher, `order` and take semantics, is built for **M8
-Headless 6.6.4A** with `ev_boot`, `ev_tick` and `ev_tempo` ([CORE.md](CORE.md), "Core 0.2"). The rest is
-design. Nothing has run on hardware yet.
+built (core 0.1). **M8 Headless 6.6.4A** runs core 0.3, with the events in the next section, all counted on
+hardware by `examples/core-selftest` ([LOADER.md](LOADER.md)). The rest of this page is the Model:02 design.
+
+## Implemented: M8 Headless 6.6.4A (core 0.3)
+
+Mods subscribe with `DL_ON(EV_..., order, handler)` (`dl/mod.h`); firmware locations are in
+`m8-headless/fw.h`.
+
+| event | site | C prototype | notes |
+|---|---|---|---|
+| `ev_boot` | after `setup()` (`0x600A28FA`) | `void f(void)` | mods' `.bss` is zeroed already |
+| `ev_tick` | before `loop()` (`0x600A28FE`) | `void f(void)` | about 380k a second |
+| `ev_draw` | before the frame is pushed (`0x6007FAB8`) | `void f(void *ui)` | about 380k a second |
+| `ev_key` | before the input router (`0x6007FBA0`) | `int f(void *ui, int action)` | `action` is the key chord (`FW_KEY_*`); take it to hide it from the screen |
+| `ev_view` | `set_view` entry (`0x6004A96C`) | `int f(void *ui, int view)` | take it to stay on the current screen |
+| `ev_serial` | m8c parser entry (`0x6007846C`) | `int f(void *m8c)` | core takes it for transfer requests (`0xD1`) |
+| `ev_tempo` | tempo setter entry (`0x60090978`) | `int f(float bpm)` | |
+| `ev_play` | sequencer start (`0x60090618`) | `int f(void *seq, int mode)` | `seq` is `0x2000BE80`, its play flag at `+0x3B8`; take it to refuse |
+| `ev_stop` | sequencer stop (`0x600907A4`) | `int f(void)` | take it to refuse |
+| `ev_song_load` | song load entry (`0x60062154`) | `void f(void *songs, const char *path)` | before the file is read |
+| `ev_song_save` | song save entry (`0x6007AFC0`) | `void f(void *songs, const char *path)` | before the file is written |
+| `ev_note` | ITCM note-on (run `0x22BDC`) | `int f(void *player, int instrument)` | audio thread; once per note; players are `0x2001ADF0 + 0x248 × track`; take it to drop the note |
+| `ev_render_in` | audio interrupt entry (IRQ 70 vector) | `void f(void)` | audio thread, about 740 a second |
+| `ev_render_out` | audio interrupt exit | `void f(void)` | audio thread |
+
+`ev_note` is the first ITCM site: the patched instruction branches through a veneer in ITCM (`ldr.w pc,
+[pc]`, 8 bytes at `0x2FF80..`) to its flash stub, which returns to ITCM with `movw`/`movt ip` and `bx ip`. The
+render events need no code site: core wraps the audio interrupt's entry in the RAM vector table at boot.
+
+Mods' code runs from ITCM, so audio handlers are fast without a `.itcm` section; the Model:02 notes below
+about copying `.itcm` apply to built-in (linked) mods only.
 
 ## Conventions
 
@@ -48,6 +76,7 @@ design. Nothing has run on hardware yet.
 | `ev_midi` | each MIDI message in | `int f(const unsigned char *msg, int port)` | return nonzero to take it | site pending |
 | `ev_settings` | the SYSTEM SETTINGS screen is built | `void f(void *menu)` | the M8's settings screen is a view, not a menu: needs its row model first | design only |
 | `ev_serial` | the m8c serial parser runs (headless `0x6007846C` entry) | `int f(void *m8c)` | nonzero takes the call: the parser does not run. Core 0.3 uses it for mod uploads (requests start with `0xD1`, [LOADER.md](LOADER.md)) | implemented (headless) |
+| `ev_song_load`, `ev_song_save` | a song file is loaded or saved | `void f(void *songs, const char *path)` | TELOS's project events; core 0.3 keeps each song's mod list with them | implemented (headless) |
 
 There is no `ev_enc`: the M8 has no encoders. Its continuous control is the touch screen (`ev_touch`).
 
@@ -61,7 +90,7 @@ There is no `ev_enc`: the M8 has no encoders. Its continuous control is the touc
 | `ev_fx_command` | an FX command runs on a track (the per-tick executor); audio thread | `int f(int track, int cmd, int value)` | `cmd` `0x00..0x4D` are the global commands, `0x80 \| n` an instrument's. Return nonzero to take it: the stock executor does not run it — the way a mod adds a command or changes one | site pinned (argument mapping to confirm) |
 | `ev_fx_row` | a row's FX column is applied at row fire; audio thread | `int f(int track, int column, int cmd, int value)` | `column` 0–2; take it to replace that column's stock effect | site pinned |
 | `ev_tempo` | the tempo is set; UI thread | `int f(float bpm)` | `bpm` in s0. Return nonzero to refuse the change | site pinned |
-| `ev_transport` | play, pause or stop; UI thread | `int f(int state)` | `state` 1 play, 0 pause, −1 stop. Return nonzero to refuse it | site pinned |
+| `ev_transport` | play, pause or stop; UI thread | `int f(int state)` | `state` 1 play, 0 pause, −1 stop. Return nonzero to refuse it. Headless has it as two events, `ev_play` and `ev_stop` | site pinned |
 | `ev_mod_apply` | a modulator targets a destination past the engine's stock list; audio thread | `void f(int engine, void *voice, void *mod, int dest)` | the default branch of each engine's `switch(dest)` ([hooks/static-m8-params.md](hooks/static-m8-params.md)); with `core_mod_dests` this is how mods add LFO destinations | site pinned (all 6 audio engines; SAMPLER has two copies) |
 
 ## Core's tables
@@ -139,7 +168,8 @@ The audio-thread stubs and their dispatcher copy live in ITCM; the UI ones in th
 |---|---|---|
 | `ev_tick`, `ev_draw`, `ev_key`, `ev_render_in`, `ev_render_out`, `ev_settings` | same names | shared |
 | `ev_enc` | — | no encoders; continuous input is `ev_touch` |
-| `ev_voice_on` (Digitone) | `ev_note` | a row fires; the M8 has no per-voice event |
+| `ev_voice_on` (Digitone) | `ev_note` | a note starts on a track; the M8 has no per-voice event |
+| TELOS project mod lists (Digitone) | `ev_song_load` / `ev_song_save` | the M8's unit of work is the song |
 | `ev_midi_cc` (Digitone), `ev_midi` (Octatrack) | `ev_midi` | site pending |
 | `ev_hold` (Digitone) | — | the M8 has no Mod Menu yet; `core_views` is its screen hook |
 | `core_machines` | `core_mod_dests`, `core_views` | the M8's extension tables |

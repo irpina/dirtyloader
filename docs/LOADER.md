@@ -4,8 +4,17 @@ Core 0.3 is dirtyloader's answer to Elekloader's TELOS: the firmware is patched 
 are files on the M8's SD card. You put them there over USB, switch them on or off, and the next boot loads
 them. No more rebuilding and reflashing the firmware for every change of mods.
 
-First build: **M8 Headless 6.6.4A** on a Teensy 4.1. It has run on hardware: a mod uploaded over USB,
-loaded at boot, and the M8 ran normally with it.
+First build: **M8 Headless 6.6.4A** on a Teensy 4.1. Everything below has run on hardware (a spare Teensy 4.1
+with an SD card): upload over USB, loading at boot, the MODS page, per-song mod lists, the crash guard, and
+every implemented event, counted by `examples/core-selftest`.
+
+| TELOS (Digitone mk1) | core 0.3 (M8 headless) |
+|---|---|
+| mods are files on the +Drive, loaded at boot | `.m8x` files on the SD card, loaded into free ITCM at boot |
+| transfer over USB (SysEx) | transfer over the m8c USB serial port (`ev_serial`) |
+| Mod Menu: list, on/off | SYSTEM SETTINGS > MODS (TELOS): list, on/off, apply and restart |
+| projects remember their mods | songs remember their mods (`<song>.mods`); LOAD SONG MODS? on load |
+| crash guard: skip mods after a crash | the same, from Teensyduino's crash record |
 
 ## What is where
 
@@ -13,24 +22,28 @@ loaded at boot, and the M8 ran normally with it.
 |---|---|---|
 | hook bus | flash `0x60000200` | core 0.2's dispatcher, table and site stubs (layout 3) |
 | loader | flash `0x601E0000` | `core03.c`, compiled with arm-none-eabi-gcc, in free flash past the image (`0x601DD400`) |
-| core state | ITCM `0x29B40` | magic, hook table (64), loaded mods; ITCM is MPU read-only until `core_early` opens it |
-| mods | ITCM `0x29D98..0x2FA00` | 23,656 bytes; mods run from ITCM, so they are fast and safe on the audio thread |
-| scratch | ITCM `0x2FA00..0x30000` | status text and `active.txt` at boot, USB requests after |
-| files | SD `/dirtyloader/` | `mods/*.m8x`, `active.txt`, `guard`, `status.txt` |
+| core state | ITCM `0x29B40` | magic, hook table (64), loaded mods, the MODS page, song-list state; ITCM is MPU read-only until `core_early` opens it |
+| mods | ITCM `0x2A428..0x2F980` | 21,848 bytes; mods run from ITCM, so they are fast and safe on the audio thread |
+| scratch | ITCM `0x2F980..0x2FF80` | status text (1 KB) and a list buffer (512 B): `active.txt`, song lists, USB requests |
+| veneers | ITCM `0x2FF80..0x30000` | up to 16 long branches from ITCM hook sites to their flash stubs |
+| files | SD `/dirtyloader/` | `mods/*.m8x`, `active.txt`, `guard`, `status.txt`; each saved song gets a `<song>.mods` beside it |
 
 The ITCM tail is free because the firmware's ITCM code ends at `0x29B40` and the FlexRAM gives ITCM six
 banks (192 KB). The firmware never touches it (checked on hardware by filling it before `setup()`).
 
 ## Boot
 
-1. `core_early`, first in `main()`: make ITCM writable (MPU region 1, RASR AP bits), retire the old table.
+1. `core_early`, first in `main()`: make ITCM writable (MPU region 1, RASR AP bits), write the ITCM veneers,
+   retire the old table.
 2. `core_load`, inside `setup()` at its call to `0x6008FDA8`: the card is mounted, and the firmware has not
    used it yet (no autosave, no samples, no audio). Core reads `guard` and `active.txt`, loads each listed
    `.m8x` into ITCM, relocates it, zeroes its `.bss`, adds its hooks in `order`, and writes `status.txt`.
-3. `core_boot`, after `setup()`: set the magic, so the dispatcher uses the new table, then `ev_boot` runs,
-   loaded mods included.
+3. `core_boot`, after `setup()`: put the MODS page in the free view slot (7), wrap the audio interrupt's
+   vector for `ev_render_in` / `ev_render_out`, and set the magic so the dispatcher uses the new table; then
+   `ev_boot` runs, loaded mods included.
 
-All of core's SD access happens in step 2 or in answer to a USB request; the firmware has no file open then.
+Core uses the card in step 2, in answer to a USB request, from the MODS page, and after a song save or load
+(below); never while the firmware has a file open.
 
 `status.txt` after a boot with the heartbeat mod:
 
@@ -50,7 +63,42 @@ the record and ITCM survive that reset (not a power cycle). The next `core_load`
 mods, writes `SKIP` to `guard`, loads nothing, and says so in `status.txt` with the crash pc. Nothing loads
 while `guard` says `SKIP`; `python -m dirtyloader.unit good` (or any change of mods) writes `GOOD`.
 
+The MODS page shows `SKIPPED: A CRASH` in its title while the guard is set; its RESTART row writes `GOOD`
+and restarts, so the set gets another try.
+
 Not covered yet: a mod that hangs without faulting. Power-cycle and switch it off over USB.
+
+## The MODS page
+
+SYSTEM SETTINGS gets a row, **MODS (TELOS) OPEN** (core patches the settings screen's text and colour
+templates, using a copy past the image). EDIT on it opens the MODS page, a screen of the firmware's own kind in
+its free view slot: one row per `.m8x` on the card, then APPLY & RESTART.
+
+| state | meaning |
+|---|---|
+| `ON` | loaded and running |
+| `+ON` | switched on; loads at the next boot |
+| `OFF` | not loaded |
+| `-OFF` | running now; switched off from the next boot |
+| `E<n>` | listed in `active.txt`, but the boot refused it (load error n) |
+
+UP / DOWN move, EDIT switches the mod under the cursor (written to `active.txt` at once), EDIT on the last row
+restarts, OPT goes back to SYSTEM SETTINGS. The last row reads RESTART when nothing has changed.
+
+## Songs keep their mods
+
+TELOS projects remember their mods; on the M8 it is songs. Core subscribes to two events at the firmware's song
+routines:
+
+- **`ev_song_save`**: after a save, core writes `<song path>.mods`, the mods running then, one per line as
+  `file id version` under a `#` comment.
+- **`ev_song_load`**: after a load (not the AUTOSAVE load during boot), core reads the song's `.mods`. If it
+  names a different set from the one running, the MODS page opens as **LOAD SONG MODS?**, with rows marked `+`
+  (the song wants it, not running), `-` (running, the song does not want it) or `?` (the song names a file that
+  is not on the card). YES writes the song's set to `active.txt` and restarts; NO keeps the running set.
+
+The firmware keeps the card busy for a while after its save or load routine is entered, so core does this from
+`ev_tick`, 300 ms later, retrying up to ten times.
 
 ## The .m8x format
 
@@ -93,15 +141,17 @@ data, alongside any display frames.
 | cmd | payload | reply data |
 |---|---|---|
 | 1 INFO | | text: core, firmware, card, mods area, loaded ids |
-| 2 LIST | dir under `/dirtyloader` | names, one per line |
+| 2 LIST | directory | names, one per line |
 | 3 PUT | offset u32, name len u8, name, data (≤ 1 KB) | bytes written u32; offset 0 creates or truncates |
 | 4 CHECK | name | size u32, crc32 u32 |
 | 5 GET | offset u32, max u16 (≤ 512), name len u8, name | data |
 | 6 MKDIRS | | creates `/dirtyloader/mods` |
 | 7 RESTART | | (reply, then reset) |
+| 8 PEEK | address u32, count u16 (≤ 512) | memory, for development. Nothing guards the read: stay in RAM, and away from address 0 and the stack guard at `0x200415E0`, which fault |
 
 Status: 0 ok, 1 bad request, 2 checksum, 3 bad path or no file, 4 SD error, 5 no card, 6 timeout, 7 unknown.
-Names are relative to `/dirtyloader/`, `[A-Za-z0-9._-/]`, no `..`, under 64 bytes.
+Names are `[A-Za-z0-9._-/]`, no `..`, under 64 bytes. PUT writes only under `/dirtyloader/` (names are
+relative to it); LIST, CHECK and GET also take an absolute path (`/Songs/x.m8s.mods`).
 
 The host side is `dirtyloader.unit` (Python, no dependencies; `dirtyloader.serialport` opens the port):
 
@@ -123,11 +173,22 @@ Close m8c first; the port can only be open once. A web shop can speak the same p
 - Check the firmware's mounted flag (`fw_storage + 4`) before any SdFat call, as the firmware does.
 - The M8 screen can be read without m8c: send `E`, then decode the SLIP frames; `0xFD` frames are characters
   (char, x u16, y u16, colours). Keys go in as `C` plus a bitmask (LEFT 80, UP 40, DOWN 20, SHIFT 10, PLAY 08,
-  RIGHT 04, OPT 02, EDIT 01).
+  RIGHT 04, OPT 02, EDIT 01). `python -m dirtyloader.m8screen` does both and writes a PNG.
+- Reading address 0 (the NULL trap) or the stack guard (`0x200415E0`) faults the unit; the first such PEEK
+  tested the crash guard by accident.
+- Teensyduino's crash record in this build has a length of 11 words, not 44; core accepts both.
+- The settings screen's enter code reaches its templates through a literal that points at the colour template
+  (`0x60074018`), not the text one; core patches all three literals.
+
+## Testing on hardware
+
+`examples/core-selftest` subscribes to every implemented event and counts each call into `selftest_counts`;
+PEEK reads the counters (the load address is in `status.txt`, the offset in the build's symbols). On the spare
+Teensy: boot 1; tick and draw about 380k a second; render in and out about 740 a second each; one note per
+played note; play and stop once per PLAY press; key, view, tempo, song load and save, and serial as used.
 
 ## Next
 
-- A MODS page in SYSTEM SETTINGS: list, on/off, apply and restart.
-- Per-song mod lists: a file next to the song, and a prompt on load when its mods differ.
 - Delete over USB (needs SdFat's remove), and a skip key at boot for mods that hang.
+- `ev_midi`, and a core API for mods (their own pages through `core_views`, restart).
 - The Model:02 build: its own bindings, and the `.bin` container instead of HEX.
