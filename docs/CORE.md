@@ -176,7 +176,11 @@ at boot, with a crash guard, a MODS page in SYSTEM SETTINGS, and per-song mod li
 headless Teensy 4.1. Everything about it is in [LOADER.md](LOADER.md); its events are in
 [CORE-EVENTS.md](CORE-EVENTS.md).
 
-Over core 0.2 it adds a RAM hook table in ITCM (the dispatcher switches to it when core sets its magic, `DLR3`,
+Core 0.4 adds the API for mods (`dl/core.h`: pages, song data, files, MIDI, restart), `ev_midi` and
+`ev_midi_out`, delete over USB and a hang guard; [PARITY-DN1.md](PARITY-DN1.md) compares it with Elekloader's
+Digitone mk1 core.
+
+Over core 0.2, core 0.3 adds a RAM hook table in ITCM (the dispatcher switches to it when core sets its magic, `DLR3`,
 after loading), an `itcm_entry` site kind (ITCM sites reach their flash stubs through veneers at the top of
 ITCM), and the C loader `core03.c`, compiled with arm-none-eabi-gcc and placed past the image.
 

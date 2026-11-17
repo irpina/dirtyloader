@@ -11,7 +11,9 @@ the Octatrack do on the Elektron side.
 Firmware: **6.6.2A Model:02**. Every site and location below is pinned to that build; the evidence for each is
 in [FIRMWARE-MAP.md](FIRMWARE-MAP.md) and [hooks/](hooks/). **Status:** on Model:02 6.6.2A only `ev_tick` is
 built (core 0.1). **M8 Headless 6.6.4A** runs core 0.3, with the events in the next section, all counted on
-hardware by `examples/core-selftest` ([LOADER.md](LOADER.md)). The rest of this page is the Model:02 design.
+hardware by `examples/core-selftest` ([LOADER.md](LOADER.md)); core 0.4 adds the API mods call
+(`dl/core.h`). [PARITY-DN1.md](PARITY-DN1.md) sets all of it against Elekloader's Digitone mk1 core. The rest of
+this page is the Model:02 design.
 
 ## Implemented: M8 Headless 6.6.4A (core 0.3)
 
@@ -29,6 +31,8 @@ Mods subscribe with `DL_ON(EV_..., order, handler)` (`dl/mod.h`); firmware locat
 | `ev_tempo` | tempo setter entry (`0x60090978`) | `int f(float bpm)` | |
 | `ev_play` | sequencer start (`0x60090618`) | `int f(void *seq, int mode)` | `seq` is `0x2000BE80`, its play flag at `+0x3B8`; take it to refuse |
 | `ev_stop` | sequencer stop (`0x600907A4`) | `int f(void)` | take it to refuse |
+| `ev_midi` | `usb_midi_read`'s read (`0x600A376A`, core's C) | `int f(uint32_t packet)` | each USB MIDI packet in (and those mods play in); take it to drop it |
+| `ev_midi_out` | `usb_midi_write_packed` entry (`0x600A3238`) | `int f(uint32_t packet)` | each USB MIDI packet out; take it to drop it |
 | `ev_song_load` | song load entry (`0x60062154`) | `void f(void *songs, const char *path)` | before the file is read |
 | `ev_song_save` | song save entry (`0x6007AFC0`) | `void f(void *songs, const char *path)` | before the file is written |
 | `ev_note` | ITCM note-on (run `0x22BDC`) | `int f(void *player, int instrument)` | audio thread; once per note; players are `0x2001ADF0 + 0x248 × track`; take it to drop the note |
@@ -73,7 +77,7 @@ about copying `.itcm` apply to built-in (linked) mods only.
 | `ev_key` | each input action, before the current view handles it; UI thread | `int f(void *ui, int action)` | `action` is the M8's input-action code (each view's `+0x08` handler switches on it; `0xE4` is a global action). Return nonzero to take it | site pinned |
 | `ev_render_in` | audio block entry, before any node renders; audio thread | `void f(void)` | interrupt level | site pinned |
 | `ev_render_out` | audio block exit, after every node; audio thread | `void f(void)` | interrupt level | site pinned |
-| `ev_midi` | each MIDI message in | `int f(const unsigned char *msg, int port)` | return nonzero to take it | site pending |
+| `ev_midi` | each MIDI message in | `int f(const unsigned char *msg, int port)` | return nonzero to take it. Headless: `int f(uint32_t packet)`, a USB MIDI packet, with `ev_midi_out` for what goes out | implemented (headless) |
 | `ev_settings` | the SYSTEM SETTINGS screen is built | `void f(void *menu)` | the M8's settings screen is a view, not a menu: needs its row model first | design only |
 | `ev_serial` | the m8c serial parser runs (headless `0x6007846C` entry) | `int f(void *m8c)` | nonzero takes the call: the parser does not run. Core 0.3 uses it for mod uploads (requests start with `0xD1`, [LOADER.md](LOADER.md)) | implemented (headless) |
 | `ev_song_load`, `ev_song_save` | a song file is loaded or saved | `void f(void *songs, const char *path)` | TELOS's project events; core 0.3 keeps each song's mod list with them | implemented (headless) |
@@ -170,7 +174,7 @@ The audio-thread stubs and their dispatcher copy live in ITCM; the UI ones in th
 | `ev_enc` | — | no encoders; continuous input is `ev_touch` |
 | `ev_voice_on` (Digitone) | `ev_note` | a note starts on a track; the M8 has no per-voice event |
 | TELOS project mod lists (Digitone) | `ev_song_load` / `ev_song_save` | the M8's unit of work is the song |
-| `ev_midi_cc` (Digitone), `ev_midi` (Octatrack) | `ev_midi` | site pending |
+| `ev_midi_cc` (Digitone), `ev_midi` (Octatrack) | `ev_midi`, `ev_midi_out` | headless: USB MIDI packets |
 | `ev_hold` (Digitone) | — | the M8 has no Mod Menu yet; `core_views` is its screen hook |
 | `core_machines` | `core_mod_dests`, `core_views` | the M8's extension tables |
 | `fw_*` (core 3.0) | `fw_*` | same idea |
