@@ -50,6 +50,7 @@ class Event(IntEnum):
     TOUCH = 0x0042       # a touch frame, before the stock touch engine
     MIDI = 0x0043        # a MIDI message in (site pending)
     SETTINGS = 0x0044    # the settings screen is built (design only)
+    SERIAL = 0x0045      # the m8c serial parser is about to read the USB serial input (headless)
     NOTE = 0x0050        # a row fires on a track (audio thread)
     FX_COMMAND = 0x0051  # an FX command runs (per-tick executor, audio thread)
     FX_ROW = 0x0052      # a row's FX column is applied at row fire (audio thread)
@@ -82,6 +83,7 @@ EVENTS = {
     Event.TOUCH: EventInfo("ev_touch", "ui", True, "int f(struct m8_touch *t)", "site pinned"),
     Event.MIDI: EventInfo("ev_midi", "ui", True, "int f(const unsigned char *msg, int port)", "site pending"),
     Event.SETTINGS: EventInfo("ev_settings", "ui", False, "void f(void *menu)", "design only"),
+    Event.SERIAL: EventInfo("ev_serial", "ui", True, "int f(void *m8c)", "site pinned"),
     Event.NOTE: EventInfo("ev_note", "audio", True, "int f(int track, const unsigned char *step)", "site pinned"),
     Event.FX_COMMAND: EventInfo("ev_fx_command", "audio", True, "int f(int track, int cmd, int value)",
                                 "site pinned"),

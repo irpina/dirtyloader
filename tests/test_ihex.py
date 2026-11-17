@@ -31,6 +31,21 @@ class TestIHex(unittest.TestCase):
         img = ihex.read(STOCK)
         self.assertEqual(ihex.write(img).split(), STOCK.split())
 
+    def test_ff_bytes_in_new_code_are_written(self):
+        """0xFF inside code a mod placed must be in the file: flash the bootloader did not erase keeps old bytes
+        (hardware, core 0.3: a `bl` encoded FF F7 .. lost its first byte)."""
+        img = ihex.read(STOCK)
+        data = bytearray(img.data)
+        code = bytes.fromhex("7047fff7e2bf")
+        data[0x22:0x28] = code                                     # in the gap the stock file skips
+        tail = bytes.fromhex("fff7e2bf7047")                       # past the stock end, starting with 0xFF
+        again = ihex.read(ihex.write(img, bytes(data) + bytes.fromhex("ff" * 8) + tail,
+                                     cover=[(0x60000058, len(tail))]))
+        self.assertEqual(bytes(again.data[0x22:0x28]), code)
+        self.assertEqual(bytes(again.data[0x58:0x5E]), tail)
+        self.assertEqual(again.covered[0x24], 1)                  # the 0xFF byte is in a record
+        self.assertEqual(again.covered[0x58], 1)
+
     def test_patch_in_gap_is_written(self):
         img = ihex.read(STOCK)
         data = bytearray(img.data)

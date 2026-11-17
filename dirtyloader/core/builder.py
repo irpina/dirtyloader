@@ -26,6 +26,7 @@ it; only this builder requires it.
 """
 from __future__ import annotations
 
+import os
 import struct
 from dataclasses import dataclass
 from typing import Tuple
@@ -183,7 +184,26 @@ TAKE = 0x10000
 KINDS02 = ("call_pre", "call_post", "entry")
 
 
-def _dispatch02_asm(table: int, slots: int) -> str:
+RAM_MAGIC = 0x33524C44          # "DLR3": core 0.3's table in ITCM is live (core03.c sets it after loading)
+
+
+def _dispatch02_asm(table: int, slots: int, ram: int = 0) -> str:
+    """With `ram` (core 0.3), the dispatcher walks the table core03.c builds in ITCM once its magic is set,
+    and the flash table until then."""
+    pick = f"""
+        movw  r9, #{ram & 0xFFFF}
+        movt  r9, #{ram >> 16}
+        ldr   r10, [r9]
+        movw  r0, #{RAM_MAGIC & 0xFFFF}
+        movt  r0, #{RAM_MAGIC >> 16}
+        cmp   r10, r0
+        bne   d_flash
+        ldr   r10, [r9, #4]
+        add.w r9, r9, #8
+        cmp   r10, #0
+        beq   d_none
+        b     d_loop
+    d_flash:""" if ram else ""
     return f"""
         push.w {{r3, r4, r5, r6, r7, r8, r9, r10, r11, lr}}
         mov   r8, ip
@@ -191,7 +211,7 @@ def _dispatch02_asm(table: int, slots: int) -> str:
         mov   r5, r1
         mov   r6, r2
         mov   r7, r3
-        vmov  r11, s0
+        vmov  r11, s0{pick}
         movw  r9, #{table & 0xFFFF}
         movt  r9, #{table >> 16}
         mov.w r10, #{slots}
@@ -220,6 +240,7 @@ def _dispatch02_asm(table: int, slots: int) -> str:
         add.w r9, r9, #{abi.HOOK_ENTRY_SIZE}
         subs  r10, #1
         bne   d_loop
+    d_none:
         movs  r0, #0
     d_done:
         vmov  s0, r11
@@ -294,8 +315,11 @@ class Core02:
     dispatch: int
 
 
-def build_core02(fw: M8Firmware, bindings: dict) -> Core02:
-    """Assemble core 0.2 for one firmware from its bindings' "core" sites."""
+def build_core02(fw: M8Firmware, bindings: dict, ram: int = 0, early: int = 0, boot: int = 0,
+                 layout: int = 2, calls_before: dict = None) -> Core02:
+    """Assemble core 0.2 for one firmware from its bindings' "core" sites. core 0.3 passes the address of its
+    ITCM table (`ram`) and of core03.c's `early` (before setup) and `boot` (after setup, before ev_boot). `calls_before`
+    maps the address of a `bl` to a function to call first (core 0.3's loader, inside setup())."""
     from dirtyloader.core.abi import EVENTS, by_name
     code = bytearray()
     pc = CODE
@@ -311,7 +335,7 @@ def build_core02(fw: M8Firmware, bindings: dict) -> Core02:
             pc += 2
         return at
 
-    dispatch = emit(_dispatch02_asm(TABLE, abi.MAX_HOOKS))
+    dispatch = emit(_dispatch02_asm(TABLE, abi.MAX_HOOKS, ram))
     sites, stubs = [], {}
     for name, s in bindings["core"].items():
         ev = by_name(name)
@@ -343,9 +367,13 @@ def build_core02(fw: M8Firmware, bindings: dict) -> Core02:
             target = _decode_bl(fw, at)
             if "target" in s and int(s["target"], 16) != target:
                 raise RuntimeError(f"{name}: bl at 0x{at:08X} calls 0x{target:08X}, bindings say {s['target']}")
+            pre = f"bl #{early}" if early and ev == by_name("BOOT") else ""
+            post = f"bl #{boot}" if boot and ev == by_name("BOOT") else ""
             stub = emit(f"""
                 push {{r4, lr}}
+                {pre}
                 bl   #{target}
+                {post}
                 {_set_ip(word)}
                 bl   #{dispatch}
                 pop  {{r4, pc}}
@@ -376,8 +404,18 @@ def build_core02(fw: M8Firmware, bindings: dict) -> Core02:
         stubs[ev.name] = stub
         sites.append((at, new, f"{ev.name} ({kind}) -> stub 0x{stub:08X}"))
 
+    for at, fn in (calls_before or {}).items():
+        target = _decode_bl(fw, at)
+        stub = emit(f"""
+            push {{r0, r1, r2, r3, r4, lr}}
+            bl   #{fn}
+            pop  {{r0, r1, r2, r3, r4, lr}}
+            b.w  #{target}
+        """)
+        sites.append((at, _asm(f"bl #{stub}", at), f"loader call before 0x{target:08X} -> stub 0x{stub:08X}"))
+
     blob = bytearray(abi.CORE_MAGIC)
-    blob += struct.pack("<HH", 2, abi.MAX_HOOKS)                   # +0x08 core layout 2, slots
+    blob += struct.pack("<HH", layout, abi.MAX_HOOKS)              # +0x08 core layout (2, 3), slots
     blob += struct.pack("<I", dispatch | 1)                        # +0x0C the dispatcher (Thumb)
     blob += bytes(abi.MAX_HOOKS * abi.HOOK_ENTRY_SIZE)             # empty table: the linker fills it in order
     blob += code
@@ -451,3 +489,57 @@ def build_asm_mod(fw: M8Firmware, stock_sha256: str, mod_id: str, title: str, ca
         requires=["core"], core=core, subscribe=subs,
         sites=[Site.from_bytes(cave, stock, bytes(code), "code", f"{mod_id} handlers")],
     )
+
+
+# ================================================================ core 0.3
+# core 0.2's hook bus plus the SD-card loader in dirtyloader/core/c/core03.c (docs/LOADER.md). The C is
+# compiled with arm-none-eabi-gcc (dirtyloader.cc) and placed in free flash past the stock image; its state
+# and the mods it loads live in the free ITCM tail. Bound per firmware by the bindings' "loader" block.
+CORE03_VERSION = "0.3.0"
+CORE03_SOURCE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "c", "core03.c")
+
+
+def build_core03_mod(fw: M8Firmware, stock_sha256: str, bindings: dict) -> Mod:
+    """core 0.3 for one firmware. Its loader lies past the stock image; dirtyloader.linker pads a headless
+    image to fit."""
+    stock = fw
+    from dirtyloader import cc
+    ld = bindings["loader"]
+    c_at, ram, ram_end = (int(ld[k], 16) for k in ("c_at", "ram", "ram_end"))
+    defines = {"CORE_FW_H": '"%s"' % ld["fw_header"], "CORE_RAM": f"0x{ram:08X}u",
+               "CORE_RAM_END": f"0x{ram_end:08X}u", "CORE_FLASH_TABLE": f"0x{TABLE:08X}u",
+               "CORE_FLASH_SLOTS": str(abi.MAX_HOOKS)}
+    entries = ["core_early", "core_load", "core_boot", "core_serial"]
+    c_img, syms = cc.build_fixed([CORE03_SOURCE], c_at, entries, defines)
+    if c_at < fw.load_addr + len(fw.payload):
+        raise RuntimeError(f"loader address 0x{c_at:08X} is inside the stock image")
+    # past the image the flash is erased (0xFF): that is what the loader's site hash-checks against
+    fw = M8Firmware(version=fw.version, load_addr=fw.load_addr,
+                    payload=bytearray(fw.payload) + b"\xff" * (c_at + len(c_img) - fw.load_addr - len(fw.payload)))
+    load_at = int(ld["load_at"], 16)
+    img = build_core02(fw, bindings, ram=ram, early=syms["core_early"], boot=syms["core_boot"], layout=3,
+                       calls_before={load_at: syms["core_load"]})
+    region_off = fw.addr_to_offset(REGION)
+    stock_region = bytes(fw.payload[region_off:region_off + len(img.blob)])
+    if set(stock_region) - {0xFF}:
+        raise RuntimeError("the core cave is not empty (0xFF) in this firmware")
+    sites = [Site.from_bytes(REGION, stock_region, img.blob, "code", "core 0.3: magic, hook table, dispatcher, stubs")]
+    for at, new, note in img.sites:
+        o = fw.addr_to_offset(at)
+        sites.append(Site.from_bytes(at, bytes(fw.payload[o:o + len(new)]), new, "code", note))
+    o = fw.addr_to_offset(c_at)
+    sites.append(Site.from_bytes(c_at, bytes(fw.payload[o:o + len(c_img)]), c_img, "code",
+                                 f"core 0.3 loader ({len(c_img)} B, core03.c)"))
+    events = list(img.stubs)
+    mod = Mod(
+        id="core", version=CORE03_VERSION, title="dirtyloader core", author="dirtyloader", category="Core",
+        license="GPL-2.0-or-later",
+        description=("The hook bus (" + ", ".join(events) + ") and the SD-card loader: during setup() it loads "
+                     "the mods listed in /dirtyloader/active.txt into free ITCM, with a crash guard; with a SERIAL site "
+                     "it also takes mod uploads over USB (dirtyloader.unit)."),
+        target=make_target(stock, stock_sha256, bindings.get("firmware", "")), events=events, sites=sites,
+        subscribe=([{"event": "SERIAL", "handler": syms["core_serial"] | 1, "order": 0}]
+                   if "SERIAL" in events else []),
+        resources={"names": ["core:hook-table", "core:region", "core:loader", "core:itcm-tail"]},
+    )
+    return mod

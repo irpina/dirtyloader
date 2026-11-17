@@ -47,6 +47,7 @@ design. Nothing has run on hardware yet.
 | `ev_render_out` | audio block exit, after every node; audio thread | `void f(void)` | interrupt level | site pinned |
 | `ev_midi` | each MIDI message in | `int f(const unsigned char *msg, int port)` | return nonzero to take it | site pending |
 | `ev_settings` | the SYSTEM SETTINGS screen is built | `void f(void *menu)` | the M8's settings screen is a view, not a menu: needs its row model first | design only |
+| `ev_serial` | the m8c serial parser runs (headless `0x6007846C` entry) | `int f(void *m8c)` | nonzero takes the call: the parser does not run. Core 0.3 uses it for mod uploads (requests start with `0xD1`, [LOADER.md](LOADER.md)) | implemented (headless) |
 
 There is no `ev_enc`: the M8 has no encoders. Its continuous control is the touch screen (`ev_touch`).
 

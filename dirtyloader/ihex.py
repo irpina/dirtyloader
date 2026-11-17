@@ -85,24 +85,47 @@ def _rec(typ: int, addr: int, body: bytes) -> str:
     return ":" + (r + bytes([(-sum(r)) & 0xFF])).hex().upper()
 
 
-def write(img: HexImage, data: Optional[bytes] = None, width: int = 16) -> str:
-    """HEX text for `data` (default img.data) laid at img.base, keeping the stock file's coverage."""
+def write(img: HexImage, data: Optional[bytes] = None, width: int = 16, cover=()) -> str:
+    """HEX text for `data` (default img.data) laid at img.base, keeping the stock file's coverage. `cover`
+    lists (address, length) ranges written byte for byte whatever they hold: pass every site a mod placed."""
     data = bytes(img.data if data is None else data)
-    if len(data) != len(img.data):
-        raise IHexError("image length changed; HEX images are fixed-size")
+    if len(data) < len(img.data):
+        raise IHexError("image is shorter than the stock file's")
+    # Write every byte a mod placed, 0xFF included. Leaving 0xFF bytes out assumes the bootloader erased them,
+    # and on hardware it had not: a `bl` (bytes FF F7 ..) past the stock end kept a byte from an earlier
+    # build and crashed the M8 (core 0.3 bring-up). So the coverage is the stock file's, plus every changed
+    # byte, plus the 0xFF runs of up to 64 bytes between them, plus everything past the stock end up to the
+    # last byte that is not 0xFF.
+    covered = bytearray(img.covered) + bytearray(len(data) - len(img.data))
+    stock = bytes(img.data)
+    changed = [k for k in range(len(stock)) if data[k] != stock[k]]
+    for a, b in zip(changed, changed[1:]):
+        if b - a <= 64:
+            covered[a:b + 1] = b"\x01" * (b - a + 1)
+    for k in changed:
+        covered[k] = 1
+    for addr, length in cover:
+        o = addr - img.base
+        if not 0 <= o <= len(data) - length:
+            raise IHexError(f"cover range 0x{addr:08X}+{length} is outside the image")
+        covered[o:o + length] = bytes([1]) * length
+    tail = data[len(stock):].rstrip(b"\xff")
+    if tail:
+        first = len(tail) - len(tail.lstrip(b"\xff"))
+        covered[len(stock) + first:len(stock) + len(tail)] = b"\x01" * (len(tail) - first)
     out = []
     upper = None
     i = 0
     n = len(data)
     while i < n:
-        if not (img.covered[i] or data[i] != 0xFF):
+        if not (covered[i] or data[i] != 0xFF):
             i += 1
             continue
         addr = img.base + i
         # a record never crosses a 64 KB boundary or a gap, and starts aligned like the stock files
         end = min(n, i + width - (addr % width), (addr | 0xFFFF) + 1 - img.base)
         j = i
-        while j < end and (img.covered[j] or data[j] != 0xFF):
+        while j < end and (covered[j] or data[j] != 0xFF):
             j += 1
         if (addr >> 16) != upper:
             upper = addr >> 16

@@ -24,11 +24,21 @@
   "exports": {
     "millis": "0x20040264"
   },
+  "loader": {
+    "c_at": "0x601E0000",
+    "ram": "0x00029B40",
+    "ram_end": "0x00030000",
+    "fw_header": "m8-headless/fw.h",
+    "load_at": "0x6007F0CC",
+    "note": "core 0.3: the C loader goes in free flash past the image (ends 0x601DD400); its state and the loaded mods go in the ITCM tail after the firmware's ITCM code (0x29B40) up to the end of the 6 ITCM banks (GPR17 0xAAAAAFFF = 192 KB). MPU region 1 (ITCM, RASR 0x07080025, read-only) is made read/write by core_early. load_at is the bl 0x6008FDA8 in setup() just after the card is mounted (0x6007A3FC at 0x6007F0BC) and before audio starts or the autosave loads: core_load reads the card there, because SdFat calls after setup() broke the firmware's own card reads. SdFat: FsBaseFile::open 0x600A0894 on the SdFs volume 0x200376EC (sdk/include/m8-headless/fw.h)."
+  },
   "core": {
     "BOOT":  {"kind": "call_post", "patch_at": "0x600A28FA", "target": "0x6007F030",
               "note": "main(): bl setup; BOOT handlers run once after setup() returns"},
     "TICK":  {"kind": "call_pre",  "patch_at": "0x600A28FE", "target": "0x6007F02C",
               "note": "main(): bl loop; TICK handlers run before every loop()"},
+    "SERIAL": {"kind": "entry",    "patch_at": "0x6007846C",
+               "note": "the m8c command parser (obj): drains USB serial into a 6-byte buffer and runs E/R/D/C/K/P/S. Called from loop and from the render screens' polling (24 sites); core's handler takes requests that start with 0xD1."},
     "TEMPO": {"kind": "entry",     "patch_at": "0x60090978",
               "note": "set_tempo(clock_owner, float bpm): bpm in s0, stored at [[0x60090A10]]+0x3C0 inside AudioNoInterrupts"}
   },

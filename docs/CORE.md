@@ -169,6 +169,12 @@ first, then the linked `.hex`. The patched firmware enumerates as M8 (serial, au
 display frames over serial, and its system-info packet reports headless 6.6.4. Pin 13 double-blinks, so BOOT
 and TICK both run. TEMPO (`entry` site) has no visible handler yet and is not exercised.
 
+## Core 0.3: mods from the SD card
+
+Core 0.3 adds a loader: mods are `.m8x` files on the SD card, uploaded over USB and loaded into free ITCM at
+boot, with a crash guard. Built and run on a headless Teensy 4.1. Everything about it is in
+[LOADER.md](LOADER.md).
+
 ## ITCM hook sites need a different detour
 
 About 174 KB of the firmware — the whole audio graph and the sequencer, including the FX-command executor — is
