@@ -509,7 +509,7 @@ def build_core03_mod(fw: M8Firmware, stock_sha256: str, bindings: dict) -> Mod:
     c_at, ram, ram_end = (int(ld[k], 16) for k in ("c_at", "ram", "ram_end"))
     defines = {"CORE_FW_H": '"%s"' % ld["fw_header"], "CORE_RAM": f"0x{ram:08X}u",
                "CORE_RAM_END": f"0x{ram_end:08X}u", "CORE_FLASH_TABLE": f"0x{TABLE:08X}u",
-               "CORE_FLASH_SLOTS": str(abi.MAX_HOOKS)}
+               "CORE_FLASH_SLOTS": str(abi.MAX_HOOKS), "CORE_DISPATCH": f"0x{CODE | 1:08X}u"}
     row = ld.get("settings_row")
     if row:
         defines["SETTINGS_MODS_Y"] = str(int(row["field_y"]))

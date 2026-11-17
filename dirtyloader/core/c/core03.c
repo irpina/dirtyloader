@@ -49,6 +49,8 @@ struct core_ram {
     struct { char name[NAME_MAX]; uint8_t on; } page[MAX_MODS];
     /* songs and their mods: core_tick writes / checks <song>.mods after the firmware's own save / load */
     uint32_t booted, song_pending, page_mode, prev_view, nwant, song_result, song_at, song_tries;
+    uint32_t audio_orig;           /* the audio interrupt core_audio wraps */
+    uint32_t skipped;              /* the crash guard skipped the mods this boot */
     char song[128];
     struct { char name[NAME_MAX]; } want[MAX_MODS];
 };
@@ -140,8 +142,11 @@ static uint32_t read_guard(void)
     return w;
 }
 
-/* Teensyduino's fault handler leaves a record (len = 44, then the fault registers) in RAM and reboots. */
-static int crashed(void) { return fw_fault_info[0] == 44u && (fw_fault_info[2] | fw_fault_info[3]); }
+/* Teensyduino's fault handler leaves a record in RAM (len, ipsr, cfsr, hfsr, mmfar, bfar, pc, xpsr, ...) and reboots. */
+static int crashed(void)     /* len is 11 (words) in this build, 44 (bytes) in some Teensyduino versions */
+{
+    return (fw_fault_info[0] == 11u || fw_fault_info[0] == 44u) && (fw_fault_info[2] | fw_fault_info[3]);
+}
 static void forget_crash(void) { ((volatile uint32_t *)fw_fault_info)[0] = 0; }
 
 /* ---- loading ----------------------------------------------------------------------------------------------- */
@@ -535,7 +540,7 @@ static void page_draw_all(void)
 {
     char b[64], *o;
     for (int r = 0; r < FW_GRID_ROWS; r++) row(r, "");
-    o = put(b, " MODS (TELOS)");
+    o = put(b, ram->skipped ? " MODS (TELOS)   SKIPPED: A CRASH" : " MODS (TELOS)");
     *o = 0;
     row(3, b);
     for (uint32_t i = 0; i <= ram->page_n; i++) {
@@ -633,7 +638,10 @@ static void page_input(void *view, int action)
     else if (action == FW_KEY_DOWN && ram->page_sel + 1 < rows) ram->page_sel++;
     else if (action == FW_KEY_OPT) { fw_set_view(fw_ui, FW_VIEW_SETTINGS); return; }
     else if (action == FW_KEY_EDIT) {
-        if (ram->page_sel == ram->page_n) restart_now();
+        if (ram->page_sel == ram->page_n) {         /* RESTART also lifts the crash guard */
+            write_file(GUARD_PATH, "GOOD", 4);
+            restart_now();
+        }
         ram->page[ram->page_sel].on ^= 1;
         page_write();
     }
@@ -761,6 +769,37 @@ void core_tick(void)
     }
 }
 
+/* ---- events core raises from C --------------------------------------------------------------------------------
+ * fire() calls the dispatcher (core 0.2's, at the start of the hook bus, CORE_DISPATCH) as a site stub does:
+ * ip = event | TAKE, arguments in r0-r3; it returns the taking handler's result, or 0. */
+#ifndef CORE_DISPATCH
+#error "CORE_DISPATCH comes from the builder"
+#endif
+#define TAKE 0x10000u
+static int fire(uint32_t word, uint32_t a0, uint32_t a1)
+{
+    register uint32_t r0 __asm__("r0") = a0;
+    register uint32_t r1 __asm__("r1") = a1;
+    register uint32_t ip __asm__("ip") = word;
+    register uint32_t fn __asm__("r3") = CORE_DISPATCH;
+    __asm volatile("blx r3" : "+r"(r0), "+r"(r1), "+r"(ip), "+r"(fn) : : "r2", "lr", "memory", "cc");
+    return (int)r0;
+}
+
+/* ev_render_in / ev_render_out: the audio library renders each block in the software interrupt (IRQ 70, vector
+   86 of the RAM vector table); core_boot puts this in its place. Audio-thread handlers belong in ITCM, which is
+   where loaded mods run. */
+#define EV_RENDER_IN_W  0x0030u
+#define EV_RENDER_OUT_W 0x0031u
+#define FW_VECTORS ((volatile uint32_t *)0x2000B800u)
+#define FW_AUDIO_VECTOR (16 + 70)
+static void core_audio(void)
+{
+    fire(EV_RENDER_IN_W, 0, 0);
+    ((void (*)(void))ram->audio_orig)();
+    fire(EV_RENDER_OUT_W, 0, 0);
+}
+
 static void itcm_writable(void)
 {
     volatile uint32_t *rnr = (uint32_t *)0xE000ED98u, *rasr = (uint32_t *)0xE000EDA0u;
@@ -814,8 +853,9 @@ void core_load(void)
         skip = 1;
     }
     if (crashed()) forget_crash();
+    ram->skipped = (uint32_t)skip;
     if (skip)
-        o = put(o, "Write GOOD to /dirtyloader/guard to load them again (dirtyloader sd does it).\n");
+        o = put(o, "RESTART on the MODS page, or python -m dirtyloader.unit good, loads them again.\n");
 
     if (!skip) {
         struct fw_file f;
@@ -883,6 +923,11 @@ void core_boot(void)
         zero(&ram->page_view, sizeof ram->page_view);
         ram->page_view.vt = page_vt;
         fw_views[FW_VIEW_FREE] = &ram->page_view;
+    }
+    if (FW_VECTORS[FW_AUDIO_VECTOR] != ((uint32_t)core_audio | 1)) {   /* ev_render_in / ev_render_out */
+        ram->audio_orig = FW_VECTORS[FW_AUDIO_VECTOR];
+        __asm volatile("dsb" ::: "memory");
+        FW_VECTORS[FW_AUDIO_VECTOR] = (uint32_t)core_audio | 1;
     }
     ram->booted = 1;                                /* song loads from here on are the user's */
     __asm volatile("dsb\n isb" ::: "memory");
