@@ -115,6 +115,10 @@ typedef int (*fw_inst_save_fn)(void *songs, const char *path, int slot);
 #define FW_SLOT_CLOCK       0x20001E94u
 #define FW_TRACK_MAIN       0x3E4u
 enum { FW_FX_MFX, FW_FX_DELAY, FW_FX_REVERB };
+typedef void (*fw_audio_transmit_fn)(void *obj, void *block, int port);
+typedef void (*fw_audio_release_fn)(void *block);
+#define fw_audio_transmit   ((fw_audio_transmit_fn)0x0001ADD5u)  /* AudioStream::transmit (ITCM) */
+#define fw_audio_release    ((fw_audio_release_fn)0x0001AD69u)   /* AudioStream::release (ITCM) */
 #define FW_AUDIO_FRAMES     64
 #define FW_AUDIO_RATE       44100
 typedef void *(*fw_audio_alloc_fn)(void);

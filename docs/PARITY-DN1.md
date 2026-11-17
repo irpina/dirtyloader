@@ -39,12 +39,12 @@ Status:
 | `ev_tick`, `ev_draw`, `ev_key` | `ev_tick`, `ev_draw`, `ev_key` | done | ~380k/s, keys |
 | `ev_enc` | n/a: the M8 has no encoders. Its input is 8 keys, reported as chords to `ev_key` | n/a | |
 | `ev_render_in` / `ev_render_out` | the same, from the audio interrupt (IRQ 70) | done | ~740/s |
-| `ev_settings`, `core_additem` (SETTINGS rows) | core adds its own MODS row to SYSTEM SETTINGS. Mods get pages (`page_add`), reached from that row, rather than rows of their own | partly | |
+| `ev_settings`, `core_additem` (SETTINGS rows) | `setting_add`: a mod's settings rows (a byte between min and max, with names) in the Mod Menu, reached from SYSTEM SETTINGS > MODS (TELOS) > MOD MENU; LEFT / RIGHT change them, and core keeps them in `/dirtyloader/settings.txt` across boots | done | the demo's DEMO VOICE: ON → LOUD, `DEMO VOICE=2` in the file, LOUD again after a restart |
 | `ev_voice_on` (2.1), `ev_voice_ready` (4.2) | `ev_note` at the note-on (`player, ...`); `ev_row` with the row's 9 bytes before it fires | done | 1 per note, 1 per row |
 | `ev_boot_ui`, `ev_idle` | `ev_boot`; `ev_tick` (the M8 has one main loop and no RTOS tasks) | done | |
 | `ev_card_ready` (5.0) | `ev_card_ready(mounted)`: right after core loads mods, before the firmware first uses the card | done | 1 per boot |
 | `ev_usb` (5.0) | `ev_usb(configured)`, from `ev_tick` when Teensyduino's `usb_configuration` (`0x2004159F`) changes | done | 1 at boot, `1` |
-| `ev_crash` (5.0) | the API's `last_crash`: the crash record the next boot found. Teensyduino's own fault handler records it and resets | partly | crash pc in `status.txt` |
+| `ev_crash` (5.0) | `ev_crash(frame)`: core's handler sits in front of Teensyduino's for HardFault, MemManage, BusFault and UsageFault (RAM vector table) and runs the mods' handlers with the exception frame, then Teensyduino records the crash and resets; the next boot's `status.txt` says the handlers ran | done | a NULL read: `ev_crash: the mods' handlers ran in the fault (pc 0x601E05AE)` |
 | `core_restart` / `core_restart_now` | `restart()` | done | |
 | `ev_view` (the view stack) | `ev_view` at `set_view` (take it to stay) | done | |
 | `ev_ui_msg` | n/a: the M8 has no UI task or message queue. Its loop calls the input router (`ev_key`) and the views directly | n/a | |
@@ -81,7 +81,7 @@ Status:
 | exclusive audio, insert audio (`core_audio`, 3.2-4.0) | `ev_audio_out(left, right, frames)`: the master output's two blocks (64 float frames, 44.1 kHz) before they go to USB and I2S. A handler processes them in place (insert) or writes them and takes the event (exclusive). Core wraps the tap's `update()` through its vtable, which lives in RAM | done | `examples/audio-tone`: 440.0 Hz recorded from the M8's USB audio |
 | `ev_render_voices` (3.1) | `ev_track_audio(left, right, track)`: each track's rendered block pair, after its voice renders and before its mixer strip and its three sends read it (both port pairs while it crossfades an instrument change). Core wraps the track voice class's `update()` | done | `examples/track-silence` zeroes track 1: the recorded output went from 6,530 RMS to silence |
 | `ev_render_params` (3.3) | `ev_render_params(engine)`: once per audio block, before the sequencer clock and the tracks run. The M8 has no single parameter-word stage (gains ramp inside each object), so this is the block's first moment, where a mod sets what the block will use | done | 2,497 in 3.6 s (one per block) |
-| `ev_render_fx` (5.0) | `ev_fx_audio(stage, left, right)`: each send effect's input (MFX, delay, reverb) just before it runs; a handler may change it. Unlike core-dn1's, taking it to replace the effect is not offered: the effect's own update must still run to release its blocks | partly | all three stages counted |
+| `ev_render_fx` (5.0) | `ev_fx_audio(stage, left, right)`: each send effect's input (MFX, delay, reverb) before it runs. A handler that takes MFX or the reverb replaces it: the effect does not run, and the handler's blocks go to its outputs. The delay (mono in) is observe-only | done | `examples/fx-replace` on a reverb-only sound: the reverb's smeared output (peak 32767) became its input at a quarter level (the pulse, 4,608) |
 | `ev_mod_apply` (designed for the M8 in [CORE-EVENTS.md](CORE-EVENTS.md)) | `ev_mod_apply(dest, modulator, target, engine)` at the destination switch of each engine. A handler may take it, which skips the stock destination | done | FM, HYPER, MACRO, SAMPLER, WAV, EXTERNAL: each counted |
 | `ev_fx_command`, `ev_fx_row` (the M8's own) | `ev_fx_row` (phrase FX applier), `ev_fx_command` (table FX executor) | done | 3 per row; per table tick |
 | the note queue (4.1), `ev_note_built` (5.1) | `ev_row`: the row (note, velocity, instrument, three FX) before it fires, which a handler may rewrite | done | |
@@ -90,7 +90,7 @@ Status:
 
 | core-dn1 | M8 core 0.5 (`dl/core.h`) | status | checked |
 |---|---|---|---|
-| the Mod Menu (2.2), icon grid (2.3), `core_menu_open` | `page_add`: a `>` on the mod's MODS row, and RIGHT opens its page | partly (a list, not a grid) | screenshot |
+| the Mod Menu (2.2), icon grid (2.3), `core_menu_open` | the Mod Menu: every mod page in a grid two across, the settings rows below; opened from the MODS page's MOD MENU row, or by a mod with `menu_open()`. The M8's screen is text, so tiles are names, not icons | done | grid, EDIT opens the page, OPT back to the menu |
 | mod pages (2.1), `core_page_open`, `core_page_shown` | `page_open` / `page_close`; the page draws with `fw_text` and takes keys | done | |
 | project data (2.1) | `song_data`: blocks saved as `<song>.dldata` and put back on load (the boot's AUTOSAVE included) | done | value 5 back after reload |
 | `fw_card_read` / `fw_card_write` | `file_read` / `file_write` (files, by path) | done | |

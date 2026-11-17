@@ -43,6 +43,7 @@ class Event(IntEnum):
     BOOT = 0x0001        # once, after setup(), before the first loop()
     CARD_READY = 0x0002  # the SD card is up, before the firmware uses it (core 0.4: right after loading mods)
     USB = 0x0003         # USB configured or lost (core 0.4, from ev_tick)
+    CRASH = 0x0004       # a fault, before Teensyduino's handler records it and resets
     TICK = 0x0010        # each loop() iteration (UI thread)
     DRAW = 0x0020        # each UI frame, before it is pushed to the display
     RENDER_IN = 0x0030   # audio block entry (audio thread, IRQ 70)
@@ -98,13 +99,14 @@ EVENTS = {
     Event.BOOT: EventInfo("ev_boot", "ui", False, "void f(void)", "implemented (headless)"),
     Event.CARD_READY: EventInfo("ev_card_ready", "ui", False, "void f(int mounted)", "implemented (headless)"),
     Event.USB: EventInfo("ev_usb", "ui", False, "void f(int configured)", "implemented (headless)"),
+    Event.CRASH: EventInfo("ev_crash", "fault", False, "void f(const uint32_t *frame)", "implemented (headless)"),
     Event.TICK: EventInfo("ev_tick", "ui", False, "void f(void)", "implemented (Model:02, headless)"),
     Event.DRAW: EventInfo("ev_draw", "ui", False, "void f(void *ui)", "implemented (headless)"),
     Event.RENDER_IN: EventInfo("ev_render_in", "audio", False, "void f(void)", "implemented (headless)"),
     Event.RENDER_OUT: EventInfo("ev_render_out", "audio", False, "void f(void)", "implemented (headless)"),
     Event.AUDIO_OUT: EventInfo("ev_audio_out", "audio", True, "int f(float *left, float *right, int frames)", "implemented (headless)"),
     Event.TRACK_AUDIO: EventInfo("ev_track_audio", "audio", False, "void f(float *left, float *right, int track)", "implemented (headless)"),
-    Event.FX_AUDIO: EventInfo("ev_fx_audio", "audio", False, "void f(int stage, float *left, float *right)", "implemented (headless)"),
+    Event.FX_AUDIO: EventInfo("ev_fx_audio", "audio", True, "int f(int stage, float *left, float *right)", "implemented (headless)"),
     Event.RENDER_PARAMS: EventInfo("ev_render_params", "audio", False, "void f(void *engine)", "implemented (headless)"),
     Event.KEY: EventInfo("ev_key", "ui", True, "int f(void *ui, int action)", "implemented (headless)"),
     Event.VIEW: EventInfo("ev_view", "ui", True, "int f(void *ui, int view)", "implemented (headless)"),

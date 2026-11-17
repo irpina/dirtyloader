@@ -46,6 +46,14 @@ struct dl_song_data {
     void (*loaded)(uint32_t n);  /* may be 0 */
 };
 
+struct dl_setting {
+    const char *label;           /* up to 16 characters, unique: the file keeps values by it */
+    uint8_t *value;
+    uint8_t min, max;
+    const char *const *names;    /* names[value - min] to show, or 0 for the number */
+    void (*changed)(void);       /* may be 0 */
+};
+
 struct dl_core {
     uint32_t magic;              /* DL_CORE_MAGIC */
     uint32_t version;            /* DL_CORE_VERSION or later; later versions only add members at the end */
@@ -80,6 +88,13 @@ struct dl_core {
        nothing with it). Returns that index, or 0 when the engine's list is full (16, the storage's limit). Call
        at ev_boot; the name must stay valid. */
     int (*mod_dest_add)(int engine, const char *name);
+
+    /* 0.5: the Mod Menu (core-dn1's): a screen with every mod page as a grid, and below it the mods' settings
+       rows (core-dn1's core_additem). Opened from the MODS page's MOD MENU row, or by a mod with menu_open (from
+       its own ev_key handler, say). A setting is a byte between min and max that LEFT / RIGHT change; core keeps
+       it in /dirtyloader/settings.txt by label and puts it back when setting_add is called (at ev_boot). */
+    int  (*setting_add)(const struct dl_setting *s);        /* 1, or 0 when full (8) */
+    void (*menu_open)(void);
 };
 
 /* USB MIDI packets: byte 0 is cable << 4 | CIN (the status's high nibble for channel messages), then the bytes */

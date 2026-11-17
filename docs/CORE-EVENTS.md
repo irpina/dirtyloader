@@ -38,6 +38,7 @@ Mods subscribe with `DL_ON(EV_..., order, handler)` (`dl/mod.h`); firmware locat
 | `ev_note` | ITCM note-on (run `0x22BDC`) | `int f(void *player, int instrument)` | audio thread; once per note; players are `0x2001ADF0 + 0x248 × track`; take it to drop the note |
 | `ev_render_in` | audio interrupt entry (IRQ 70 vector) | `void f(void)` | audio thread, about 740 a second |
 | `ev_render_out` | audio interrupt exit | `void f(void)` | audio thread |
+| `ev_crash` | core's handler in front of Teensyduino's fault handler (RAM vectors 3-6) (0.5) | `void f(const uint32_t *frame)` | in the fault: r0-r3, r12, lr, pc, xpsr; no SD, no USB; Teensyduino then records and resets |
 | `ev_card_ready` | core_load, after the mods load (0.5) | `void f(int mounted)` | before the firmware first uses the card; before `ev_boot` |
 | `ev_usb` | `ev_tick`, when `usb_configuration` (`0x2004159F`) changes (0.5) | `void f(int configured)` | |
 | `ev_sysex` | usbMIDI's SysEx handler pointer (`0x20040654`), chained at boot (0.5) | `int f(const uint8_t *data, int len, int last)` | take it to keep the firmware's handler from seeing the chunk |
@@ -55,7 +56,7 @@ Mods subscribe with `DL_ON(EV_..., order, handler)` (`dl/mod.h`); firmware locat
 | `ev_live_note` | the live / preview trigger, ITCM run `0x23374` (0.5) | `int f(void *player, int instrument, int note, int velocity)` | notes from the keys, not the sequencer; take it to drop the note |
 | `ev_inst_clear` | the slot clear, `0x6007FF34` (0.5) | `int f(void *song, int slot, int full)` | the pool's delete; take it to keep the slot |
 | `ev_track_audio` | the track voice class's `update()` (RAM slot `0x20002348`) (0.5) | `void f(float *left, float *right, int track)` | audio thread; after the track renders, before its strip and sends: change the blocks in place |
-| `ev_fx_audio` | MFX, delay and reverb `update()` (RAM slots) (0.5) | `void f(int stage, float *left, float *right)` | audio thread; the effect's input before it runs (`FW_FX_*`; the delay is mono, `right` 0) |
+| `ev_fx_audio` | MFX, delay and reverb `update()` (RAM slots) (0.5) | `int f(int stage, float *left, float *right)` | audio thread; the effect's input before it runs (`FW_FX_*`; the delay is mono, `right` 0). Take MFX or reverb to replace it: your blocks go to its outputs |
 | `ev_render_params` | the sequencer clock's `update()` (RAM slot `0x20001E94`) (0.5) | `void f(void *engine)` | audio thread; first in each block |
 
 `itcm_mid` sites (core 0.5) sit inside a function, where registers, flags and s0-s15 are live. The stub keeps

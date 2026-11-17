@@ -7,6 +7,7 @@
  *   the mod's own ev_midi handler sees; the page counts both directions
  * - LEFT saves instrument 00 to /Instruments/api.m8i and loads that file into instrument 01 (core 0.5)
  * - a WAVSYNTH modulation destination, DEMO: the page counts the modulator applications that reach it (core 0.5)
+ * - a setting in the Mod Menu: VOICE (OFF / ON / LOUD), kept in /dirtyloader/settings.txt (core 0.5)
  * - OPT closes the page */
 #include "dl/mod.h"
 #include "m8-headless/fw.h"
@@ -15,6 +16,9 @@
 static struct { uint32_t value; } song_state;          /* what the song keeps */
 static uint32_t loaded_n, loads, midi_in, midi_out, last_in, injected, inst_result, demo_dest, demo_applied;
 static const struct dl_core *core;
+static uint8_t voice = 1;
+static const char *const voice_names[] = { "OFF", "ON", "LOUD" };
+static const struct dl_setting voice_setting = { "DEMO VOICE", &voice, 0, 2, voice_names, 0 };
 
 static void hex8(char *o, uint32_t v) { for (int i = 7; i >= 0; i--, v >>= 4) o[i] = "0123456789ABCDEF"[v & 15]; }
 static void dec(char *o, uint32_t v, int w) { for (int i = w - 1; i >= 0; i--, v /= 10) o[i] = (char)('0' + v % 10); }
@@ -44,6 +48,7 @@ static void draw(void)
     line(14, "INST COPY", inst_result, 0);
     line(15, "DEMO DEST", demo_dest, 0);
     line(16, "DEMO APPLIED", demo_applied, 0);
+    line(17, "VOICE SETTING", voice, 0);
     fw_text(fw_grid, 0, 20, " UP/DOWN VALUE  EDIT SEND");     /* columns 34 on are the firmware's */
     fw_text(fw_grid, 0, 21, " RIGHT PLAY IN  LEFT COPY INST");
     fw_text(fw_grid, 0, 22, " OPT BACK");
@@ -79,7 +84,10 @@ static void on_boot(void)
     if (!core) return;
     core->page_add(&page);
     core->song_data(&data);
-    if (core->version >= 0x500) demo_dest = (uint32_t)core->mod_dest_add(FW_ENGINE_WAV, "DEMO");
+    if (core->version >= 0x500) {
+        demo_dest = (uint32_t)core->mod_dest_add(FW_ENGINE_WAV, "DEMO");
+        core->setting_add(&voice_setting);
+    }
 }
 
 /* audio thread: a WAVSYNTH modulator pointed at DEMO. The stock does nothing with this destination; a real

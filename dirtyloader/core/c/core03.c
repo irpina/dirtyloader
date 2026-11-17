@@ -32,6 +32,7 @@
 #define MAX_PAGES    8
 #define MAX_DATA     8
 #define MIDI_Q       8
+#define MAX_SETTINGS 8
 
 struct hook { uint16_t event, flags; void *fn; };
 
@@ -69,11 +70,14 @@ struct core_ram {
     uint32_t midi_head, midi_tail;
     uint32_t armed, armed_at;      /* the guard says ARMD until the boot has run ARMED_MS */
     uint32_t crash[8];             /* Teensyduino's crash record as the boot found it; [0] 0: none */
+    uint32_t fault_orig, in_fault, fault_handled, fault_pc;   /* ev_crash; the last two survive the reset */
     uint32_t dest_name_orig[FW_ENGINES], dest_count_orig[FW_ENGINES], dest_stock[FW_ENGINES], dest_n[FW_ENGINES];
     const char *dest_extra[FW_ENGINES][FW_MOD_DESTS_MAX];
     uint32_t tap_orig, audio_subs;
     uint32_t track_orig, mfx_orig, delay_orig, reverb_orig, clock_orig, track_subs, fx_subs, params_subs;   /* the tap's update() core_tap wraps; ev_audio_out has handlers */
     uint32_t sysex_orig;           /* the firmware's SysEx handler core_sysex hands chunks on to */
+    const struct dl_setting *settings[MAX_SETTINGS];
+    uint32_t nsettings, menu_sel, menu_back;
     uint32_t usb_last;             /* usb_configuration as ev_usb last reported it; 0xFF before the first */
 };
 _Static_assert(__builtin_offsetof(struct core_ram, api) == 0x208, "dl/core.h: DL_CORE_PTR is the RAM + 0x208");
@@ -81,6 +85,7 @@ _Static_assert(__builtin_offsetof(struct core_ram, api) == 0x208, "dl/core.h: DL
 _Static_assert(DL_CORE_PTR == CORE_RAM + 0x208, "the device header's DL_CORE_PTR is not this core's");
 #endif
 #define PAGE_BACK_MODS 0xFFu
+#define PAGE_BACK_MENU 0xFEu
 #define ram ((struct core_ram *)CORE_RAM)
 #define AREA_START ((CORE_RAM + sizeof(struct core_ram) + 7u) & ~7u)
 /* boot-time scratch for status.txt and active.txt at the top of ITCM, off the main stack */
@@ -626,6 +631,11 @@ static void page_draw_all(void)
             o = put(o, page_changed() ? "APPLY & RESTART" : "RESTART");
             *o = 0;
             row(PAGE_TOP + (int)i + 1, b);
+            o = put(b, " ");
+            *o++ = ram->page_sel == ram->page_n + 1 ? '>' : ' ';
+            o = put(o, "MOD MENU");
+            *o = 0;
+            row(PAGE_TOP + (int)i + 2, b);
             break;
         }
         const char *nm = ram->page[i].name;
@@ -656,7 +666,7 @@ static void page_draw_all(void)
 
 static void page_enter(void *view, int arg)
 {
-    if (ram->page_mode == 2) { ram->page_dirty = 1; return; }   /* a mod's page */
+    if (ram->page_mode >= 2) { ram->page_dirty = 1; return; }   /* a mod's page, the Mod Menu */
     if (FW_SD_MOUNTED()) page_read();
     else ram->page_n = 0;
     ram->page_sel = 0;
@@ -747,9 +757,13 @@ static void page_set(uint32_t i, uint8_t on)
     page_write();
 }
 
+static void menu_show(uint32_t back);
+static void menu_input(int action);
+
 static void page_input(void *view, int action)
 {
     ram->last_action = (uint32_t)action;
+    if (ram->page_mode == 3) { menu_input(action); return; }
     if (ram->page_mode == 2) {                      /* a mod's page */
         const struct dl_page *p = ram->cur_page;
         if (p && p->key && p->key(action)) return;
@@ -765,7 +779,8 @@ static void page_input(void *view, int action)
         if (action == FW_KEY_OPT) { ram->page_mode = 0; fw_set_view(fw_ui, (int)ram->prev_view); }
         return;
     }
-    uint32_t rows = ram->page_n + 1;
+    uint32_t rows = ram->page_n + 2;                 /* the mods, RESTART, MOD MENU */
+    if (action == FW_KEY_EDIT && ram->page_sel == ram->page_n + 1) { menu_show(PAGE_BACK_MODS); return; }
     if (action == FW_KEY_UP && ram->page_sel) ram->page_sel--;
     else if (action == FW_KEY_DOWN && ram->page_sel + 1 < rows) ram->page_sel++;
     else if (action == FW_KEY_OPT) { fw_set_view(fw_ui, FW_VIEW_SETTINGS); return; }
@@ -787,6 +802,8 @@ static void page_input(void *view, int action)
 
 static void page_update(void *view) { }
 
+static void menu_draw_all(void);
+
 static void page_draw(void *view)
 {
     if (ram->page_mode == 2) {                      /* a mod's page: cleared once, then the mod draws */
@@ -801,7 +818,8 @@ static void page_draw(void *view)
     }
     if (!ram->page_dirty) return;
     ram->page_dirty = 0;
-    if (ram->page_mode) song_draw_all();
+    if (ram->page_mode == 3) menu_draw_all();
+    else if (ram->page_mode) song_draw_all();
     else page_draw_all();
 }
 
@@ -1049,7 +1067,7 @@ static void core_tap(void *obj)
    blocks are read after its update, from its main strip's input queue: the same blocks reach its three sends, so
    a change in place is heard everywhere. A send effect's input is handed over before the effect runs. */
 #define EV_TRACK_AUDIO_W 0x0033u
-#define EV_FX_AUDIO_W    0x0034u
+#define EV_FX_AUDIO_W    (0x0034u | TAKE)
 #define EV_PARAMS_W      0x0035u
 typedef void (*update_fn)(void *);
 static void core_track(void *obj)
@@ -1063,15 +1081,24 @@ static void core_track(void *obj)
         if (q[p] && q[p + 1])
             fire3(EV_TRACK_AUDIO_W, (uint32_t)(q[p] + 4), (uint32_t)(q[p + 1] + 4), ((uint8_t *)obj)[0x3D]);
 }
-static void fx_in(void *obj, uint32_t stage, int stereo)
+/* A taken stereo effect (MFX, reverb) does not run: the handler's blocks go to its two outputs in its place, and
+   its input queue is released and cleared as its own update would. The delay (mono in) is not replaceable. */
+static int fx_in(void *obj, uint32_t stage, int stereo)
 {
     uint8_t **q = *(uint8_t ***)((uint8_t *)obj + 0x20);
-    if (!ram->fx_subs || !q || !q[0] || (stereo && !q[1])) return;
-    fire3(EV_FX_AUDIO_W, stage, (uint32_t)(q[0] + 4), stereo ? (uint32_t)(q[1] + 4) : 0);
+    if (!ram->fx_subs || !q || !q[0] || (stereo && !q[1])) return 0;
+    int taken = fire3(EV_FX_AUDIO_W, stage, (uint32_t)(q[0] + 4), stereo ? (uint32_t)(q[1] + 4) : 0);
+    if (!taken || !stereo) return 0;
+    for (int i = 0; i < 2; i++) {
+        fw_audio_transmit(obj, q[i], i);
+        fw_audio_release(q[i]);
+        q[i] = 0;
+    }
+    return 1;
 }
-static void core_mfx(void *obj) { fx_in(obj, FW_FX_MFX, 1); ((update_fn)ram->mfx_orig)(obj); }
+static void core_mfx(void *obj) { if (!fx_in(obj, FW_FX_MFX, 1)) ((update_fn)ram->mfx_orig)(obj); }
 static void core_delay(void *obj) { fx_in(obj, FW_FX_DELAY, 0); ((update_fn)ram->delay_orig)(obj); }
-static void core_reverb(void *obj) { fx_in(obj, FW_FX_REVERB, 1); ((update_fn)ram->reverb_orig)(obj); }
+static void core_reverb(void *obj) { if (!fx_in(obj, FW_FX_REVERB, 1)) ((update_fn)ram->reverb_orig)(obj); }
 static void core_clock(void *obj)
 {
     if (ram->params_subs) fire3(EV_PARAMS_W, (uint32_t)fw_audio_engine, 0, 0);
@@ -1142,7 +1169,8 @@ static void api_page_open(const struct dl_page *p)
 {
     if (!p || fw_views[FW_VIEW_FREE] != &ram->page_view) return;
     uint32_t here = fw_ui[FW_UI_VIEW];
-    ram->page_back = here == FW_VIEW_FREE ? (ram->page_mode == 2 ? ram->page_back : PAGE_BACK_MODS) : here;
+    ram->page_back = here == FW_VIEW_FREE ? (ram->page_mode == 2 ? ram->page_back
+                                             : ram->page_mode == 3 ? PAGE_BACK_MENU : PAGE_BACK_MODS) : here;
     ram->cur_page = p;
     ram->page_mode = 2;
     ram->page_dirty = 1;
@@ -1157,10 +1185,141 @@ static void api_page_close(void)
     if (ram->page_back == PAGE_BACK_MODS) {
         if (FW_SD_MOUNTED()) page_read();
         ram->page_dirty = 1;
+    } else if (ram->page_back == PAGE_BACK_MENU) {
+        ram->page_mode = 3;
+        ram->page_dirty = 1;
     } else {
         fw_set_view(fw_ui, (int)ram->page_back);
     }
 }
+/* ---- the Mod Menu (core-dn1's) --------------------------------------------------------------------------------
+ * Every mod page as a grid, two across, then the mods' settings. UP / DOWN move a row; LEFT / RIGHT move across the
+ * grid, or change the setting under the cursor; EDIT opens a page; OPT goes back. Settings are kept in
+ * /dirtyloader/settings.txt as label=value lines. */
+#define SETTINGS_PATH "/dirtyloader/settings.txt"
+#define MENU_TOP 5
+
+static void settings_save(void)
+{
+    char *const t = (char *)(SCRATCH + STATUS_SIZE), *o = t;
+    for (uint32_t i = 0; i < ram->nsettings && o < t + LIST_SIZE - 32; i++) {
+        o = put(o, ram->settings[i]->label);
+        *o++ = '=';
+        o = put_dec(o, *ram->settings[i]->value);
+        *o++ = 10;
+    }
+    if (FW_SD_MOUNTED()) write_file(SETTINGS_PATH, t, (uint32_t)(o - t));
+}
+
+static void setting_load(const struct dl_setting *s)
+{
+    struct fw_file f;
+    char *const t = (char *)(SCRATCH + STATUS_SIZE);
+    if (!f_open(&f, SETTINGS_PATH, FW_O_READ)) return;
+    int n = f_read(&f, t, LIST_SIZE - 1);
+    fw_file_close(&f);
+    if (n <= 0) return;
+    t[n] = 0;
+    for (char *p = t; *p;) {
+        char *line = p;
+        while (*p && *p != 10 && *p != 13) p++;
+        if (*p) *p++ = 0;
+        char *eq = line;
+        while (*eq && *eq != '=') eq++;
+        if (!*eq) continue;
+        *eq = 0;
+        if (!seq(line, s->label)) continue;
+        uint32_t v = 0;
+        for (char *d = eq + 1; *d >= '0' && *d <= '9'; d++) v = v * 10 + (uint32_t)(*d - '0');
+        if (v >= s->min && v <= s->max) *s->value = (uint8_t)v;
+    }
+}
+
+static int api_setting_add(const struct dl_setting *s)
+{
+    if (!s || !s->label || !s->value || s->min > s->max || ram->nsettings >= MAX_SETTINGS) return 0;
+    ram->settings[ram->nsettings++] = s;
+    if (FW_SD_MOUNTED()) setting_load(s);
+    return 1;
+}
+
+static uint32_t menu_rows_pages(void) { return (ram->npages + 1) / 2; }
+
+static void menu_draw_all(void)
+{
+    char b[48], *o;
+    for (int r = 0; r < FW_GRID_ROWS; r++) row(r, "");
+    row(3, " MOD MENU");
+    for (uint32_t i = 0; i < ram->npages; i++) {
+        o = b;
+        *o++ = ' ';
+        *o++ = ram->menu_sel == i ? '>' : ' ';
+        const char *t = ram->pages[i]->title ? ram->pages[i]->title : ram->pages[i]->mod;
+        for (uint32_t k = 0; t && t[k] && k < 14; k++) *o++ = t[k];
+        *o = 0;
+        fw_text(fw_grid, (int)(i & 1) * 16, MENU_TOP + (int)(i / 2), b);
+    }
+    if (!ram->npages) row(MENU_TOP, "   NO MOD PAGES");
+    int r = MENU_TOP + (int)(ram->npages ? menu_rows_pages() : 1) + 1;
+    if (ram->nsettings) row(r++, " SETTINGS");
+    for (uint32_t i = 0; i < ram->nsettings && r < 20; i++, r++) {
+        const struct dl_setting *s = ram->settings[i];
+        o = b;
+        *o++ = ' ';
+        *o++ = ram->menu_sel == ram->npages + i ? '>' : ' ';
+        uint32_t k = 0;
+        for (; s->label[k] && k < 16; k++) *o++ = s->label[k];
+        while (k++ < 18) *o++ = ' ';
+        uint8_t v = *s->value;
+        if (s->names) { const char *nm = s->names[v - s->min]; for (k = 0; nm[k] && k < 12; k++) *o++ = nm[k]; }
+        else o = put_dec(o, v);
+        *o = 0;
+        row(r, b);
+    }
+    row(21, " EDIT OPEN  LEFT/RIGHT CHANGE");
+    row(22, " OPT BACK");
+}
+
+static void menu_show(uint32_t back)
+{
+    if (fw_views[FW_VIEW_FREE] != &ram->page_view) return;
+    uint32_t here = fw_ui[FW_UI_VIEW];
+    ram->menu_back = here == FW_VIEW_FREE ? back : here;
+    ram->menu_sel = 0;
+    ram->page_mode = 3;
+    ram->page_dirty = 1;
+    if (here != FW_VIEW_FREE) fw_set_view(fw_ui, FW_VIEW_FREE);
+}
+static void api_menu_open(void) { menu_show(PAGE_BACK_MODS); }
+
+static void menu_input(int action)
+{
+    uint32_t np = ram->npages, n = np + ram->nsettings, sel = ram->menu_sel;
+    if (action == FW_KEY_OPT) {
+        ram->page_mode = 0;
+        if (ram->menu_back == PAGE_BACK_MODS) { if (FW_SD_MOUNTED()) page_read(); ram->page_dirty = 1; }
+        else fw_set_view(fw_ui, (int)ram->menu_back);
+        return;
+    }
+    if (sel < np) {                                 /* the grid */
+        if (action == FW_KEY_EDIT) { api_page_open(ram->pages[sel]); return; }
+        if (action == FW_KEY_RIGHT && (sel & 1) == 0 && sel + 1 < np) sel++;
+        else if (action == FW_KEY_LEFT && (sel & 1)) sel--;
+        else if (action == FW_KEY_DOWN) sel = sel + 2 < np ? sel + 2 : (ram->nsettings ? np : sel);
+        else if (action == FW_KEY_UP && sel >= 2) sel -= 2;
+    } else if (sel < n) {                           /* a setting */
+        const struct dl_setting *s = ram->settings[sel - np];
+        uint8_t v = *s->value;
+        if (action == FW_KEY_RIGHT && v < s->max) v++;
+        else if (action == FW_KEY_LEFT && v > s->min) v--;
+        else if (action == FW_KEY_DOWN && sel + 1 < n) sel++;
+        else if (action == FW_KEY_UP) sel = sel > np ? sel - 1 : (np ? ((np - 1) & ~1u) : sel);
+        if (v != *s->value) { *s->value = v; settings_save(); if (s->changed) s->changed(); }
+    }
+    ram->menu_sel = sel;
+    ram->page_dirty = 1;
+}
+
 static int api_song_data(const struct dl_song_data *d)
 {
     if (!d || !d->id || ram->ndata >= MAX_DATA) return 0;
@@ -1242,7 +1401,37 @@ static const struct dl_core api = {
     DL_CORE_MAGIC, DL_CORE_VERSION, sizeof(struct dl_core),
     api_restart, api_page_add, api_page_open, api_page_close, api_song_data, api_file_read, api_file_write,
     api_midi_receive, api_midi_send, ram->crash, ram->song, api_inst_load, api_inst_save, api_mod_dest_add,
+    api_setting_add, api_menu_open,
 };
+
+/* ev_crash: core's handler in front of Teensyduino's for HardFault, MemManage, BusFault and UsageFault (RAM vector
+   table). It runs the mods' handlers with the exception frame (r0-r3, r12, lr, pc, xpsr), counts that they ran in
+   ITCM (which survives the reset), and goes on to Teensyduino's handler with the stack and lr as they were: that
+   handler records the crash and resets. A handler that faults again is skipped (in_fault). Handlers run in the
+   fault: no SD, no USB, no waiting. */
+#define EV_CRASH_W 0x0004u
+uint32_t core_crash(const uint32_t *frame)
+{
+    if (!ram->in_fault && ram->magic == RAM_MAGIC) {
+        ram->in_fault = 1;
+        ram->fault_pc = frame[6];
+        fire(EV_CRASH_W, (uint32_t)frame, 0);
+        ram->fault_handled++;
+    }
+    return ram->fault_orig;
+}
+__attribute__((naked)) static void core_fault(void)
+{
+    __asm volatile(
+        "tst    lr, #4          \n"
+        "ite    eq              \n"
+        "mrseq  r0, msp         \n"
+        "mrsne  r0, psp         \n"
+        "push   {r4, lr}        \n"
+        "bl     core_crash      \n"
+        "pop    {r4, lr}        \n"
+        "bx     r0              \n");
+}
 
 static void itcm_writable(void)
 {
@@ -1314,7 +1503,7 @@ void core_load(void)
     ram->booted = 0;
     ram->song_pending = 0;
     ram->page_mode = 0;
-    ram->npages = ram->ndata = 0;
+    ram->npages = ram->ndata = ram->nsettings = 0;
     ram->cur_page = 0;
     ram->midi_head = ram->midi_tail = 0;
     ram->armed = 0;
@@ -1359,6 +1548,12 @@ void core_load(void)
         o = put(o, "crash guard: guard says SKIP, so no mods were loaded.\n");
         skip = SKIP_GUARD;
     }
+    if (crashed() && ram->sig == RAM_SIG && ram->fault_handled) {
+        o = put(o, "ev_crash: the mods' handlers ran in the fault (pc ");
+        o = put_hex(o, ram->fault_pc);
+        o = put(o, ")\n");
+    }
+    ram->fault_handled = 0;
     if (crashed()) forget_crash();
     ram->skipped = (uint32_t)skip;
     if (skip)
@@ -1457,7 +1652,7 @@ void core_boot(void)
         }
     }
     ram->track_subs = has_subs(EV_TRACK_AUDIO_W);   /* the graph's objects: wrapped only for a subscriber */
-    ram->fx_subs = has_subs(EV_FX_AUDIO_W);
+    ram->fx_subs = has_subs(EV_FX_AUDIO_W & 0xFFFFu);
     ram->params_subs = has_subs(EV_PARAMS_W);
     if (ram->track_subs) wrap_slot(FW_SLOT_TRACK, &ram->track_orig, core_track);
     if (ram->fx_subs) {
@@ -1466,6 +1661,11 @@ void core_boot(void)
         wrap_slot(FW_SLOT_REVERB, &ram->reverb_orig, core_reverb);
     }
     if (ram->params_subs) wrap_slot(FW_SLOT_CLOCK, &ram->clock_orig, core_clock);
+    if (FW_VECTORS[3] != ((uint32_t)core_fault | 1)) {   /* ev_crash: HardFault .. UsageFault */
+        ram->fault_orig = FW_VECTORS[3];
+        ram->in_fault = 0;
+        for (int v = 3; v <= 6; v++) FW_VECTORS[v] = (uint32_t)core_fault | 1;
+    }
     if (fw_sysex_handler != (uint32_t)core_sysex) {   /* ev_sysex */
         ram->sysex_orig = fw_sysex_handler;
         fw_sysex_handler = (uint32_t)core_sysex;

@@ -102,7 +102,7 @@ its free view slot: one row per `.m8x` on the card, then APPLY & RESTART.
 
 UP / DOWN move, EDIT switches the mod under the cursor (written to `active.txt` at once), RIGHT switches it on
 and LEFT off (as TELOS), EDIT on the last row restarts, OPT goes back to SYSTEM SETTINGS. The last row reads
-RESTART when nothing has changed. A running mod that added a page shows `>` after its state, and RIGHT opens
+RESTART when nothing has changed; the row after it, MOD MENU, opens the Mod Menu (every mod page as a grid, and the mods' settings). A running mod that added a page shows `>` after its state, and RIGHT opens
 the page (OPT comes back). The firmware draws its track list from column 34, so core's text and pages keep to
 columns 0-33.
 
@@ -138,6 +138,7 @@ checks it and returns 0 under an older core. Take it at `ev_boot`.
 | `midi_send(packet)` | a USB MIDI packet to the host (ev_midi_out sees it) | `fw_sysex_send` |
 | `last_crash` | Teensyduino's crash record as the boot found it (`[0]` 0: none, `[6]` the pc) | `ev_crash` |
 | `inst_load(path, slot)`, `inst_save(path, slot)` (0.5) | an `.m8i` into a slot, or a slot to a file, through the firmware's own routines | `core_pool_load` |
+| `setting_add(setting)`, `menu_open()` (0.5) | a settings row in the Mod Menu (`{label, value, min, max, names, changed}`), kept in `/dirtyloader/settings.txt`; open the Mod Menu | `core_additem`, the Mod Menu |
 | `mod_dest_add(engine, name)` (0.5) | a modulation destination added to an engine's list (up to 16): pickable in DEST, applied in `ev_mod_apply` | LFO destination names |
 | `song` | the path of the song last loaded or saved | |
 
