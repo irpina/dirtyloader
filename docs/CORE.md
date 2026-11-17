@@ -176,6 +176,9 @@ at boot, with a crash guard, a MODS page in SYSTEM SETTINGS, and per-song mod li
 headless Teensy 4.1. Everything about it is in [LOADER.md](LOADER.md); its events are in
 [CORE-EVENTS.md](CORE-EVENTS.md).
 
+Core 0.5 adds the sequencer, mixer, instrument and audio events (`ev_seq_tick`, `ev_row`, `ev_note_off`,
+`ev_fx_row`, `ev_fx_command`, `ev_mod_apply`, `ev_mute`, `ev_inst_load` / `_save`, `ev_param_set`,
+`ev_step_edit`, `ev_audio_out`, `ev_sysex`, `ev_card_ready`, `ev_usb`), the `itcm_mid` site kind, and a safe boot.
 Core 0.4 adds the API for mods (`dl/core.h`: pages, song data, files, MIDI, restart), `ev_midi` and
 `ev_midi_out`, delete over USB and a hang guard; [PARITY-DN1.md](PARITY-DN1.md) compares it with Elekloader's
 Digitone mk1 core.

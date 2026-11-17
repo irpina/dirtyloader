@@ -1,95 +1,108 @@
 [dirtyloader docs](../README.md) › The Digitone mk1 core, side by side
 
-# core-dn1 and TELOS (Digitone mk1) against dirtyloader core 0.4 (M8 Headless)
+# core-dn1 and TELOS (Digitone mk1) against dirtyloader core 0.5 (M8 Headless)
 
 The reference is Elekloader's `mods/core-dn1` (5.3) and `mods/telos-dn1` (0.2) for the Digitone mk1, together with
 the project mod lists from TELOS's later work. Each of their features is listed here with what the M8 core does
 in its place.
 
 Status:
-- **done**: built and checked on hardware (a spare Teensy 4.1 running M8 Headless 6.6.4A).
+- **done**: built and checked on hardware: a spare Teensy 4.1 running M8 Headless 6.6.4A, counted by
+  `examples/core-selftest`, or heard and measured. The "checked" column says how.
 - **partly**: built and checked, but covering less than the Digitone feature does.
 - **not built**: could be done on the M8, but isn't yet.
-- **n/a**: the M8 has nothing the feature could attach to.
+- **n/a**: the M8 has nothing the feature could attach to. The reason is given.
 
 ## TELOS
 
-| TELOS (Digitone mk1) | M8 core 0.4 | status |
-|---|---|---|
-| mods kept on the unit: a 2 MB raw store on the +Drive, 63 files | `.m8x` files in `/dirtyloader/mods` on the SD card, 16 loaded at once, 21.7 KB of ITCM | done |
-| link at boot, at `ev_card_ready`, before the project loads | `core_load` inside `setup()`, after the card mounts and before the firmware uses it | done |
-| transfer over USB SysEx (`F0 7D 54 4C ...`, at `ev_sysex`) | transfer over the USB serial port m8c uses (`0xD1` requests, at `ev_serial`) | done |
-| `unit add` / `list` / `on` / `off` / `remove` / `clear` / `info` / `restart`, `add --off` | `python -m dirtyloader.unit add [--off]`, `ls`, `on`, `off`, `remove`, `clear`, `info`, `restart`, plus `status` and `good` | done |
-| a file's CRC is checked before the directory takes it | `add` reads the file back (CHECK: size and CRC-32) before switching it on | done |
-| `format` | n/a: the card is a FAT/exFAT volume the M8 formats itself | n/a |
-| SETTINGS > MODS (TELOS): a row per mod, `ON` `+ON` `OFF` `-OFF` `E<n>`, APPLY & RESTART / RESTART | SYSTEM SETTINGS > MODS (TELOS) > OPEN: the same rows and states | done |
-| YES toggles; RIGHT on, LEFT off; NO back | EDIT toggles; RIGHT on, LEFT off; OPT back | done |
-| the store's use in the title bar | `n / 21680 BYTES IN USE` under the list | done |
-| crash guard: armed for 10 s at a boot with mods, one safe boot after a crash | armed (`ARMD`) for 10 s; a boot that finds it armed, or Teensyduino's crash record, loads nothing (`SKIPPED` in the title) until RESTART on the page or `unit good` | done |
-| project mod lists, LOAD PROJECT MODS? on load | song mod lists (`<song>.mods`), LOAD SONG MODS? on load | done |
-| a skip key at power-on (TELOS: not yet) | not built: the hang guard covers a mod that hangs at boot | not built |
-| a check before switching on (TELOS: not yet) | not built: a refusal shows as `E<n>` after the restart, as on TELOS | not built |
+| TELOS (Digitone mk1) | M8 core 0.5 | status | checked |
+|---|---|---|---|
+| mods kept on the unit: a 2 MB raw store on the +Drive, 63 files | `.m8x` files in `/dirtyloader/mods` on the SD card; up to 16 loaded at once, in 21.6 KB of ITCM | done | loaded, `status.txt` |
+| link at boot, at `ev_card_ready`, before the project loads | `core_load`, inside `setup()`, after the card mounts and before the firmware uses it | done | boot |
+| transfer over USB SysEx (`F0 7D 54 4C ...`, at `ev_sysex`) | transfer over the USB serial port m8c uses (`0xD1` requests, at `ev_serial`) | done | uploads, CRC check |
+| `unit add` / `list` / `on` / `off` / `remove` / `clear` / `info` / `restart`, `add --off` | `python -m dirtyloader.unit add [--off]`, `ls`, `on`, `off`, `remove`, `clear`, `info`, `restart`, plus `status`, `good` and `safe` | done | each command |
+| a file's CRC is checked before the directory takes it | `add` reads the file back (CHECK: size and CRC-32) before switching it on | done | |
+| `format` | n/a: the card is a FAT/exFAT volume that the M8 and any computer format | n/a | |
+| SETTINGS > MODS (TELOS): a row per mod, `ON` `+ON` `OFF` `-OFF` `E<n>`, APPLY & RESTART / RESTART | SYSTEM SETTINGS > MODS (TELOS) > OPEN: the same rows and states | done | screenshots |
+| YES toggles; RIGHT on, LEFT off; NO back | EDIT toggles; RIGHT on, LEFT off; OPT back | done | `active.txt` after each |
+| the store's use in the title bar | `n / 21664 BYTES IN USE` under the list | done | |
+| crash guard: armed for 10 s at a boot with mods; one safe boot after a crash | armed (`ARMD`) for 10 s. Either a boot that finds it armed or Teensyduino's crash record makes core load nothing (`SKIPPED` in the title) until RESTART on the page or `unit good` | done | `ARMD` → `GOOD` at 10 s; a crash → `SKIP` (twice, by accident) |
+| project mod lists, LOAD PROJECT MODS? on load | song mod lists (`<song>.mods`), LOAD SONG MODS? on load | done | save and load |
+| a skip key at power-on (TELOS: "not yet") | `python -m dirtyloader.unit safe`, since headless has no keys. It sends a marker over USB serial while the unit boots, and core listens for 350 ms once USB is up | done | the unit booted with `safe boot` in `status.txt` |
+| a check before switching on (TELOS: "not yet") | not built: as on TELOS, a refusal shows as `E<n>` after the restart | not built | |
 
 ## core-dn1: the hook bus and the boot
 
-| core-dn1 | M8 core 0.4 | status |
-|---|---|---|
-| boot copier: the RAM image, `.bss`, at the OS entry's call | the loader copies each `.m8x` into ITCM, relocates it and zeroes its `.bss` | done |
-| `ev_tick`, `ev_draw`, `ev_key` | `ev_tick`, `ev_draw`, `ev_key` | done |
-| `ev_enc` | the M8 has no encoders | n/a |
-| `ev_render_in` / `ev_render_out` | the same, from the audio interrupt (IRQ 70) | done |
-| `ev_settings` and `core_additem` (SETTINGS rows) | core adds its own MODS row; mods get pages (below) in place of rows | partly |
-| `ev_voice_on` (2.1), `ev_voice_ready` (4.2) | `ev_note`, at the note-on (ITCM), once per note | partly |
-| `ev_boot_ui`, `ev_idle` | `ev_boot`, `ev_tick` | done |
-| `ev_view` (the view stack) | `ev_view` at `set_view` (take it to stay) | done |
-| `ev_transport` (start, stop, pause) | `ev_play`, `ev_stop` | done |
-| `ev_tempo` | `ev_tempo` | done |
-| `ev_project_saving` / `_saved`, the loads | `ev_song_save` / `ev_song_load` | done |
-| `ev_card_ready` | none: `core_load` runs at that moment, and mods run after it | n/a |
-| `ev_crash` (exception handler) | the API's `last_crash`: the crash record the next boot found (Teensyduino's handler reboots) | partly |
-| `ev_usb` | none | not built |
+| core-dn1 | M8 core 0.5 | status | checked |
+|---|---|---|---|
+| boot copier: the RAM image and `.bss`, at the OS entry's call | the loader copies each `.m8x` into ITCM, relocates it and zeroes its `.bss` | done | |
+| `ev_tick`, `ev_draw`, `ev_key` | `ev_tick`, `ev_draw`, `ev_key` | done | ~380k/s, keys |
+| `ev_enc` | n/a: the M8 has no encoders. Its input is 8 keys, reported as chords to `ev_key` | n/a | |
+| `ev_render_in` / `ev_render_out` | the same, from the audio interrupt (IRQ 70) | done | ~740/s |
+| `ev_settings`, `core_additem` (SETTINGS rows) | core adds its own MODS row to SYSTEM SETTINGS. Mods get pages (`page_add`), reached from that row, rather than rows of their own | partly | |
+| `ev_voice_on` (2.1), `ev_voice_ready` (4.2) | `ev_note` at the note-on (`player, ...`); `ev_row` with the row's 9 bytes before it fires | done | 1 per note, 1 per row |
+| `ev_boot_ui`, `ev_idle` | `ev_boot`; `ev_tick` (the M8 has one main loop and no RTOS tasks) | done | |
+| `ev_card_ready` (5.0) | `ev_card_ready(mounted)`: right after core loads mods, before the firmware first uses the card | done | 1 per boot |
+| `ev_usb` (5.0) | `ev_usb(configured)`, from `ev_tick` when Teensyduino's `usb_configuration` (`0x2004159F`) changes | done | 1 at boot, `1` |
+| `ev_crash` (5.0) | the API's `last_crash`: the crash record the next boot found. Teensyduino's own fault handler records it and resets | partly | crash pc in `status.txt` |
+| `core_restart` / `core_restart_now` | `restart()` | done | |
+| `ev_view` (the view stack) | `ev_view` at `set_view` (take it to stay) | done | |
+| `ev_ui_msg` | n/a: the M8 has no UI task or message queue. Its loop calls the input router (`ev_key`) and the views directly | n/a | |
+| `ev_transport` (start, stop, pause) | `ev_play`, `ev_stop` (the M8 has no pause) | done | 1 per press |
+| `ev_seq_tick` | `ev_seq_tick(engine)` at the tick processor (ITCM, 192 a beat) | done | ~1,900 in a 3 s play at 120 BPM |
+| `ev_tempo` | `ev_tempo` | done | |
+| `ev_project_saving` / `_saved`, the loads | `ev_song_save` / `ev_song_load` | done | |
+| `ev_pattern_request`, `ev_pattern_switch`, `ev_pattern_op` | the M8 has no patterns. Its song rows, chains and phrases are edited in place, with no pattern switch or pattern save. Phrase edits reach `ev_step_edit` | n/a | |
+| `ev_track_reload`, `ev_sound_load`, `ev_sound_op` (pool) | `ev_inst_load` / `ev_inst_save` (`.m8i` into or out of a slot). The M8's instrument pool has no copy/send/protect operations to hook | partly | 1 each, `/Instruments/1.m8i` |
+| `ev_sound_clear`, `core_pool_load`, `core_pool_count` | not built (the pool's clear and an API load) | not built | |
+| `ev_mute` | `ev_mute(mixer, track)` at the routine every mute and solo path applies through. It fires once per track, and the masks are at `fw_mute_mask` / `fw_solo_mask` | done | 8 per toggle |
+| `ev_trig_set`, `ev_step_note`, `ev_plock_store` / `_clear`, `ev_step_clear`, `ev_track_length` | `ev_step_edit(view, cell, n, column)`: the phrase view's cell-edited method. Bulk edits (clear, paste) may not reach it | partly | 1 per note entered |
+| `ev_param_set`, `ev_sound_live` | `ev_param_set(instview, field, old)`: an instrument field changed and its value went to the playing tracks | done | 1 per edit |
+| `ev_keyboard_note`, `ev_live_note` | key-played notes reach `ev_note` (its site also serves preview). There is no separate event to take a press | partly | |
+| `ev_key_leds` | n/a: headless has no key LEDs. Its keys are m8c's, sent over USB serial | n/a | |
+| `ev_voice_free`, `ev_voice_steal` | `ev_note_off(player, kill)`. The M8 has one player per track (8, `FW_PLAYER(t)`) and no voice allocator to steal from | done (release); n/a (steal) | 1 per OFF |
+| `ev_arp_step` | n/a: the M8's arpeggio is an FX command (ARP), which `ev_fx_row` / `ev_fx_command` see | n/a | |
 
 ## core-dn1: MIDI
 
-| core-dn1 | M8 core 0.4 | status |
-|---|---|---|
-| `ev_midi_in` (every message), `ev_midi_cc` (3.2), `ev_midi_pc` (4.0) | `ev_midi`: every USB MIDI packet `usbMIDI.read()` takes, which a handler may take; CC and PC are filtered by the handler | done |
-| `ev_sysex` | SysEx comes through `ev_midi` as its USB packets (CIN 4-7) | partly |
-| `ev_midi_out`, `ev_seq_midi` (5.0.1) | `ev_midi_out`: every packet `usb_midi_write_packed` sends | done |
-| `core_midi_receive` (5.0.1) | `midi_receive`: a packet played into the M8 as if from the host | done |
-| `fw_sysex_send` | `midi_send`: one packet (a SysEx goes as its packets) | done |
-| DIN MIDI | headless has USB MIDI only | n/a |
+| core-dn1 | M8 core 0.5 | status | checked |
+|---|---|---|---|
+| `ev_midi_in`, `ev_midi_cc` (3.2), `ev_midi_pc` (4.0) | `ev_midi`: every USB MIDI packet `usbMIDI.read()` takes, which a handler may take. Handlers filter CC and PC themselves | done | 3 in, CC 7 = 99 |
+| `ev_sysex` | `ev_sysex(data, len, last)`: core chains usbMIDI's SysEx handler, which the firmware sets | done | 1 per SysEx sent |
+| `ev_midi_out`, `ev_seq_midi` (5.0.1) | `ev_midi_out`: every packet `usb_midi_write_packed` sends | done | the demo's note |
+| `core_midi_receive` (5.0.1) | `midi_receive`: a packet played into the M8 as if from the host | done | reached the read path |
+| `fw_sysex_send` | `midi_send`: one packet (a SysEx goes as its packets) | done | |
+| DIN MIDI | n/a: headless is a bare Teensy board with no MIDI jacks; its MIDI is USB MIDI | n/a | |
+
+## core-dn1: audio
+
+| core-dn1 | M8 core 0.5 | status | checked |
+|---|---|---|---|
+| exclusive audio, insert audio (`core_audio`, 3.2-4.0) | `ev_audio_out(left, right, frames)`: the master output's two blocks (64 float frames, 44.1 kHz) before they go to USB and I2S. A handler processes them in place (insert) or writes them and takes the event (exclusive). Core wraps the tap's `update()` through its vtable, which lives in RAM | done | `examples/audio-tone`: 440.0 Hz recorded from the M8's USB audio |
+| `ev_render_voices` (3.1) | not built. The M8's per-track voices are Teensy Audio objects in the same engine; the hook would be their `update()` like the tap's | not built | |
+| `ev_render_params`, `ev_render_fx` | not built. The send effects are objects in the same graph | not built | |
+| `ev_mod_apply` (designed for the M8 in [CORE-EVENTS.md](CORE-EVENTS.md)) | `ev_mod_apply(dest, modulator, target, engine)` at the destination switch of each engine. A handler may take it, which skips the stock destination | done | FM, HYPER, MACRO, SAMPLER, WAV, EXTERNAL: each counted |
+| `ev_fx_command`, `ev_fx_row` (the M8's own) | `ev_fx_row` (phrase FX applier), `ev_fx_command` (table FX executor) | done | 3 per row; per table tick |
+| the note queue (4.1), `ev_note_built` (5.1) | `ev_row`: the row (note, velocity, instrument, three FX) before it fires, which a handler may rewrite | done | |
 
 ## core-dn1: what mods get from core
 
-| core-dn1 | M8 core 0.4 (`dl/core.h`) | status |
-|---|---|---|
-| the Mod Menu (2.2), icon grid (2.3), `core_menu_open` | `page_add`: a `>` on the mod's MODS row, RIGHT opens its page | partly (a list, not a grid) |
-| mod pages (2.1), `core_page_open`, `core_page_shown` | `page_open` / `page_close`; the page draws with `fw_text` and takes keys | done |
-| project data (2.1) | `song_data`: blocks saved as `<song>.dldata` and put back on load (the boot's AUTOSAVE included) | done |
-| `core_restart` / `core_restart_now` (5.0) | `restart` | done |
-| `fw_card_read` / `fw_card_write` | `file_read` / `file_write` (files, by path) | done |
-| firmware locations as exports (3.0, 3.3) | `m8-headless/fw.h`: SdFat, the UI (views, grid, text), USB serial, USB MIDI, millis, the crash record | done |
-| the C library and libgcc (3.3) | `memcpy`, `memmove`, `memset`, `memcmp` and `strlen` linked into each mod (`sdk/lib/dl_libc.c`), plus `-lgcc` | done |
+| core-dn1 | M8 core 0.5 (`dl/core.h`) | status | checked |
+|---|---|---|---|
+| the Mod Menu (2.2), icon grid (2.3), `core_menu_open` | `page_add`: a `>` on the mod's MODS row, and RIGHT opens its page | partly (a list, not a grid) | screenshot |
+| mod pages (2.1), `core_page_open`, `core_page_shown` | `page_open` / `page_close`; the page draws with `fw_text` and takes keys | done | |
+| project data (2.1) | `song_data`: blocks saved as `<song>.dldata` and put back on load (the boot's AUTOSAVE included) | done | value 5 back after reload |
+| `fw_card_read` / `fw_card_write` | `file_read` / `file_write` (files, by path) | done | |
+| firmware locations as exports (3.0, 3.3) | `m8-headless/fw.h`: SdFat, the UI, USB serial and MIDI, the song layout, mixer masks, the players, the audio engine, millis, the crash record | done | |
+| the C library and libgcc (3.3) | `memcpy`, `memmove`, `memset`, `memcmp` and `strlen` linked into each mod, plus `-lgcc` | done | test |
 
-## core-dn1: what the M8 has no counterpart for, or not yet
+## Not equivalent: the Digitone's knob pages
 
 | core-dn1 | M8 | status |
 |---|---|---|
-| parameter slots, `core_param_override`, lane parameters, knobs on pages, LFO names (2.1-5.2) | the M8 has no knob pages; its equivalent is instrument and modulation parameters (`core_mod_dests`, designed for Model:02 in [CORE-EVENTS.md](CORE-EVENTS.md)) | not built |
-| `ev_render_voices`, exclusive and insert audio (`core_audio`, 3.1-4.0) | the Teensy Audio graph: `ev_render_in` / `ev_render_out` only | not built |
-| `ev_render_params`, `ev_render_fx`, the note queue, `ev_note_built` | the M8's sequencer and FX are ITCM code; sites not mapped | not built |
-| `ev_key_leds` | headless has no key LEDs | n/a |
-| `ev_voice_free`, `ev_voice_steal`, `ev_arp_step` | no voice allocator or arpeggiator in that form | n/a |
-| `ev_keyboard_note`, `ev_live_note` | key-played notes reach `ev_note` (its site also serves preview) | partly |
-| `ev_mute`, `ev_pattern_op`, `ev_pattern_request` / `_switch`, `ev_track_reload` | the M8's mutes, chains and songs; sites not mapped | not built |
-| `ev_sound_op`, `ev_sound_load`, `ev_sound_clear`, `core_pool_load` | the M8's instrument load and save; sites not mapped | not built |
-| `ev_trig_set`, `ev_step_note`, `ev_plock_*`, `ev_track_length`, `ev_param_set`, `ev_sound_live` | the M8's phrase edits; sites not mapped | not built |
-| `ev_seq_tick` | the sequencer tick (ITCM); site not mapped | not built |
+| parameter slots, `core_param_override`, lane parameters, knobs on pages, LFO destination names (2.1-5.2) | The M8 has no knob pages: its parameters are fields edited with EDIT + arrows. A mod's own parameters go on its page. The M8 counterpart of adding LFO destinations is `core_mod_dests` (extend each engine's destination name list). `ev_mod_apply` gives the hook; the name list is not built | not built |
 
-Everything marked done was checked on hardware. The self-test mod (`examples/core-selftest`) counts every event.
-The API demo (`examples/core-api-demo`) covers four things:
-- its page opens from the MODS page;
-- a value survives a song save and reload;
-- a note sent to the host shows up in `ev_midi_out`;
-- a packet it plays in reaches the M8's own MIDI read path.
+## Not this device
+
+The Model:02 build (6.6.2A, the `.bin` container) is a separate port of the same core. Its sites differ (it has
+a touch screen and no USB-only headless layout), so it gets its own bindings. Not built.

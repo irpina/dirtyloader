@@ -15,7 +15,7 @@ hardware by `examples/core-selftest` ([LOADER.md](LOADER.md)); core 0.4 adds the
 (`dl/core.h`). [PARITY-DN1.md](PARITY-DN1.md) sets all of it against Elekloader's Digitone mk1 core. The rest of
 this page is the Model:02 design.
 
-## Implemented: M8 Headless 6.6.4A (core 0.3)
+## Implemented: M8 Headless 6.6.4A (core 0.3 to 0.5)
 
 Mods subscribe with `DL_ON(EV_..., order, handler)` (`dl/mod.h`); firmware locations are in
 `m8-headless/fw.h`.
@@ -38,6 +38,24 @@ Mods subscribe with `DL_ON(EV_..., order, handler)` (`dl/mod.h`); firmware locat
 | `ev_note` | ITCM note-on (run `0x22BDC`) | `int f(void *player, int instrument)` | audio thread; once per note; players are `0x2001ADF0 + 0x248 × track`; take it to drop the note |
 | `ev_render_in` | audio interrupt entry (IRQ 70 vector) | `void f(void)` | audio thread, about 740 a second |
 | `ev_render_out` | audio interrupt exit | `void f(void)` | audio thread |
+| `ev_card_ready` | core_load, after the mods load (0.5) | `void f(int mounted)` | before the firmware first uses the card; before `ev_boot` |
+| `ev_usb` | `ev_tick`, when `usb_configuration` (`0x2004159F`) changes (0.5) | `void f(int configured)` | |
+| `ev_sysex` | usbMIDI's SysEx handler pointer (`0x20040654`), chained at boot (0.5) | `int f(const uint8_t *data, int len, int last)` | take it to keep the firmware's handler from seeing the chunk |
+| `ev_audio_out` | the audio tap's `update()` (vtable slot in RAM, engine `0x2000BE80` + `0x9308`) (0.5) | `int f(float *left, float *right, int frames)` | audio thread, ~690 a second, 64 float frames. Process in place (insert) or write and take (exclusive); a silent output gets zeroed blocks |
+| `ev_seq_tick` | the tick processor, ITCM run `0x21A64` (0.5) | `int f(void *engine)` | audio thread, 192 a beat |
+| `ev_row` | the sequencer's row fire, inside run `0x24650` at `0x24B7C` (0.5, `itcm_mid`) | `void f(void *player)` | audio thread; the 9-byte row at `player + 0x4C`, before its note and FX |
+| `ev_note_off` | note off, ITCM run `0x22AC0` (0.5) | `int f(void *player, int kill)` | audio thread; take it to keep the note sounding |
+| `ev_fx_row` | the phrase FX applier, ITCM run `0x22DE4` (0.5) | `int f(void *player, int column, int cmd, int value)` | audio thread, once per FX column per row; take it to replace the stock effect |
+| `ev_fx_command` | the table FX executor, ITCM run `0x258EC` (0.5) | `int f(void *runner, int column, int cmd, int value)` | audio thread |
+| `ev_mod_apply` | each engine's modulation-destination switch (7 `itcm_mid` sites) (0.5) | `int f(int dest, void *modulator, void *target, int engine)` | audio thread; `engine` is `FW_ENGINE_*`; take it to skip the stock destination |
+| `ev_mute` | the routine every mute and solo applies through, `0x60038940` (0.5) | `int f(void *mixer, int track)` | once per track; masks `fw_mute_mask` / `fw_solo_mask` |
+| `ev_inst_load` / `ev_inst_save` | `0x6007BDD0` / `0x6007C47C` (0.5) | `int f(void *songs, const char *path, int slot)` | take it to refuse |
+| `ev_param_set` | the instrument view's field-changed method, `0x60053B30` (0.5) | `void f(void *instview, int field, int old)` | |
+| `ev_step_edit` | the phrase view's cell-edited method, `0x6006025C` (0.5) | `void f(void *view, uint8_t *cell, int n, int column)` | not reached by bulk edits |
+
+`itcm_mid` sites (core 0.5) sit inside a function, where registers, flags and s0-s15 are live. The stub keeps
+them all and returns through a stack slot. It takes the handler's arguments from any register (or a constant),
+and a taken event jumps to the function's own epilogue, which the builder checks against the code.
 
 `ev_note` is the first ITCM site: the patched instruction branches through a veneer in ITCM (`ldr.w pc,
 [pc]`, 8 bytes at `0x2FF80..`) to its flash stub, which returns to ITCM with `movw`/`movt ip` and `bx ip`. The

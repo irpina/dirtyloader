@@ -1,8 +1,9 @@
-# Loading mods on the unit (core 0.3 and 0.4)
+# Loading mods on the unit (core 0.3 to 0.5)
 
 Core 0.3 is dirtyloader's answer to Elekloader's TELOS: the firmware is patched once, and from then on mods
 are files on the M8's SD card. Core 0.4 adds what Elekloader's Digitone mk1 core gives mods beyond the hook bus
-(an API, MIDI, pages, song data); [PARITY-DN1.md](PARITY-DN1.md) compares the two feature by feature. You put them there over USB, switch them on or off, and the next boot loads
+(an API, MIDI, pages, song data). Core 0.5 adds the sequencer, mixer, instrument and audio hooks, and a safe boot.
+[PARITY-DN1.md](PARITY-DN1.md) compares the two feature by feature. You put them there over USB, switch them on or off, and the next boot loads
 them. No more rebuilding and reflashing the firmware for every change of mods.
 
 First build: **M8 Headless 6.6.4A** on a Teensy 4.1. Everything below has run on hardware (a spare Teensy 4.1
@@ -74,6 +75,15 @@ writes `GOOD` first: it is not a hang.
 The MODS page's title says `SKIPPED: A CRASH`, `SKIPPED: NO 10 S RUN` or `SKIPPED` while the guard is set; its
 RESTART row writes `GOOD` and restarts, so the set gets another try. `core->last_crash` gives mods the crash
 record the boot found.
+
+**Safe boot** (core 0.5), TELOS's missing "skip key at power-on" for a unit without keys:
+
+    python -m dirtyloader.unit safe        then reset or replug the unit
+
+The tool sends a 6-byte marker (all bytes >= 0x80, so no m8c command) over and over. core_load runs ~0.3 s after
+reset, waits up to 250 ms for USB to be configured, then listens 350 ms. If the marker comes, it loads nothing
+and writes `SKIP`. Measured on the Teensy: USB was configured within 10 ms of core_load, and the tool's first
+bytes arrived 156 ms later. The cost is a boot ~0.35 s longer on a computer and 0.25 s longer on a charger.
 
 ## The MODS page
 
@@ -195,6 +205,7 @@ data, alongside any display frames.
 | 7 RESTART | | (reply, then reset) |
 | 8 PEEK | address u32, count u16 (≤ 512) | memory, for development. Nothing guards the read: stay in RAM, and away from address 0 and the stack guard at `0x200415E0`, which fault |
 | 9 DELETE | name (under `/dirtyloader` only) | (core 0.4; SdFat's `FatFile::remove` `0x6009FF4C` / `ExFatFile::remove` `0x6009DADC`) |
+| 10 POKE | address u32, bytes | (core 0.5) write RAM, `0x20000000..0x20280000` only: development and tests (the hardware tests write OFF notes into a phrase with it) |
 
 Status: 0 ok, 1 bad request, 2 checksum, 3 bad path or no file, 4 SD error, 5 no card, 6 timeout, 7 unknown.
 Names are `[A-Za-z0-9._-/]`, no `..`, under 64 bytes. PUT writes only under `/dirtyloader/` (names are
@@ -227,6 +238,8 @@ Close m8c first; the port can only be open once. A web shop can speak the same p
 - Teensyduino's crash record in this build has a length of 11 words, not 44; core accepts both.
 - The settings screen's enter code reaches its templates through a literal that points at the colour template
   (`0x60074018`), not the text one; core patches all three literals.
+- PEEK and POKE have no fault guard: address 0 and its neighbourhood (`0x9308` faulted), the stack guard
+  (`0x200415E0`) and parts of OCRAM fault. The crash guard catches the reset that follows.
 - Terminate every path core builds: core 0.3 built `<song>.mods` without its NUL, so the name ran on into the
   stack; opens failed until the stack happened to hold a 0, and one write left a stray `1.m8s.mods#`.
 
@@ -236,14 +249,20 @@ Close m8c first; the port can only be open once. A web shop can speak the same p
 PEEK reads the counters (the load address is in `status.txt`, the offset in the build's symbols). On the spare
 Teensy: boot 1; tick and draw about 380k a second; render in and out about 740 a second each; one note per
 played note; play and stop once per PLAY press; one midi per packet in, one midi_out per packet out; key,
-view, tempo, song load and save, and serial as used.
+view, tempo, song load and save, and serial as used. Core 0.5's, on a phrase of four C-4s with two OFFs:
+`ev_row` 26 and `ev_fx_row` 78 in 3 s (three columns a row), `ev_note_off` 4, `ev_mod_apply` thousands a second
+on each of FM, HYPER, MACRO, SAMPLER, WAV and EXTERNAL once MOD1 had a destination, `ev_mute` 8 per toggle,
+`ev_step_edit` 1 per note entered, `ev_param_set` 1 per field edit, `ev_inst_save` / `ev_inst_load` 1 each,
+`ev_sysex` 1 per SysEx, `ev_card_ready` and `ev_usb` 1 at boot, `ev_audio_out` 691 a second.
+`examples/audio-tone` (exclusive audio) came out of the M8's USB audio as a 440.0 Hz sine at 0.2 of full scale,
+recorded on the PC (winmm).
 
 Mods are compiled freestanding; `sdk/lib/dl_libc.c` (memcpy, memmove, memset, memcmp, strlen) and libgcc are
 linked into each, so a struct copy links. A mod's own definitions win.
 
 ## Next
 
-- A skip key at power-on; a check before switching a mod on.
-- The rest of [PARITY-DN1.md](PARITY-DN1.md)'s "not built": instrument and modulation hooks, the sequencer's
-  edits and tick, audio ownership.
+- A check before switching a mod on.
+- The rest of [PARITY-DN1.md](PARITY-DN1.md)'s "not built": per-voice and send-effect audio hooks, LFO
+  destination names (`core_mod_dests`), the instrument pool's clear.
 - The Model:02 build: its own bindings, and the `.bin` container instead of HEX.
