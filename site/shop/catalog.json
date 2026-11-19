@@ -57,10 +57,11 @@
    "keys": [
     "MOD LOADER > CHAOS PAD > EDIT: CHAOS mode (the FXPAD; Headless: all four directions)",
     "MOD LOADER > SHIFT+EDIT: on / off",
-    "Touch / keys / CC 12-15: X, Y, on, effect"
+    "Touch / keys / CC 12-15: X, Y, on, effect",
+    "FULLSCREEN button (the pad's top right) or CC 17: the pad on the whole screen; OPT: back"
    ],
    "on_unit": "Played on a Model:02 6.6.2A with the touch screen (FILTER, the three FXPAD styles) and on a Headless 6.6.4A over MIDI (all twelve effects).",
-   "version": "0.2.1",
+   "version": "0.3.0",
    "header_title": "CHAOS CONTROL: an X/Y effects pad on the master output",
    "hooks": [
     "audio_out",
@@ -74,24 +75,24 @@
    "builds": {
     "m8-model02": {
      "file": "mods/m8-model02/chaos-control.m8x",
-     "size": 19912,
-     "sha256": "4d046703a8243d6334f1aaa12ce5fd8cb5c74b6550ff34200d1e16a7ecbb1f05",
+     "size": 20800,
+     "sha256": "b1d3c1a51963f204fb963c17bd2e8cf165b341d6a76a4671db9dc1d2df702b2a",
      "fw": 33949186,
-     "version": "0.2.1"
+     "version": "0.3.0"
     },
     "m8-model02-664": {
      "file": "mods/m8-model02-664/chaos-control.m8x",
-     "size": 19912,
-     "sha256": "aa711e00180102173875f9980bb35f79c00ebce6c0a72e12ab73bfb7b70d2e77",
+     "size": 20800,
+     "sha256": "c0ddd6175bef152582843eea9b9ac85024a9541b2c304f6fbda4f748bceafbb2",
      "fw": 33949188,
-     "version": "0.2.1"
+     "version": "0.3.0"
     },
     "m8-headless": {
      "file": "mods/m8-headless/chaos-control.m8x",
      "size": 9244,
-     "sha256": "b8c16d16f19c5c98937e7e9965ec417730401e9a2b5a5c7f16a0b8b810ac7872",
+     "sha256": "96c1d719aa667035b87ff28220e00795197565019b444305b14e68ee1a20433c",
      "fw": 394756,
-     "version": "0.2.1"
+     "version": "0.3.0"
     }
    },
    "source": "https://github.com/irpina/dirtyloader/tree/main/examples/chaos-control"

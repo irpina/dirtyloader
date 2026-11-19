@@ -18,7 +18,7 @@
       "title": "CHAOS CONTROL",
       "summary": "A Kaoss-style X/Y effects pad on the master output: twelve effects (filter, repeat, tape stop, echo, jet, pitch, scratch, grain, swirl...). Play it with the touch screen, the keys or MIDI CC 12-15. Open it from the MOD LOADER: EDIT on its card shows the FXPAD.",
       "details": "On the Model:02, CHAOS mode is the visualizer: FXPAD draws a 38 x 38 LED pad that swirls, ripples or shows the tracks around your finger, for about a third of the stock scopes' cost. On the Headless, the mod opens its own screen and MIDI plays it. Settings (effect, hold, the visual) are rows in its OPTIONS page in the MOD LOADER (all four directions). On the Headless, all four directions open its screen.",
-      "keys": ["MOD LOADER > CHAOS PAD > EDIT: CHAOS mode (the FXPAD; Headless: all four directions)", "MOD LOADER > SHIFT+EDIT: on / off", "Touch / keys / CC 12-15: X, Y, on, effect"],
+      "keys": ["MOD LOADER > CHAOS PAD > EDIT: CHAOS mode (the FXPAD; Headless: all four directions)", "MOD LOADER > SHIFT+EDIT: on / off", "Touch / keys / CC 12-15: X, Y, on, effect", "FULLSCREEN button (the pad's top right) or CC 17: the pad on the whole screen; OPT: back"],
       "on_unit": "Played on a Model:02 6.6.2A with the touch screen (FILTER, the three FXPAD styles) and on a Headless 6.6.4A over MIDI (all twelve effects)."
     },
     {

@@ -178,6 +178,15 @@ the same budget; **not yet measured on the Model:02**.
 That's probably so the stock scopes don't flood USB. With FXPAD, CHAOS CONTROL lifts the pause, so m8c, and
 dirtyloader's screenshots, show CHAOS mode.
 
+**FULLSCREEN** (0.3.0): the button at the pad's top right (four corners pointing out; it covers the pad's 3 × 3
+top-right cells) makes the pad the whole screen, and **OPT** goes back to FXPAD's own screen (CHAOS CONTROL takes that
+OPT, so it doesn't close the visualizer; any other key still does). MIDI CC 17 (64 and up) toggles it too. The
+same 38 × 38 cells (the buffer is all the spare RAM there is), 12 × 8 px each over 456 × 304, lit 11 × 7; the maths
+widens to 18 × 12 units, so the swirl stays round, and the finger covers the whole screen. 12,000 px a frame instead
+of 5,000, as the cells are three times the size. Leaving the visualizer resets it: it opens on FXPAD's own screen.
+Checked on the Model:02 (6.6.4A, 2026-11-19) over m8c's stream: CC 17 in, a MIDI drag across the full screen, OPT
+back to FXPAD, OPT again out of the visualizer. The touch button itself was not pressed (a person's finger).
+
 **MIDI CC 16** (64 and up) opens or closes the visualizer: CHAOS CONTROL passes the four-direction action to the
 firmware's input router (`0x6004C6C8`). While the visualizer is open, the firmware ignores m8c's keys, so this is
 the way out from a computer.

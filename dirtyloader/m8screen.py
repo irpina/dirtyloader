@@ -58,6 +58,8 @@ def render(frames: list, scale: int = 3):
     font = ImageFont.load_default()
     colour = (0, 0, 0)
     for f in frames:
+        if len(f) in (6, 9, 10, 13) and f[0] == 0xFE and f[1] == 0xFE:
+            f = f[1:]                         # the firmware now and then sends a rectangle's 0xFE twice (heavy drawing)
         t, n = f[0], len(f)
         if t == 0xFE and n in (5, 8, 9, 12):
             x, y = struct.unpack_from("<HH", f, 1)

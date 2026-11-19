@@ -103,6 +103,7 @@ static uint8_t *fp_cell;                            /* each cell's colour as dra
 static const char *const style_names[VIS_STYLES] = { "STOCK", "SWIRL", "RIPPLE", "BARS" };
 static const struct dl_setting set_style = { "CHAOS VIS", &vis_style, 0, VIS_STYLES - 1, style_names, 0 };
 static int fxpad_touch(float tx, float ty, int down);   /* the FXPAD screen's own touch handling (below) */
+static volatile uint8_t fp_full_req;                /* FULLSCREEN on / off on FXPAD's next frame (its button, CC 17) */
 static volatile float out_peak;                     /* the master's peak since FXPAD's last frame (audio thread) */
 #endif
 static const struct dl_core *core;
@@ -619,6 +620,9 @@ static int on_midi(uint32_t p)
 #ifdef fw_input_router
     else if (cc == 16) { if (v >= 64) vis_toggle = 1; }   /* the visualizer on / off (m8c's keys can't close it) */
 #endif
+#ifdef fw_rect
+    else if (cc == 17) { if (v >= 64) fp_full_req = 1; }  /* FXPAD's FULLSCREEN on / off */
+#endif
     else return 0;
     midi_seen++;
     return 1;                                       /* ours: the firmware does not see it */
@@ -816,6 +820,7 @@ static void bar(int from, int to, uint16_t c) { if (to > from) rect(OV_PANEL_X +
  *            rings out of it, BARS by the tracks' levels. A cream crosshair is the
  *            finger. The finger's speed twists the spiral; the effect's wet speeds it up.
  *   right    the effect's X and Y, MOTION and WET as bars; MODE < name > and HOLD, both tappable
+ *   FULLSCREEN the button at the pad's top right (or CC 17): the pad alone, on the whole screen; OPT goes back
  *   footer   XY | X and Y | the master output, a column a frame like a scope's sweep
  * Cheap: each frame every cell's colour is worked out (a few us), but only the cells that changed are drawn, at most
  * FP_BUDGET rects a frame with everything else; the sweep starts where the last frame stopped, in a scattered
@@ -831,6 +836,26 @@ static void bar(int from, int to, uint16_t c) { if (to > from) rect(OV_PANEL_X +
 #define FP_SPAN   (FP_N * FP_C)
 #define FP_CELLS  (FP_N * FP_N)
 #define FP_BUDGET 5000                              /* pixels a frame: fill-rect costs ~0.55 us a pixel (SPI) */
+/* FULLSCREEN (the button at the pad's top right, or MIDI CC 17; OPT goes back): the same 38 x 38 cells (the buffer is
+   all the RAM there is), 12 x 8 px each, over 456 x 304; the maths widens to 18 x 12 units so the swirl stays round */
+#define FPF_X0     12
+#define FPF_Y0     8
+#define FPF_BUDGET 12000
+#define FP_BTN_X   280                              /* the FULLSCREEN button over the pad's top-right corner */
+#define FP_BTN_Y   46
+#define FP_BTN     24
+static uint8_t fp_full, fp_full_drawn;
+static int fp_x0 = FP_X0, fp_y0 = FP_Y0, fp_cw = FP_C, fp_ch = FP_C, fp_lw = FP_LIT, fp_lh = FP_LIT;
+static float fp_ux = FP_UN;                         /* units across (12, or 18 full screen); down is FP_UN */
+static void fp_layout(void)
+{
+    fp_x0 = fp_full ? FPF_X0 : FP_X0; fp_y0 = fp_full ? FPF_Y0 : FP_Y0;
+    fp_cw = fp_full ? 12 : FP_C;      fp_ch = fp_full ? 8 : FP_C;
+    fp_lw = fp_cw - 1;                fp_lh = fp_ch - 1;
+    fp_ux = fp_full ? 18.0f : (float)FP_UN;
+}
+/* the cells the FULLSCREEN button covers (not full screen) */
+#define FP_UNDER_BTN(i, j) (!fp_full && (i) >= 35 && (j) <= 2)
 static volatile float trk_peak[8];
 static float fp_lv[8];
 static uint8_t mt_shown;                            /* FXPAD is on the screen */
@@ -871,8 +896,8 @@ static uint8_t fp_value(int i, int j, uint8_t style)
         if (i < 3 || t > 7 || ((i - 3) & 3) == 3) return 0;
         return (FP_N - 1 - j) < (int)(fp_lv[t] * FP_N) ? (uint8_t)(8 + t) : 0;
     }
-    const float k = (float)FP_C / FP_U;             /* cells to units */
-    float dx = ((float)i + 0.5f) * k - fp_cx, dy = ((float)j + 0.5f) * k - fp_cy, r2 = dx * dx + dy * dy + 0.05f;
+    const float kx = fp_ux / FP_N, ky = (float)FP_UN / FP_N;   /* cells to units */
+    float dx = ((float)i + 0.5f) * kx - fp_cx, dy = ((float)j + 0.5f) * ky - fp_cy, r2 = dx * dx + dy * dy + 0.05f;
     /* a band is 1/8 of a cycle; the maths is in units, so finer cells only smooth the bands' edges */
     float f = style == 2 ? sqrtf_(r2) * 0.18f - fp_t * 1.5f                       /* RIPPLE: a ring every 5.5 units */
                          : 2.0f * turns(dy, dx) + fp_twist * 0.5f * log2f_(r2) - fp_t;   /* SWIRL: two arms */
@@ -891,6 +916,9 @@ static void fp_static(int part)
     case FPD_FRAME:
         pui_box(fr, 62, 44, 244, 244, 2, PUI_CREAM);
         pui_brackets(fr, 65, 47, 238, 238, 16, 3, PUI_CREAM);
+        fr(FP_BTN_X, FP_BTN_Y, FP_BTN, FP_BTN, PUI_BG);            /* FULLSCREEN: four corners pointing out */
+        pui_box(fr, FP_BTN_X, FP_BTN_Y, FP_BTN, FP_BTN, 2, PUI_CREAM);
+        pui_brackets(fr, FP_BTN_X + 5, FP_BTN_Y + 5, FP_BTN - 10, FP_BTN - 10, 5, 2, PUI_CREAM);
         break;
     case FPD_HEAD:
         pui_fill(fr, 4, 4, 150, 34, PUI_PURPLE);
@@ -967,11 +995,11 @@ static void fp_cells(uint8_t style)
         fp_scan = (uint16_t)((fp_scan + 1) % n);
         int i = idx % FP_N, j = idx / FP_N;
         uint8_t v = fp_value(i, j, style);
-        if (fp_cell[idx] == v) continue;
+        if (fp_cell[idx] == v || FP_UNDER_BTN(i, j)) continue;
         fp_cell[idx] = v;
-        int x = FP_X0 + i * FP_C, y = FP_Y0 + j * FP_C;
-        fr(x, y, FP_LIT, FP_LIT, fp_pal[v]);        /* LED cells: the 1 px gaps stay black */
-        if (fp_xh_x >= 0 && fp_xh_x + 8 > x && fp_xh_x - 8 < x + FP_C && fp_xh_y + 8 > y && fp_xh_y - 8 < y + FP_C)
+        int x = fp_x0 + i * fp_cw, y = fp_y0 + j * fp_ch;
+        fr(x, y, fp_lw, fp_lh, fp_pal[v]);          /* LED cells: the 1 px gaps stay black */
+        if (fp_xh_x >= 0 && fp_xh_x + 8 > x && fp_xh_x - 8 < x + fp_cw && fp_xh_y + 8 > y && fp_xh_y - 8 < y + fp_ch)
             fp_xh_mend = 1;
     }
 }
@@ -979,34 +1007,39 @@ static void fp_unmark(int px, int py, uint8_t style)   /* the cells under the ol
 {
     fr(px - 7, py - 1, 15, 3, PUI_BG);              /* the gaps between cells too */
     fr(px - 1, py - 7, 3, 15, PUI_BG);
-    for (int j = (py - 8 - FP_Y0) / FP_C; j <= (py + 8 - FP_Y0) / FP_C; j++)
-        for (int i = (px - 8 - FP_X0) / FP_C; i <= (px + 8 - FP_X0) / FP_C; i++)
-            if (i >= 0 && j >= 0 && i < FP_N && j < FP_N) {
+    for (int j = (py - 8 - fp_y0) / fp_ch; j <= (py + 8 - fp_y0) / fp_ch; j++)
+        for (int i = (px - 8 - fp_x0) / fp_cw; i <= (px + 8 - fp_x0) / fp_cw; i++)
+            if (i >= 0 && j >= 0 && i < FP_N && j < FP_N && !FP_UNDER_BTN(i, j)) {
                 uint8_t v = fp_value(i, j, style);
                 fp_cell[j * FP_N + i] = v;
-                fr(FP_X0 + i * FP_C, FP_Y0 + j * FP_C, FP_LIT, FP_LIT, fp_pal[v]);
+                fr(fp_x0 + i * fp_cw, fp_y0 + j * fp_ch, fp_lw, fp_lh, fp_pal[v]);
             }
 }
 static void fxpad_frame(void)
 {
-    fp_budget = FP_BUDGET;
     fp_frames++;
-    if (!mt_shown) {                                /* the visualizer was just opened: its screen is clear */
+    if (fp_full_req) { fp_full_req = 0; fp_full ^= 1; }
+    if (!mt_shown || fp_full != fp_full_drawn) {    /* just opened (its screen is clear), or FULLSCREEN on / off */
+        if (mt_shown) rect(0, 0, FW_SCREEN_W, FW_SCREEN_H, PUI_BG);
+        fp_full_drawn = fp_full;
+        fp_layout();
         for (int i = 0; i < FP_CELLS; i++) fp_cell[i] = 0;
-        fp_dirty = FPD_ALL;
+        fp_dirty = fp_full ? 0 : FPD_ALL;
         fp_xh_x = -1;
         mt_shown = 1;
     }
+    fp_budget = fp_full ? FPF_BUDGET : FP_BUDGET;
     uint8_t fx = fx_sel < NFX ? fx_sel : 0;
     if (fx != fp_drawn_fx) fp_dirty |= FPD_FX | FPD_ICONS | FPD_LABELS;
     if (vis_style != fp_drawn_style) { fp_dirty |= FPD_MODE; for (int i = 0; i < FP_CELLS; i++) fp_cell[i] = 0xFF; }
     if ((uint8_t)(hold | latched << 1) != fp_drawn_hold) fp_dirty |= FPD_HOLD;
     if ((int)(bpm() + 0.5f) != fp_drawn_bpm) fp_dirty |= FPD_BPM;
+    if (fp_full) fp_dirty = 0;                      /* FULLSCREEN: only the pad (they draw again on the way back) */
     for (int p = 1; p <= FPD_BPM; p <<= 1)          /* one static part a frame */
         if (fp_dirty & p) { fp_dirty &= (uint16_t)~p; fp_static(p); break; }
     /* the visual: where it centres, how fast it turns */
     int on = engaged();
-    float tx = on ? ctl_x * FP_UN : FP_UN * 0.5f, ty = on ? (1.0f - ctl_y) * FP_UN : FP_UN * 0.5f;
+    float tx = on ? ctl_x * fp_ux : fp_ux * 0.5f, ty = on ? (1.0f - ctl_y) * FP_UN : FP_UN * 0.5f;
     fp_cx += (tx - fp_cx) * (on ? 0.25f : 0.05f);
     fp_cy += (ty - fp_cy) * (on ? 0.25f : 0.05f);
     fp_twist = 0.3f + (float)motion * 0.05f;        /* the finger's speed winds it tighter */
@@ -1020,7 +1053,7 @@ static void fxpad_frame(void)
             fp_lv[t] = lv >= fp_lv[t] ? lv : clampf(fp_lv[t] - 0.04f, lv, 1);
         }
     /* the right panel's bars: only the part that moved */
-    if (!(fp_dirty & FPD_LABELS)) {
+    if (!fp_full && !(fp_dirty & FPD_LABELS)) {
         float v[4] = { ctl_x, ctl_y, (float)motion * 0.1f, wet };
         for (int k = 0; k < 4; k++) {
             int w = (int)(clampf(v[k], 0, 1) * 152.0f), d = fp_bar[k], y = 44 + k * 39 + 22;
@@ -1030,7 +1063,7 @@ static void fxpad_frame(void)
         }
     }
     /* the footer: X and Y when they change (every 4th frame at most), and one column of the output a frame */
-    if (!(fp_dirty & FPD_FOOT)) {
+    if (!fp_full && !(fp_dirty & FPD_FOOT)) {
         uint32_t key = (uint32_t)(ctl_x * 100.0f + 0.5f) | (uint32_t)(ctl_y * 100.0f + 0.5f) << 8;
         if (key != fp_xy_key && !(fp_frames & 7)) {
             char b[16], *o = b;
@@ -1051,7 +1084,7 @@ static void fxpad_frame(void)
         fp_wave = (uint8_t)((fp_wave + 1) % 38);
     }
     /* the pad, then the crosshair over it */
-    int px = FP_X0 + (int)(fp_cx * FP_U), py = FP_Y0 + (int)(fp_cy * FP_U);
+    int px = fp_x0 + (int)(fp_cx * (float)(fp_cw * FP_N) / fp_ux), py = fp_y0 + (int)(fp_cy * (float)(fp_ch * FP_N) / FP_UN);
     if (px != fp_xh_x || py != fp_xh_y || on != fp_finger) {
         if (fp_xh_x >= 0 && !(fp_dirty & FPD_FRAME)) fp_unmark(fp_xh_x, fp_xh_y, vis_style);
         fp_xh_mend = 1;
@@ -1072,7 +1105,10 @@ static int fxpad_touch(float tx, float ty, int down)
     int sx = (int)(clampf(tx, 0, 1) * FW_SCREEN_W), sy = (int)((1.0f - clampf(ty, 0, 1)) * FW_SCREEN_H);
     if (down && !was) {
         fp_finger = 0xFF;                           /* (redraw the crosshair) */
-        if (sx >= FP_X0 && sx < FP_X0 + FP_SPAN && sy >= FP_Y0 && sy < FP_Y0 + FP_SPAN) {
+        if (!fp_full && sx >= FP_BTN_X - 4 && sx < FP_BTN_X + FP_BTN + 4 && sy >= FP_BTN_Y - 4 && sy < FP_BTN_Y + FP_BTN + 4) {
+            was = 1;                                /* FULLSCREEN */
+            fp_full_req = 1;
+        } else if (fp_full || (sx >= FP_X0 && sx < FP_X0 + FP_SPAN && sy >= FP_Y0 && sy < FP_Y0 + FP_SPAN)) {
             was = 2;
             finger(&touch_screen, 1);
         } else {
@@ -1088,8 +1124,8 @@ static int fxpad_touch(float tx, float ty, int down)
         }
     }
     if (down && was == 2) {
-        ctl_x = clampf((float)(sx - FP_X0) / FP_SPAN, 0, 1);
-        ctl_y = clampf(1.0f - (float)(sy - FP_Y0) / FP_SPAN, 0, 1);
+        ctl_x = clampf((float)(sx - fp_x0) / (float)(fp_cw * FP_N), 0, 1);
+        ctl_y = clampf(1.0f - (float)(sy - fp_y0) / (float)(fp_ch * FP_N), 0, 1);
     }
     if (!down && was) {
         if (was == 2) finger(&touch_screen, 0);
@@ -1215,12 +1251,17 @@ static void ov_erase_all(void)
     *clip = was;
     for (int i = 0; i < RINGS; i++) rip[i].r = 0;
     mk_x = -1; ov_shown = 0; mt_shown = 0; ov_erased++;
+    fp_full = 0; fp_full_req = 0;                   /* the visualizer opens on the pad's own screen next time */
 }
 /* Any key closes the visualizer. ev_key comes before the firmware acts on it: erase now, and the firmware's own
  * exit puts its screen back over a clean one. (If the key doesn't close it, the next frame draws everything again.) */
 static int on_key_vis(void *ui, int action)
 {
-    (void)ui; (void)action;
+    (void)ui;
+    if (fw_ui[FW_UI_VISUALIZER] && mt_shown && fp_full && action == FW_KEY_OPT) {
+        fp_full_req = 1;                            /* OPT in FULLSCREEN: back to the pad's own screen, not out */
+        return 1;
+    }
     if (fw_ui[FW_UI_VISUALIZER] && (ov_shown || mt_shown)) ov_erase_all();
     return 0;
 }
@@ -1298,7 +1339,7 @@ static void on_boot(void)
 #else
 #define VIS_HOOK
 #endif
-DL_MOD("chaos-control", "0.2.1", "CHAOS CONTROL: an X/Y effects pad on the master output",
+DL_MOD("chaos-control", "0.3.0", "CHAOS CONTROL: an X/Y effects pad on the master output",
        DL_ON(EV_BOOT, 50, on_boot), DL_ON(EV_AUDIO_OUT, 50, on_audio_out), DL_ON(EV_SEQ_TICK, 50, on_seq_tick),
        DL_ON(EV_PLAY, 50, on_play), DL_ON(EV_MIDI, 40, on_midi), DL_ON(EV_TICK, 50, on_tick)
        TOUCH_HOOK KEY_HOOK VIS_HOOK);
