@@ -8,8 +8,13 @@ venv/
 # Build outputs / patched firmware (never commit firmware images)
 build/
 out/
+out8/
+out_m2/
+# local screenshots from hardware and page checks
+shots/
 *.bin
 *.hex
+site/shop/.tmp-stock/
 !mods/**/*.bin
 
 # Reverse-engineering workspaces (large / regenerable)
@@ -22,6 +27,8 @@ extracted/
 # Stock firmware must never be committed (user supplies their own)
 firmware/
 stock/
+# ...except the shop's patch files: put/copy ops and hashes, no Dirtywave bytes (make_firmware.py, CI reads them)
+!site/shop/firmware/
 
 # Dirtywave's manual and its text dump: local research only, never committed
 manuals/

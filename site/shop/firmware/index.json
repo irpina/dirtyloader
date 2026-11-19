@@ -1,0 +1,38 @@
+[
+ {
+  "target": "m8-headless",
+  "label": "M8 Headless",
+  "firmware": "6.6.4A",
+  "core": "0.7",
+  "stock_sha256": "c0caa0a9ead3ae73ce97aad66ccb78dc430f0a94d5ab8d315a3d96f60941b679",
+  "stock_name": "M8_V6_6_4A_HEADLESS.hex",
+  "kind": "hex",
+  "get": "https://github.com/Dirtywave/M8HeadlessFirmware/tree/main/Releases",
+  "get_note": "M8_V6_6_4A_HEADLESS.hex, from Dirtywave's Headless firmware releases",
+  "file": "firmware/m8-headless.json"
+ },
+ {
+  "target": "m8-model02",
+  "label": "M8 Model:02",
+  "firmware": "6.6.2A",
+  "core": "0.7",
+  "stock_sha256": "fbc15296886a278bd72a0040ce07b13d17c7928c1850721299ba5dd4eaf30326",
+  "stock_name": "M8_V6_6_2A_MODEL02.bin",
+  "kind": "bin",
+  "get": "https://github.com/Dirtywave/M8Firmware/raw/main/Releases/M8Firmware_V6_6_2.zip",
+  "get_note": "M8Firmware_V6_6_2.zip, from Dirtywave's firmware archive (Releases)",
+  "file": "firmware/m8-model02.json"
+ },
+ {
+  "target": "m8-model02-664",
+  "label": "M8 Model:02",
+  "firmware": "6.6.4A",
+  "core": "0.7",
+  "stock_sha256": "7bca8f34191eba0ac2ebc266427b7b2686e377f6924e80b13bcd15ae10b2b0e0",
+  "stock_name": "M8_V6_6_4A_MODEL02.bin",
+  "kind": "bin",
+  "get": "https://github.com/Dirtywave/M8Firmware/raw/main/M8Firmware.zip",
+  "get_note": "M8Firmware.zip, Dirtywave's current download (6.6.4A)",
+  "file": "firmware/m8-model02-664.json"
+ }
+]

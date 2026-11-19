@@ -30,3 +30,13 @@ jobs:
 
       - name: Site builds (engine zip + catalog)
         run: python site/make_site.py
+
+      # The mod shop's JavaScript (site/shop): the USB protocol against a pretend core, every catalog file by its
+      # sha256 and header, the .m8t file, and the page's colours in each preset theme.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Mod shop
+        run: node tests/test_shop.mjs
+      - name: Mod shop firmware build and USB flasher
+        run: node tests/test_firmware.mjs

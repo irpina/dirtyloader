@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Everything comes from this site; the only other thing the page talks to is your M8, over USB (Web Serial, and WebHID for its bootloader when you flash). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Mod Shop · dirtyloader</title>
+<meta name="description" content="Mods for the Dirtywave M8: put dirtyloader core on your M8 from Dirtywave's own firmware file, then install mods and pick its theme over USB, all in the browser.">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23ff2040'/%3E%3Cpath d='M6 7h12v10H6z' fill='none' stroke='%23000' stroke-width='2'/%3E%3Cpath d='M9 11h2M13 11h2M9 14h6' stroke='%23000' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<div class="app">
+
+<aside class="side" aria-label="Navigation">
+  <a class="brand" href="#shop" aria-label="dirtyloader: the mod shop">
+    <span class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="6" width="15" height="12" rx="1.5"/><path d="M8 10.5h2.5M13.5 10.5H16M8 14h8"/></svg></span>
+    <span class="brand-text"><strong>dirtyloader</strong><small>M8 mods and themes</small></span></a>
+  <nav class="side-nav">
+    <a class="nav-link" id="nav-start" href="#start">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 4 8v8l8 4.5 8-4.5V8z"/><path d="M4 8l8 4.5L20 8M12 12.5v8"/></svg>Get started</a>
+    <a class="nav-link" id="nav-shop" href="#shop">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>Mod Shop</a>
+    <a class="nav-link" id="nav-device" href="#device">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3.5" width="14" height="17" rx="2"/><rect x="8" y="6.5" width="8" height="5" rx=".5"/><circle cx="9.5" cy="16" r="1"/><circle cx="14.5" cy="16" r="1"/></svg>On your M8<span class="badge" id="nav-count">0</span></a>
+    <a class="nav-link" id="nav-theme" href="#theme">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.3 0 1.9-.9 1.6-2-.4-1.4.5-2.5 2-2.5h1.6A3.3 3.3 0 0 0 20.5 12 8.5 8.5 0 0 0 12 3.5z"/><circle cx="7.8" cy="11" r="1.1"/><circle cx="10.5" cy="7.5" r="1.1"/><circle cx="14.8" cy="7.8" r="1.1"/></svg>Theme</a>
+    <a class="nav-link" id="nav-recover" href="#recover">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 4.5v4h4"/><path d="M12 8.5V12l2.5 2"/></svg>Recover</a>
+    <h3 class="side-h">Categories</h3>
+    <ul class="side-list" id="nav-cats"></ul>
+    <label class="side-check"><input type="checkbox" id="show-dev"> Show developer mods</label>
+  </nav>
+  <div class="side-foot">
+    <div class="dev-box" id="dev-box"></div>
+    <p class="fine">Unofficial: not affiliated with Dirtywave. No firmware here: you bring Dirtywave's,
+      and <a href="#start">Get started</a> adds core to it. <button type="button" class="linkish" id="about-open">About</button> · <a href="#recover">How to go back</a></p>
+  </div>
+</aside>
+
+<header class="topbar">
+  <label class="search"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+    <input type="search" id="search" placeholder="Search mods" aria-label="Search mods" autocomplete="off"></label>
+  <span class="grow"></span>
+  <span class="pending" id="pending" hidden></span>
+  <button type="button" class="btn outline" id="connect">
+    <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v5M15 4v5M7 9h10v3a5 5 0 0 1-10 0zM12 17v3"/></svg><span id="connect-text">Connect M8</span></button>
+</header>
+
+<main class="content" id="content">
+  <!-- MOD SHOP -->
+  <section class="view" id="view-shop" aria-label="Mod Shop">
+    <section class="welcome" id="welcome">
+      <p class="eyebrow">Get started</p>
+      <h1>Mods for your M8, straight over USB</h1>
+      <p class="sub">New effects, modulation and tools for the Dirtywave M8. Pick a mod, press Install, and the page
+        copies it onto your M8's card over USB. Your M8 loads it at the next restart.</p>
+      <ul class="trust">
+        <li>Only your M8: no account, nothing uploaded anywhere</li>
+        <li>Each mod is checked by its sha256 before it goes on the card</li>
+        <li>Switch any mod off from here or on the M8</li>
+      </ul>
+      <ol class="guide">
+        <li class="gstep" id="g-core">
+          <h2><span class="gnum">1</span>Put dirtyloader core on your M8</h2>
+          <p class="gtext">Once, like a firmware update: core is what loads mods from the card. Model:02 6.6.4A or 6.6.2A and
+            Headless 6.6.4A, built and flashed from this page.</p>
+          <a class="btn outline small" href="#start">How to put core on your M8</a>
+        </li>
+        <li class="gstep" id="g-connect">
+          <h2><span class="gnum">2</span>Connect it</h2>
+          <p class="gtext" id="g-connect-text">Plug the M8 in with USB, close m8c, and press <strong>Connect M8</strong>.
+            Chrome, Edge or Opera on a computer.</p>
+          <button type="button" class="btn primary small" id="g-connect-btn">Connect M8</button>
+        </li>
+        <li class="gstep" id="g-install">
+          <h2><span class="gnum">3</span>Install mods, then restart</h2>
+          <p class="gtext">Press <strong>+ Install</strong> on the mods you want. Restart the M8 from here when you're
+            done. LEFT+RIGHT on the M8 opens the MOD LOADER.</p>
+        </li>
+      </ol>
+    </section>
+    <h2 class="list-h">Browse the mods</h2>
+    <div class="filters">
+      <span class="chips" id="target-chips" role="group" aria-label="Model"></span>
+      <span class="grow"></span>
+      <label class="inline" for="f-sort">Sort</label>
+      <select id="f-sort">
+        <option value="collection">As listed</option>
+        <option value="name">Name</option>
+        <option value="size">Size</option>
+      </select>
+      <button type="button" class="btn outline small" id="add-own">+ Add your own .m8x</button>
+      <input type="file" id="own-files" accept=".m8x" multiple hidden>
+    </div>
+    <p class="device-note" id="target-note"></p>
+    <div class="shelves" id="shelves"></div>
+    <p class="muted small lib-foot">Every mod here is built from the dirtyloader repository's examples, and the page
+      checks each file by its sha256 before it sends it.</p>
+  </section>
+
+  <!-- ON YOUR M8 -->
+  <section class="view" id="view-device" aria-labelledby="device-title" hidden>
+    <header class="page-head">
+      <p class="eyebrow">On your M8</p>
+      <h1 id="device-title">Your M8</h1>
+      <p class="sub" id="device-sub">Connect your M8 to see its mods.</p>
+    </header>
+    <div class="dev-actions" id="dev-actions" hidden>
+      <button type="button" class="btn primary" id="restart">Restart M8</button>
+      <button type="button" class="btn outline" id="refresh">Refresh</button>
+      <button type="button" class="btn outline" id="add-own-2">+ Add your own .m8x</button>
+    </div>
+    <div class="drop" id="drop" hidden tabindex="0" role="button">
+      <svg class="drop-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4m0 0L7.5 8.5M12 4l4.5 4.5M5 15v3.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V15"/></svg>
+      <span>Drop a <code>.m8x</code> here to put it on your M8, or <u>choose one</u></span>
+    </div>
+    <ul class="mod-rows" id="mod-rows"></ul>
+    <details class="boot" id="boot" hidden><summary>The last boot, as core wrote it (status.txt)</summary><pre id="boot-text"></pre></details>
+  </section>
+
+  <!-- THEME -->
+  <section class="view" id="view-theme" aria-labelledby="theme-title" hidden>
+    <header class="page-head">
+      <p class="eyebrow">Theme</p>
+      <h1 id="theme-title">Your M8's colours</h1>
+      <p class="sub">The thirteen colours of SYSTEM SETTINGS &gt; THEME. This page wears them as you pick them,
+        and with your M8 connected, so does the M8.</p>
+    </header>
+    <div class="theme-grid">
+      <section class="editor" aria-label="Edit the theme">
+        <div class="theme-pick">
+          <span id="tpick-label">Theme</span>
+          <div class="tpick" id="tpick">
+            <button type="button" class="tpick-btn" id="tpick-btn" aria-haspopup="listbox" aria-expanded="false"
+              aria-labelledby="tpick-label tpick-btn"><span class="tp-name"></span><span class="tp-note"></span><span class="sw"></span><span class="chev" aria-hidden="true">▾</span></button>
+            <ul class="tpick-list" id="tpick-list" role="listbox" aria-labelledby="tpick-label" tabindex="-1" hidden></ul>
+          </div>
+          <button type="button" class="btn outline small" id="open-m8t">Open a .m8t file</button>
+          <input type="file" id="m8t-file" accept=".m8t" hidden>
+          <span class="muted small" id="theme-pick-note"></span>
+        </div>
+        <div class="screen-wrap"><canvas id="screen" width="640" height="480" aria-label="An M8 screen in this theme"></canvas></div>
+        <div class="theme-bar">
+          <label class="name-field">Name <input id="theme-name" maxlength="12" spellcheck="false" autocomplete="off"></label>
+          <label class="live" title="Repaint the M8 as you change a colour (it isn't kept until you Apply)"><input type="checkbox" id="live" checked> Live on the M8</label>
+        </div>
+        <ul class="slots" id="slots"></ul>
+        <section class="ext" id="ext" aria-labelledby="ext-h">
+          <h2 class="mini-h" id="ext-h">More colours <span class="muted">with dirtyloader core: the M8's own screens, in colours its THEME page doesn't have</span></h2>
+          <div class="ext-bar">
+            <label><input type="checkbox" data-flag="1"> Track colours</label>
+            <label><input type="checkbox" data-flag="2"> Screen titles</label>
+            <label><input type="checkbox" data-flag="4"> Track screens' titles follow the track</label>
+            <span class="grow"></span>
+            <span class="inline">Fill</span>
+            <button type="button" class="chip" data-fill="RAINBOW">Rainbow</button>
+            <button type="button" class="chip" data-fill="PASTEL">Pastel</button>
+            <button type="button" class="chip" data-fill="NEON">Neon</button>
+          </div>
+          <ul class="slots" id="ext-slots"></ul>
+          <p class="muted small" id="ext-note"></p>
+        </section>
+        <div class="theme-actions">
+          <button type="button" class="btn primary" id="apply">Apply to M8</button>
+          <button type="button" class="btn outline" id="revert" disabled>Put the M8's back</button>
+          <button type="button" class="btn outline" id="save-mine">Keep in this browser</button>
+          <button type="button" class="btn outline" id="download">Download .m8t</button>
+        </div>
+        <p class="muted small" id="theme-note">Apply saves it on the M8 like the THEME page does, so it stays after a power-off.</p>
+      </section>
+    </div>
+  </section>
+
+  <!-- GET STARTED -->
+  <section class="view" id="view-start" aria-labelledby="start-title" hidden>
+    <header class="page-head">
+      <p class="eyebrow">Get started</p>
+      <h1 id="start-title">How to use dirtyloader</h1>
+      <p class="sub">dirtyloader has two parts. <strong>Core</strong> is a small addition to the M8's firmware: you put it
+        on once, like a firmware update. <strong>Mods</strong> then go on the SD card from the Mod Shop, as often as you
+        like. This page builds core into Dirtywave's own firmware file and flashes it, here in this tab.</p>
+      <ul class="trust">
+        <li>Your firmware file never leaves this tab</li>
+        <li>No Dirtywave firmware is hosted here: you bring their file</li>
+        <li>Dirtywave's file always takes your M8 back to stock</li>
+      </ul>
+    </header>
+
+    <ol class="steps">
+      <li class="step" id="st-model">
+        <h2><span class="gnum">1</span>Which M8?</h2>
+        <div class="chips" id="fw-models" role="radiogroup" aria-label="Your M8"></div>
+        <p class="step-note" id="fw-model-note"></p>
+      </li>
+
+      <li class="step" id="st-stock">
+        <h2><span class="gnum">2</span>Get Dirtywave's firmware</h2>
+        <p class="step-text" id="fw-get"></p>
+        <div class="drop" id="fw-drop" tabindex="0" role="button">
+          <svg class="drop-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4m0 0L7.5 8.5M12 4l4.5 4.5M5 15v3.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V15"/></svg>
+          <span>Drop Dirtywave's firmware here, or the <code>.zip</code> as you downloaded it, or <u>choose it</u></span>
+        </div>
+        <input type="file" id="fw-file" accept=".zip,.bin,.hex" hidden>
+        <p class="step-note" id="fw-stock-note">It's recognised by its sha256, and never uploaded.</p>
+      </li>
+
+      <li class="step" id="st-build">
+        <h2><span class="gnum">3</span>Build</h2>
+        <p class="step-text">Core goes into Dirtywave's file here, in a moment. The result is checked against the sha256
+          the patch was made with before you can use it.</p>
+        <button type="button" class="btn primary" id="fw-build" disabled>Build firmware with core</button>
+        <div id="fw-result"></div>
+      </li>
+
+      <li class="step" id="st-flash">
+        <h2><span class="gnum">4</span>Flash it</h2>
+        <div class="ack-box" id="fw-ack-box">
+          <p class="step-text"><strong>Before you flash:</strong> the Teensy's bootloader, in its own chip, is never
+            written, and Dirtywave's file you just used takes the M8 back to stock the same way, from this page. Songs,
+            samples and settings on the card stay. <a href="#recover">How to recover</a></p>
+          <label class="ack"><input type="checkbox" id="fw-ack"> I know how to get my M8 back to stock</label>
+        </div>
+        <div class="flash-ways" id="fw-ways">
+          <section class="way" id="way-usb">
+            <h3>Here, over USB <span class="tag run">recommended</span></h3>
+            <ol class="small">
+              <li>Plug the M8 into this computer, directly if you can, and switch it on.</li>
+              <li>Close m8c, TyUploader and anything else that uses the M8.</li>
+              <li>Press <strong>Flash M8</strong>. The browser asks twice: first for the M8, then for its bootloader
+                (shown as a Teensy or HalfKay). Pick each one.</li>
+              <li>Wait about a minute. The M8 restarts with core.</li>
+            </ol>
+            <div class="flash-row">
+              <button type="button" class="btn primary" id="fw-flash" disabled>Flash M8</button>
+              <button type="button" class="btn outline small" id="fw-flash-bl" disabled title="If the M8 is already in its bootloader (a Headless: its Teensy's button)">It's already in its bootloader</button>
+            </div>
+            <div class="progress" id="fw-progress" hidden><div class="bar"><i></i></div><span class="small" id="fw-progress-text"></span></div>
+            <p class="step-note" id="fw-usb-note"></p>
+          </section>
+          <section class="way" id="way-sd">
+            <h3>From the SD card <span class="muted small">Model:02</span></h3>
+            <p class="small">Dirtywave's own way: copy the <code>.bin</code> to the card, then on the M8
+              PROJECT &gt; SYSTEM SETTINGS &gt; FIRMWARE UPDATE, pick it and confirm. Don't take the card out while it
+              updates. <span class="muted">Not yet tried with a dirtyloader build: if it refuses the file, flash over
+              USB.</span></p>
+          </section>
+          <section class="way" id="way-ty">
+            <h3>With TyUploader</h3>
+            <p class="small">The way Dirtywave's readme describes: open TyUploader, pick the M8, press Upload and choose
+              the <code>.hex</code> from step 3.</p>
+          </section>
+        </div>
+      </li>
+
+      <li class="step" id="st-mods">
+        <h2><span class="gnum">5</span>Add mods</h2>
+        <p class="step-text">Connect the M8 here (<strong>Connect M8</strong>, top right): the sidebar shows core's
+          version when it's on. Then pick mods in the <a href="#shop">Mod Shop</a> and restart the M8 to load them.
+          On the M8, LEFT+RIGHT opens the MOD LOADER, and SYSTEM SETTINGS has a MODS row.</p>
+        <a class="btn outline" href="#shop">Go to the Mod Shop</a>
+      </li>
+    </ol>
+  </section>
+
+  <!-- RECOVER -->
+  <section class="view" id="view-recover" aria-labelledby="recover-title" hidden>
+    <header class="page-head">
+      <p class="eyebrow">Recover</p>
+      <h1 id="recover-title">Getting out of trouble</h1>
+      <p class="sub">From a mod that misbehaves to going all the way back to Dirtywave's firmware. Your songs, samples
+        and settings stay on the card through all of it.</p>
+    </header>
+    <div class="rec-list">
+      <section class="rec">
+        <h2>A mod misbehaves</h2>
+        <p>Switch it off on <a href="#device">On your M8</a>, or in the MOD LOADER on the M8 (LEFT+RIGHT), and restart.
+          Or restart once with no mods at all:</p>
+        <div class="flash-row">
+          <button type="button" class="btn primary small" id="rec-skip">Restart without mods</button>
+          <button type="button" class="btn outline small" id="rec-good">Load mods again</button>
+        </div>
+        <p class="step-note" id="rec-skip-note">Needs the M8 connected here.</p>
+      </section>
+      <section class="rec">
+        <h2>It crashes or hangs while starting</h2>
+        <p>Core guards the start. If the last start with mods crashed, it starts once without them by itself. If it
+          hung, switch the M8 off and on: a start that didn't run for 10 s also skips the mods next time. The MODS
+          page then says SKIPPED. Switch off the mod at fault, then press <strong>Load mods again</strong> here, or
+          RESTART on the MODS page.</p>
+      </section>
+      <section class="rec">
+        <h2>Back to Dirtywave's firmware</h2>
+        <p>Flash Dirtywave's file as it is. Their own ways work too: the SD card's FIRMWARE UPDATE (Model:02) or
+          TyUploader. Or flash it from here, with the same steps as <a href="#start">Get started</a>:</p>
+        <div class="drop" id="rec-drop" tabindex="0" role="button">
+          <svg class="drop-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4m0 0L7.5 8.5M12 4l4.5 4.5M5 15v3.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V15"/></svg>
+          <span>Drop Dirtywave's <code>.bin</code> (Model:02), <code>.hex</code> (Headless) or their <code>.zip</code>, or <u>choose it</u></span>
+        </div>
+        <input type="file" id="rec-file" accept=".zip,.bin,.hex" hidden>
+        <p class="step-note" id="rec-stock-note"></p>
+        <div class="flash-row">
+          <button type="button" class="btn primary" id="rec-flash" disabled>Flash stock firmware</button>
+          <button type="button" class="btn outline small" id="rec-flash-bl" disabled>It's already in its bootloader</button>
+        </div>
+        <div class="progress" id="rec-progress" hidden><div class="bar"><i></i></div><span class="small" id="rec-progress-text"></span></div>
+      </section>
+      <section class="rec">
+        <h2>The M8 doesn't start at all</h2>
+        <p>The bootloader is in the Teensy's own chip and nothing here writes it, so the M8 can always be flashed again.
+          On a <strong>Headless</strong>, press the button on the Teensy: it goes into its bootloader. Then use
+          <strong>It's already in its bootloader</strong> above, or TyUploader. On a <strong>Model:02</strong>,
+          TyUploader or Dirtywave's support can take you through it.</p>
+      </section>
+      <section class="rec">
+        <h2>Remove dirtyloader's files</h2>
+        <p>Everything core and the mods keep is in <code>/dirtyloader</code> on the card, plus a <code>.mods</code>
+          (and <code>.dldata</code>) file beside each song saved with mods. Stock firmware ignores them; delete them
+          with a card reader if you like.</p>
+      </section>
+      <section class="rec">
+        <h2>The theme</h2>
+        <p>SYSTEM SETTINGS &gt; THEME on the M8 loads any theme. Core's extra colours switch off on the
+          <a href="#theme">Theme</a> page, and stock firmware doesn't use them.</p>
+      </section>
+    </div>
+  </section>
+</main>
+
+<nav class="tabbar" aria-label="Views">
+  <a href="#start" id="tab-start">Start</a><a href="#shop" id="tab-shop">Mods</a><a href="#device" id="tab-device">On your M8</a><a href="#theme" id="tab-theme">Theme</a><a href="#recover" id="tab-recover">Recover</a>
+</nav>
+</div>
+
+<dialog class="sheet" id="details"><form method="dialog"><button class="x" aria-label="Close">&times;</button></form><div id="details-body"></div></dialog>
+<dialog class="sheet" id="about"><form method="dialog"><button class="x" aria-label="Close">&times;</button></form>
+  <h2>About</h2>
+  <p>dirtyloader puts mods on a Dirtywave M8. Its core, a small addition to the M8's firmware, loads the mods it finds on
+    the SD card (<code>/dirtyloader/mods</code>) at boot. This page installs them over USB with Web Serial: it talks to
+    core the same way <code>python -m dirtyloader.unit</code> does.</p>
+  <p><a href="#start">Get started</a> builds core into Dirtywave's firmware file in this tab and flashes it over USB
+    (WebHID, the Teensy's own bootloader). The page holds a patch per firmware version, not firmware: only bytes
+    that come from dirtyloader, checked by sha256 against your file and the result.</p>
+  <h3>Going back</h3>
+  <ul>
+    <li><strong>A mod misbehaves:</strong> switch it off here or in the MOD LOADER (LEFT+RIGHT), and restart. If the M8
+      crashes at boot, core boots once without mods by itself.</li>
+    <li><strong>Stock firmware:</strong> Dirtywave's own file, flashed from <a href="#recover">Recover</a>, the SD
+      card or TyUploader. Your songs and settings stay.</li>
+    <li>Everything else: <a href="#recover">Recover</a>.</li>
+  </ul>
+  <h3>Licences and source</h3>
+  <p>dirtyloader and the mods listed here: GPL-2.0-or-later. Not affiliated with or endorsed by Dirtywave; flashing
+    custom firmware is at your own risk. No Dirtywave firmware is hosted here.</p>
+  <p><a href="https://github.com/irpina/dirtyloader" target="_blank" rel="noreferrer">Source</a> ·
+    <a href="https://github.com/irpina/dirtyloader#readme" target="_blank" rel="noreferrer">README</a> ·
+    <a href="https://github.com/irpina/dirtyloader/blob/main/docs/LOADER.md" target="_blank" rel="noreferrer">How core works</a></p>
+</dialog>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+</body>
+</html>

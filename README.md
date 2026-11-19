@@ -30,6 +30,14 @@ the same reason a mod only ever carries hashes of the stock bytes. The site is i
 [`site/`](site/); it serves pre-built `.m8mod` files (built with `mkmod`, which
 needs the firmware once) and applies them client-side.
 
+**The mod shop** ([`site/shop`](site/shop/), [docs/SHOP.md](docs/SHOP.md)) puts mods straight onto an M8 that
+runs dirtyloader core, over USB from the browser (Web Serial), switches them on and off, and picks the M8's theme:
+the page wears the 13 theme colours as you choose them, and the M8 repaints with them live. Its **Get started** page
+puts core on the M8 in the first place: it builds core into Dirtywave's own firmware file in the browser and flashes it
+over USB (WebHID, the Teensy's bootloader); **Recover** goes back to stock the same way.
+
+**→ https://irpina.github.io/dirtyloader/shop/** (Chrome, Edge or Opera on a computer)
+
 ## Why this is possible
 
 The M8 `.bin` is a Dirtywave container (`M8FW`) wrapping a flat Teensy 4.1 flash
@@ -108,12 +116,17 @@ dirtyloader/
 mods/core/         the Core mod's source folder
 examples/hello-tick/   the smallest handler mod (mod.json + hello.s)
 site/              the GitHub Pages in-browser builder (index.html, app.js, make_site.py)
+site/shop/         the mod shop: install mods and set the theme over USB (make_shop.py builds its catalog)
 tests/             firmware-free unit tests (synthetic image; run in CI)
 docs/FORMAT.md     the .m8mod specification
 docs/CORE-EVENTS.md   the hook bus: events, prototypes, sites, core tables (Elekloader-style)
 docs/LOADER.md        mods on the SD card (TELOS for the M8): transfer, MODS page, song lists, the core API
 docs/PARITY-DN1.md    Elekloader's Digitone mk1 core and TELOS, feature by feature, against the M8 core
+docs/MODEL02-664-PORT.md  core on the Model:02 6.6.4A: every address found from two builds, and what changed
 docs/MODEL02-PORT.md  core 0.5 on the Model:02 (6.6.2A): how each site was found again, what differs
+docs/MOD-DESTS.md     LFO destinations: the 16-slot limit, every place it is enforced, the send levels (lfo-sends)
+docs/CHAOS-CONTROL.md CHAOS CONTROL, the X/Y effects pad: effects, controls, the touch screen, hardware results
+docs/PERF-MON.md      PERF MON and load-gen: audio load, mods' DSP time, the UI loop, headroom, timed on the unit
 docs/FIRMWARE-MAP.md  the whole-firmware map (memory map, layout, threads, drivers, classes)
 dirtyloader/re/    RE tools: memmap, layout, switches, vtables, params, objects, ghidra_map, fwmap
 ```

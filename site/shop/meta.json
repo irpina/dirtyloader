@@ -1,0 +1,95 @@
+{
+  "about": "The shop's mods: what the page says about each one. make_shop.py builds every entry's sources for each target below, checks the .m8x the way core does, and writes catalog.json with each file's sha256. Edited by hand. category: a key of categories. motif: the cover's line art. dev: shown only with 'Show developer mods'. on_unit: what was checked on real hardware.",
+  "targets": {
+    "m8-model02": { "label": "M8 Model:02", "firmware": "6.6.2A", "defines": { "M8_MODEL02": "1" }, "alias": "6.6.2A" },
+    "m8-model02-664": { "label": "M8 Model:02", "firmware": "6.6.4A", "defines": { "M8_MODEL02": "1" }, "alias": "6.6.4A" },
+    "m8-headless": { "label": "M8 Headless", "firmware": "6.6.4A", "defines": {}, "alias": null }
+  },
+  "categories": {
+    "performance": { "label": "Performance", "tone": "peak" },
+    "modulation": { "label": "Modulation", "tone": "scope" },
+    "effects": { "label": "Effects", "tone": "cursor" },
+    "tools": { "label": "Tools", "tone": "mid" },
+    "developer": { "label": "Developer", "tone": "info" }
+  },
+  "mods": [
+    {
+      "id": "chaos-control", "sources": ["examples/chaos-control/chaos.c"], "category": "performance", "motif": "pad",
+      "title": "CHAOS CONTROL",
+      "summary": "A Kaoss-style X/Y effects pad on the master output: twelve effects (filter, repeat, tape stop, echo, jet, pitch, scratch, grain, swirl...). Play it with the touch screen, the keys or MIDI CC 12-15. All four directions open its FXPAD.",
+      "details": "On the Model:02, CHAOS mode is the visualizer: FXPAD draws a 38 x 38 LED pad that swirls, ripples or shows the tracks around your finger, for about a third of the stock scopes' cost. On the Headless, the mod opens its own screen and MIDI plays it. Settings (effect, hold, the visual) are rows in its OPTIONS page in the MOD LOADER (LEFT+RIGHT).",
+      "keys": ["All four directions: CHAOS mode (the FXPAD)", "Touch / keys / CC 12-15: X, Y, on, effect"],
+      "on_unit": "Played on a Model:02 6.6.2A with the touch screen (FILTER, the three FXPAD styles) and on a Headless 6.6.4A over MIDI (all twelve effects)."
+    },
+    {
+      "id": "lfo-sends", "sources": ["examples/lfo-sends/lfo_sends.c"], "category": "modulation", "motif": "lfo",
+      "title": "LFO SENDS",
+      "summary": "DRY, MFX, DEL and REV SEND become modulation destinations in all six sound engines, so an LFO or envelope can pump a track's sends. Saved with the song.",
+      "details": "Pick DRY SEND, MFX SEND, DEL SEND or REV SEND as a modulator's DEST like any other destination. The amounts are saved in the song (a side table core keeps by name).",
+      "keys": ["Instrument > MODS: DEST lists the four sends"],
+      "on_unit": "Checked on a Model:02 6.6.2A (DRY pumps, the destination survives a reload) and a Headless 6.6.4A."
+    },
+    {
+      "id": "fx-replace", "sources": ["examples/fx-replace/replace.c"], "category": "effects", "motif": "reverb",
+      "title": "FX REPLACE",
+      "summary": "Replaces the reverb send effect with the mod's own: an example of core's ev_fx_audio, which hands a mod a send effect's audio block.",
+      "details": "A starting point for a send effect of your own: the reverb's input comes to the mod, and what it writes is the reverb's output.",
+      "keys": [],
+      "on_unit": "Checked on a Headless 6.6.4A."
+    },
+    {
+      "id": "perf-mon", "sources": ["examples/perf-mon/perf.c"], "category": "tools", "motif": "meter",
+      "title": "PERF MON",
+      "summary": "How busy your M8 is: the audio block's time, the frame's time and the screen's, measured with the CPU's cycle counter. A page in the MOD LOADER, and over USB.",
+      "details": "Shows the audio callback's load against its 2.9 ms budget, the UI frame time and the display refresh. Useful before adding a heavy mod.",
+      "keys": ["LEFT+RIGHT > PERF MON"],
+      "on_unit": "Used on a Model:02 6.6.2A and a Headless 6.6.4A for the headroom measurements in docs/PERF-MON.md."
+    },
+    {
+      "id": "load-gen", "sources": ["examples/load-gen/load_gen.c"], "category": "developer", "motif": "load", "dev": true,
+      "title": "load-gen",
+      "summary": "A CPU load you dial in with MIDI CC 20 (audio thread) and CC 21 (UI), for headroom tests with PERF MON.",
+      "details": "It adds busy work to the audio block or the UI frame, so you can see how much room is left before the M8 drops audio or frames.",
+      "keys": ["CC 20: audio load", "CC 21: UI load"],
+      "on_unit": "Used for the headroom sweep in docs/PERF-MON.md."
+    },
+    {
+      "id": "core-api-demo", "sources": ["examples/core-api-demo/demo.c"], "category": "developer", "motif": "api", "dev": true,
+      "title": "Core API demo",
+      "summary": "Core's API from a mod: MIDI in and out, a page, a setting, an extra modulation destination (WAV DEMO).",
+      "details": "Read its source for how a mod uses dl/core.h. Its WAV DEMO destination takes WAVSYNTH's only free slot, so it and LFO SENDS don't go together.",
+      "keys": [], "on_unit": "Checked on a Headless 6.6.4A."
+    },
+    {
+      "id": "core-selftest", "sources": ["examples/core-selftest/selftest.c"], "category": "developer", "motif": "test", "dev": true,
+      "title": "Core self-test",
+      "summary": "Counts every event core fires, for checking a core build on a unit. Uses many hook slots: switch it off after.",
+      "details": "PEEK its counters over USB, or read its page.",
+      "keys": [], "on_unit": "Used to check core 0.3 to 0.7 on a Headless 6.6.4A."
+    },
+    {
+      "id": "flash-probe", "sources": ["examples/flash-probe/flash_probe.c"], "category": "developer", "motif": "flash", "dev": true,
+      "title": "flash-probe",
+      "summary": "A mod too big for ITCM on purpose: core installs it from the card into flash. Shows that the flash path works.",
+      "details": "", "keys": [], "on_unit": "Checked on a Headless 6.6.4A."
+    },
+    {
+      "id": "sd-heartbeat", "sources": ["examples/sd-heartbeat/heartbeat.c"], "category": "developer", "motif": "pulse", "dev": true,
+      "title": "SD heartbeat",
+      "summary": "The smallest mod: on a bare Teensy it blinks the LED to show that core loads mods. On a Model:02 it leaves the LED pin alone (the M8 uses it) and only shows up as loaded in core's status.",
+      "details": "", "keys": [], "on_unit": "Checked on a Teensy (headless) and on a Model:02 (6.6.4A). Before 0.1.1 it hung a Model:02."
+    },
+    {
+      "id": "audio-tone", "sources": ["examples/audio-tone/tone.c"], "category": "developer", "motif": "tone", "dev": true,
+      "title": "Audio tone",
+      "summary": "Replaces the output with a 440 Hz tone: an example of ev_audio_out. Loud: not for a song.",
+      "details": "", "keys": [], "on_unit": "Checked on a Headless 6.6.4A."
+    },
+    {
+      "id": "track-silence", "sources": ["examples/track-silence/silence.c"], "category": "developer", "motif": "flat", "dev": true,
+      "title": "Track silence",
+      "summary": "Silences track 1: an example of ev_track_audio, which hands a mod each track's audio.",
+      "details": "", "keys": [], "on_unit": "Checked on a Headless 6.6.4A."
+    }
+  ]
+}
