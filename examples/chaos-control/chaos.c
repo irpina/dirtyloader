@@ -20,7 +20,8 @@
  *   WHOOSH     a noise sweep played by motion: how fast the finger moves is how loud it is; X its band, Y the
  *              resonance; the music ducks under it
  *
- * CHAOS mode is the M8's visualizer: press all four directions at once. On the Model:02 that is the firmware's own
+ * CHAOS mode is the M8's visualizer. On the Model:02 core's MOD LOADER opens it (all four directions, then EDIT on
+ * this mod's card; core took the chord for the MOD LOADER). On the Model:02 that is the firmware's own
  * visualizer (it toggles ui + 0); CHAOS is live while it shows, and the touch screen is the pad. Headless firmware
  * has no visualizer: there, all four directions open CHAOS CONTROL's own screen (and close it again). Outside CHAOS
  * mode nothing engages: touching, MIDI and HOLD only play the pad while it is on, and leaving it releases them.
@@ -46,8 +47,16 @@
 #include "dl/pixui.h"
 
 #define FS          44100.0f
-#define RING        9856u                   /* stereo frames of history: 223 ms; with FXPAD's cells,
-                                                       all 40 KB of core's spare RAM */
+/* stereo frames of history: 9,856 (223 ms), or less where core's spare RAM can't hold that and FXPAD's cells too
+   (whole 64-frame steps; ram_claim rounds to 8). The Model:02's 6.6.4A has 512 bytes less than 6.6.2A: 9,728,
+   221 ms. Before this, its ring took the room and FXPAD's cells didn't fit: no FXPAD, and m8c's stream stayed
+   paused in the visualizer. */
+#if defined(fw_rect) && defined(FW_SPARE_RAM)
+#define RING_FIT    ((((FW_SPARE_RAM_END - FW_SPARE_RAM) - 8u - 38u * 38u) / 4u) & ~63u)
+#define RING        (RING_FIT < 9856u ? RING_FIT : 9856u)
+#else
+#define RING        9856u
+#endif
 #define TPB         192u                    /* sequencer ticks a beat (measured: 384 a second at 120 BPM) */
 
 enum { FX_FILTER, FX_REPEAT, FX_TAPE, FX_CRUSH, FX_GATE, FX_ECHO, FX_JET, FX_PITCH,
@@ -1289,7 +1298,7 @@ static void on_boot(void)
 #else
 #define VIS_HOOK
 #endif
-DL_MOD("chaos-control", "0.2.0", "CHAOS CONTROL: an X/Y effects pad on the master output",
+DL_MOD("chaos-control", "0.2.1", "CHAOS CONTROL: an X/Y effects pad on the master output",
        DL_ON(EV_BOOT, 50, on_boot), DL_ON(EV_AUDIO_OUT, 50, on_audio_out), DL_ON(EV_SEQ_TICK, 50, on_seq_tick),
        DL_ON(EV_PLAY, 50, on_play), DL_ON(EV_MIDI, 40, on_midi), DL_ON(EV_TICK, 50, on_tick)
        TOUCH_HOOK KEY_HOOK VIS_HOOK);

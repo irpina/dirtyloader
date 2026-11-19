@@ -52,14 +52,15 @@
    "category": "performance",
    "motif": "pad",
    "title": "CHAOS CONTROL",
-   "summary": "A Kaoss-style X/Y effects pad on the master output: twelve effects (filter, repeat, tape stop, echo, jet, pitch, scratch, grain, swirl...). Play it with the touch screen, the keys or MIDI CC 12-15. All four directions open its FXPAD.",
-   "details": "On the Model:02, CHAOS mode is the visualizer: FXPAD draws a 38 x 38 LED pad that swirls, ripples or shows the tracks around your finger, for about a third of the stock scopes' cost. On the Headless, the mod opens its own screen and MIDI plays it. Settings (effect, hold, the visual) are rows in its OPTIONS page in the MOD LOADER (LEFT+RIGHT).",
+   "summary": "A Kaoss-style X/Y effects pad on the master output: twelve effects (filter, repeat, tape stop, echo, jet, pitch, scratch, grain, swirl...). Play it with the touch screen, the keys or MIDI CC 12-15. Open it from the MOD LOADER: EDIT on its card shows the FXPAD.",
+   "details": "On the Model:02, CHAOS mode is the visualizer: FXPAD draws a 38 x 38 LED pad that swirls, ripples or shows the tracks around your finger, for about a third of the stock scopes' cost. On the Headless, the mod opens its own screen and MIDI plays it. Settings (effect, hold, the visual) are rows in its OPTIONS page in the MOD LOADER (all four directions). On the Headless, all four directions open its screen.",
    "keys": [
-    "All four directions: CHAOS mode (the FXPAD)",
+    "MOD LOADER > CHAOS PAD > EDIT: CHAOS mode (the FXPAD; Headless: all four directions)",
+    "MOD LOADER > SHIFT+EDIT: on / off",
     "Touch / keys / CC 12-15: X, Y, on, effect"
    ],
    "on_unit": "Played on a Model:02 6.6.2A with the touch screen (FILTER, the three FXPAD styles) and on a Headless 6.6.4A over MIDI (all twelve effects).",
-   "version": "0.2.0",
+   "version": "0.2.1",
    "header_title": "CHAOS CONTROL: an X/Y effects pad on the master output",
    "hooks": [
     "audio_out",
@@ -74,23 +75,23 @@
     "m8-model02": {
      "file": "mods/m8-model02/chaos-control.m8x",
      "size": 19912,
-     "sha256": "5368252f835e2475efb5f6c533ede5259e25d3b04f2e2084836675bd34a00f89",
+     "sha256": "4d046703a8243d6334f1aaa12ce5fd8cb5c74b6550ff34200d1e16a7ecbb1f05",
      "fw": 33949186,
-     "version": "0.2.0"
+     "version": "0.2.1"
     },
     "m8-model02-664": {
      "file": "mods/m8-model02-664/chaos-control.m8x",
      "size": 19912,
-     "sha256": "90c9cf51d22260f0d1f264773f924c20c9fa7ff8fa1da7a81a0f68c5aa1d3d3f",
+     "sha256": "aa711e00180102173875f9980bb35f79c00ebce6c0a72e12ab73bfb7b70d2e77",
      "fw": 33949188,
-     "version": "0.2.0"
+     "version": "0.2.1"
     },
     "m8-headless": {
      "file": "mods/m8-headless/chaos-control.m8x",
      "size": 9244,
-     "sha256": "ce719f502f39b62e020ce80abbc1964dad785cbadb24329bafdaa06f862e870b",
+     "sha256": "b8c16d16f19c5c98937e7e9965ec417730401e9a2b5a5c7f16a0b8b810ac7872",
      "fw": 394756,
-     "version": "0.2.0"
+     "version": "0.2.1"
     }
    },
    "source": "https://github.com/irpina/dirtyloader/tree/main/examples/chaos-control"
@@ -185,7 +186,7 @@
    "summary": "How busy your M8 is: the audio block's time, the frame's time and the screen's, measured with the CPU's cycle counter. A page in the MOD LOADER, and over USB.",
    "details": "Shows the audio callback's load against its 2.9 ms budget, the UI frame time and the display refresh. Useful before adding a heavy mod.",
    "keys": [
-    "LEFT+RIGHT > PERF MON"
+    "MOD LOADER (all four directions) > PERF MON; Headless: LEFT+RIGHT"
    ],
    "on_unit": "Used on a Model:02 6.6.2A and a Headless 6.6.4A for the headroom measurements in docs/PERF-MON.md.",
    "version": "0.1.1",

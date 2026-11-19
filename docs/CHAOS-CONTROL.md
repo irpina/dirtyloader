@@ -44,23 +44,28 @@ widths a second: it rises fast and falls over ~30 ms. The page shows it as a 10-
 
 **The history:**
 - REPEAT, TAPE STOP, ECHO, JET, PITCH, SCRATCH, GRAIN and SWIRL share one buffer: 9,856 stereo frames (223 ms) of 16-bit audio, from core's
-  `ram_claim`.
+  `ram_claim` (9,728, 221 ms, on the Model:02's 6.6.4A, so FXPAD's cells fit beside it).
 - It comes from 40 KB of DTCM between the firmware's `.bss` (which ends at `0x200415E0`) and its stack. On hardware,
   after a day of saves, loads and playback, that area still held power-up noise up to `0x2004EE00`. So the stack has
   never gone deeper than about 4.6 KB, and core keeps 14 KB clear of it.
 - The firmware's heap in OCRAM is fully claimed (`__brkval` = `0x20280000`), so it is not an option.
 
-## CHAOS mode: all four directions
+## CHAOS mode: from the MOD LOADER (Model:02), all four directions (Headless)
 
-CHAOS mode is the M8's visualizer: press **UP, DOWN, LEFT and RIGHT at once** (the input action `0xE4`). The pad
-only plays in CHAOS mode. Touch, MIDI and HOLD engage nothing outside it, and leaving it releases everything.
+CHAOS mode is the M8's visualizer. The pad only plays in CHAOS mode. Touch, MIDI and HOLD engage nothing outside it,
+and leaving it releases everything.
 
-- **Model:02 6.6.2A:**
+- **Model:02, how to get there:** open the MOD LOADER (all four directions at once, the input action `0xE4`), move
+  to CHAOS PAD and press **EDIT**: the MOD LOADER closes and the visualizer opens. Any key leaves it. Core took the
+  chord for the MOD LOADER, so the chord no longer opens the visualizer by itself (inside it, it still closes it);
+  SHIFT+EDIT on the card switches the mod on or off. MIDI CC 16 still toggles it as before.
+- **Model:02, what the firmware does:**
   - The visualizer is the firmware's own. The input router (`0x6004C6C8`, `ev_key`'s target) handles `0xE4` by
     toggling the byte at `ui + 0` (`0x20015458`, `FW_UI_VISUALIZER`), except on some screens (a mask over the view
     id, plus SAMPLE RECORD).
   - CHAOS is live while that byte is set, and the touch screen is the pad.
-  - On a Model:02, the four direction keys pressed together set the byte to 1, and pressing them again clears it.
+  - On a stock Model:02, the four direction keys pressed together set the byte to 1, and pressing them again clears
+    it (with core, the MOD LOADER's EDIT sets it through the router).
   - All four sent over USB (m8c's key command) open it too, but only once the display stream is on (`E`); before
     that the firmware ignores USB keys.
 - **Headless 6.6.4A:**
@@ -284,9 +289,18 @@ Core 0.6 and CHAOS CONTROL on a Model:02 (upgraded from 6.5.1), with the owner's
   own data at `0x2000B80C..18` (headless's vector table address; fixed, see [PERF-MON.md](PERF-MON.md)). If it does
   happen, set CHAOS OVERLAY to OFF.
 - **The scopes draw through the overlay** where their traces cross it, until its next frame.
-- **USB while the visualizer is open (Model:02):** core stopped answering USB commands once the display stream had
-  been asked for (`E`) while the visualizer was open, and answered again when it closed. Before that, a read with the
-  stream off worked. Tools should read state outside the visualizer, or before asking for the screen.
+- **USB while the visualizer is open (Model:02):** the visualizer pauses m8c's stream (sender `+0x19`), and the
+  firmware's m8c command processor (6.6.4A `0x6007CDA8`) returns at once while it's paused. So a command that arrives
+  then, `E` or `R` (a redraw), stays pending, and everything behind it on the port waits too: core's requests
+  included, so core stops answering. That's how the stock firmware ignores m8c's keys in the visualizer. FXPAD lifts
+  the pause every frame, so with FXPAD on, the stream, the keys and core's requests all keep working (checked on the
+  6.6.4A Model:02, 2026-11-19: MOD LOADER, EDIT on CHAOS PAD, 7,711 frames in 3 s, PEEK answered, OPT closed it).
+  With CHAOS VIS on STOCK, or without CHAOS CONTROL, the stock behaviour stays: m8c freezes until a key on the M8
+  closes the visualizer.
+- **The Model:02's 6.6.4A has 512 bytes less spare RAM** (`0x20041A00`–`0x2004B800`, its `.bss` ends later). Until
+  0.2.1 the history ring took 39,424 bytes of the 40,448 and FXPAD's 1,444-byte cells didn't fit: no FXPAD there,
+  only the overlay, and the stream stayed paused (the freeze above). From 0.2.1 the ring is sized from the device
+  header: 9,856 frames (223 ms) where it fits with the cells, 9,728 (221 ms) on 6.6.4A.
 - **Only FILTER was played on the Model:02.** The other eleven run the same code, tested on headless.
 
 - **History:** 223 ms. REPEAT's longest slice and ECHO's time halve until they fit: at 120 BPM, 1/4 beat is the
