@@ -189,19 +189,29 @@ differs by exactly that amount is an address into the image. Anything else that 
 **DLX2** (core 0.7, what the SDK builds now) adds a sixth header word: the offset where the image's writable part
 (`.data`) starts. Everything before it is code and constants. Core 0.7 reads both versions.
 
-### MOD LOADER and OPTIONS (core 0.7): LEFT+RIGHT
+### MOD LOADER and OPTIONS (core 0.7): all four directions (Model:02), LEFT+RIGHT (Headless)
 
-LEFT+RIGHT (input action `0x84`, unused by the firmware) opens core's mod screens from any screen except the
-Model:02's visualizer; LEFT+RIGHT again, or OPT, goes back.
+**Model:02:** all four directions at once (input action `0xE4`) open the MOD LOADER from any screen; the chord again,
+or OPT, goes back. The chord used to toggle the firmware's visualizer: core takes it, and the visualizer opens from
+the MOD LOADER instead (EDIT on CHAOS CONTROL, whose screen it is). Inside the visualizer the chord still closes it.
+LEFT+RIGHT (`0x84`) does nothing on the Model:02 now.
+
+**Headless:** LEFT+RIGHT (`0x84`, unused by the firmware) opens the machine pages; again, or OPT, goes back. All four
+directions stay CHAOS CONTROL's (its own screen: headless firmware has no visualizer).
 
 **Model:02: the MOD LOADER.** A full-screen page drawn with `dl/pixui.h` (5×7 font, pixel icons, cut-corner boxes):
 - **Header:** MOD LOADER on a striped purple tab, and how many mods are on of how many on the card.
 - **Tabs:** ALL, INST, FX, SEQ, UTIL (SHIFT+UP/DOWN). Each known mod has a name, category and icon in core's table
   (`lm_known`); others show their file name under UTIL.
-- **Cards:** 2 × 4 a page. Each has the icon, the name (dimmed when off), a category pill and a small picture. The
-  selected card has a purple frame and corner brackets. Arrows move.
-- **Keys:** EDIT switches the mod on or off (from the next restart, as on the MODS page). SHIFT+RIGHT opens its
-  OPTIONS, SHIFT+LEFT its own page (INFO), OPT goes back.
+- **Cards:** 2 × 4 a page. Each has the icon (20 × 20 pixel art at 2×, `pui_hicon`), the name (dimmed when off), a
+  category pill and a small picture. The selected card has a purple frame and corner brackets, and its icon plays a
+  short loop (a hop and a glint, 16 frames of 70 ms; each frame repaints the icon's box, background included, so
+  nothing flickers). Arrows move.
+- **Keys:** EDIT switches the mod on or off (from the next restart, as on the MODS page); SHIFT+EDIT does too. On a
+  mod whose screen is the visualizer (CHAOS CONTROL) and that runs now, EDIT opens that screen instead: the MOD
+  LOADER closes and `core_tick` calls the firmware's input router with `0xE4` (straight to the router, so `ev_key`
+  doesn't see it); the footer then reads E OPEN, SE OFF. SHIFT+RIGHT opens its OPTIONS, SHIFT+LEFT its own page
+  (INFO), OPT goes back.
 - **OPTIONS:** the mod's settings (`setting_add`) as up to eight knobs (a 270° arc of 21 dots, label, value), in two
   rows of four; the selected knob is in brackets. Arrows pick, EDIT+LEFT/RIGHT turns by 1, EDIT+UP/DOWN by 4,
   SHIFT+LEFT/RIGHT flips between mods. Values are saved in `settings.txt` as from the Mod Menu.

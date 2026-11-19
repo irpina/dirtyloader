@@ -152,4 +152,58 @@ static inline void pui_icon(pui_rect_fn rect, int x, int y, int icon, int sc)
     }
 }
 
+/* ---- big icons: 20 x 20, the MOD LOADER's cards. Drawn as a 20 x 21 box (a row above for the hop), background
+ * included, so an animation frame repaints over the last one without clearing first (no flicker). frame 0..15:
+ * 2..4 hop up a pixel, and a white glint sweeps across corner to corner. ----------------------------------------- */
+enum { PUI_H_GEM, PUI_H_WAVE, PUI_H_BARS, PUI_H_CUBE, PUI_H_GEAR, PUI_H_HEART, PUI_H_RINGS, PUI_H_DOTS, PUI_HICONS };
+#define PUI_HN 20
+__attribute__((unused)) static const char *const pui_hicons[PUI_HICONS][PUI_HN] = {
+    { "....................", "....................", ".....DDDDDDDDDD.....", "....DWlWllggggdD....", "...DWWWllggggdddD...", "..DWWllllgggggdddD..", ".DWWWllllgggggddddD.", ".DddddddddddddddddD.", "..DllgggggdddddDDD..", "..DllgggggdddddDDD..",
+      "...DllggggddddDDD...", "....DlggggddddDD....", ".....DlgggdddDD.....", "......DgggdddD......", ".......DggddD.......", ".......DggddD.......", "........DgdD........", ".........DD.........", "....................", "...................." },   /* GEM */
+    { "....................", "....................", "....................", "...CCCC.............", "..CccccC............", "..cCCCCc............", ".CC....CC...........", "pc......c.pp........", "CCp.....CC..p......p", "c.......pcC.......pC",
+      "C..p.....Cc..p.....c", "....p..p..CC..p..pCC", ".....pp....c...pp.c.", "...........CC....CC.", "............cCCCCc..", "............CccccC..", ".............CCCC...", "....................", "....................", "...................." },   /* WAVE */
+    { "....................", "....................", "................yy..", "................oo..", "................oo..", "................oo..", "..........yy....oo..", "..........mm....oo..", "..........mm.yy.oo..", "..........mm.mm.oo..",
+      "....yy....mm.mm.oo..", "....pp....mm.mm.oo..", "....pp.yy.mm.mm.oo..", "....pp.pp.mm.mm.oo..", ".yy.pp.pp.mm.mm.oo..", ".kk.pp.pp.mm.mm.oo..", ".kk.pp.pp.mm.mm.oo..", ".kk.pp.pp.mm.mm.oo..", ".kk.pp.pp.mm.mm.oo..", "...................." },   /* BARS */
+    { "....................", "....................", ".........kk.........", ".......kkcckk.......", ".....kkcccccckk.....", "...kkcccccccccckk...", "..kcccccccccccccck..", "..kCCccccccccccBBk..", "..kCCCCccccccBBBBk..", "..kCCCCCCccBBBBBBk..",
+      "..kCCCCCCCBBBBBBBk..", "..kCCCCCCCBBBBBBBk..", "..kCCCCCCCBBBBBBBk..", "..kCCCCCCCBBBBBBBk..", "..kCCCCCCCBBBBBBBk..", "...kkCCCCCBBBBBkk...", ".....kkCCCBBBkk.....", ".......kkCBkk.......", ".........kk.........", "...................." },   /* CUBE */
+    { "....................", ".........kk.........", ".........kk.........", "...kk...kwwk...kk...", "...kwkkkwwwwkkksk...", "....kwwwwwwwwwsk....", "....kwwwkkkkwssk....", "....kwwk....kssk....", "...kwwk......kssk...", ".kkwwwk......kssskk.",
+      ".kkwwwk......kssskk.", "...kwwk......kssk...", "....kwwk....kssk....", "....kwsskkkksssk....", "....kssssssssssk....", "...kskkksssskkksk...", "...kk...kssk...kk...", ".........kk.........", ".........kk.........", "...................." },   /* GEAR */
+    { "....................", "....RRRR....RRRR....", "..RRmmmmRRRRmmmmRR..", "..RmmmmmmmmmmmmmmR..", ".RmmmwwmmmmmmmmmmmR.", ".RmmwmmmmmmmmmmmmmR.", ".RmmwmmmmmmmmmmmmmR.", ".RmmmmmmmmmmmmmmmmR.", ".RmmmmmmmmmmmmmmmmR.", ".RmmmmmmmmmmmmmmmmR.",
+      "..RmmmmmmmmmmmmmmR..", "...RmmmmmmmmmmmmR...", "...RmmmmmmmmmmmmR...", "....RmmmmmmmmmmR....", ".....RmmmmmmmmR.....", "......RRmmmmRR......", "........RmmR........", ".........RR.........", "....................", "...................." },   /* HEART */
+    { ".........ww.........", "......wwwwwwww......", "....www......www....", "...ww....pp....ww...", "..ww..pppppppp..ww..", "..w..pp......pp..w..", ".ww.pp........pp.ww.", ".w..p..........p..w.", ".w..p...mmmm...p..w.", "ww.pp...mmmm...pp.ww",
+      "ww.pp...mmmm...pp.ww", ".w..p...mmmm...p..w.", ".w..p..........p..w.", ".ww.pp........pp.ww.", "..w..pp......pp..w..", "..ww..pppppppp..ww..", "...ww....pp....ww...", "....www......www....", "......wwwwwwww......", ".........ww........." },   /* RINGS */
+    { "....................", "............cc......", "..yy........cc......", "..yy................", "....................", ".......mm...........", ".......mm.......yy..", "................yy..", "....................", ".cc.................",
+      ".cc.......oo........", "......yy..oo........", "......yy............", "...............mm...", "...............mm...", "....pp..............", "....pp.....cc.......", "...........cc....yy.", ".................yy.", "...................." },   /* DOTS */
+};
+static inline uint16_t pui_hpal(char ch)
+{
+    switch (ch) {
+    case 'D': return PUI_RGB(8, 64, 40);    case 'd': return PUI_RGB(18, 128, 70);  case 'g': return PUI_RGB(46, 204, 104);
+    case 'l': return PUI_RGB(150, 250, 176); case 'W': return PUI_RGB(255, 255, 255); case 'R': return PUI_RGB(150, 20, 70);
+    case 'B': return PUI_RGB(30, 40, 140);  case 'C': return PUI_RGB(20, 130, 170); case 's': return PUI_DIM;
+    default: return pui_pal(ch);
+    }
+}
+#define PUI_HFRAMES 16
+/* the icon at scale sc in a box (x, y) 20 sc wide, 21 sc tall; bg paints its empty pixels */
+static inline void pui_hicon(pui_rect_fn rect, int x, int y, int icon, int sc, int frame, uint16_t bg)
+{
+    if ((unsigned)icon >= PUI_HICONS) return;
+    int hop = frame >= 2 && frame <= 4, band = frame * 3 - 6;
+    for (int i = 0; i <= PUI_HN; i++) {
+        int a = i - 1 + hop;                        /* the icon's row on this line of the box */
+        const char *row = a >= 0 && a < PUI_HN ? pui_hicons[icon][a] : 0;
+        for (int c = 0; c < PUI_HN;) {
+            uint16_t col = bg;
+            int n = 1;
+            #define PUI_HAT(cc) (!row || row[cc] == '.' ? bg : (band <= (cc) + a && (cc) + a < band + 2) ? PUI_RGB(255, 255, 255) : pui_hpal(row[cc]))
+            col = PUI_HAT(c);
+            while (c + n < PUI_HN && PUI_HAT(c + n) == col) n++;
+            #undef PUI_HAT
+            rect(x + c * sc, y + i * sc, n * sc, sc, col);
+            c += n;
+        }
+    }
+}
+
 #endif

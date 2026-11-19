@@ -16,9 +16,9 @@
     {
       "id": "chaos-control", "sources": ["examples/chaos-control/chaos.c"], "category": "performance", "motif": "pad",
       "title": "CHAOS CONTROL",
-      "summary": "A Kaoss-style X/Y effects pad on the master output: twelve effects (filter, repeat, tape stop, echo, jet, pitch, scratch, grain, swirl...). Play it with the touch screen, the keys or MIDI CC 12-15. All four directions open its FXPAD.",
-      "details": "On the Model:02, CHAOS mode is the visualizer: FXPAD draws a 38 x 38 LED pad that swirls, ripples or shows the tracks around your finger, for about a third of the stock scopes' cost. On the Headless, the mod opens its own screen and MIDI plays it. Settings (effect, hold, the visual) are rows in its OPTIONS page in the MOD LOADER (LEFT+RIGHT).",
-      "keys": ["All four directions: CHAOS mode (the FXPAD)", "Touch / keys / CC 12-15: X, Y, on, effect"],
+      "summary": "A Kaoss-style X/Y effects pad on the master output: twelve effects (filter, repeat, tape stop, echo, jet, pitch, scratch, grain, swirl...). Play it with the touch screen, the keys or MIDI CC 12-15. Open it from the MOD LOADER: EDIT on its card shows the FXPAD.",
+      "details": "On the Model:02, CHAOS mode is the visualizer: FXPAD draws a 38 x 38 LED pad that swirls, ripples or shows the tracks around your finger, for about a third of the stock scopes' cost. On the Headless, the mod opens its own screen and MIDI plays it. Settings (effect, hold, the visual) are rows in its OPTIONS page in the MOD LOADER (all four directions). On the Headless, all four directions open its screen.",
+      "keys": ["MOD LOADER > CHAOS PAD > EDIT: CHAOS mode (the FXPAD; Headless: all four directions)", "MOD LOADER > SHIFT+EDIT: on / off", "Touch / keys / CC 12-15: X, Y, on, effect"],
       "on_unit": "Played on a Model:02 6.6.2A with the touch screen (FILTER, the three FXPAD styles) and on a Headless 6.6.4A over MIDI (all twelve effects)."
     },
     {
@@ -42,7 +42,7 @@
       "title": "PERF MON",
       "summary": "How busy your M8 is: the audio block's time, the frame's time and the screen's, measured with the CPU's cycle counter. A page in the MOD LOADER, and over USB.",
       "details": "Shows the audio callback's load against its 2.9 ms budget, the UI frame time and the display refresh. Useful before adding a heavy mod.",
-      "keys": ["LEFT+RIGHT > PERF MON"],
+      "keys": ["MOD LOADER (all four directions) > PERF MON; Headless: LEFT+RIGHT"],
       "on_unit": "Used on a Model:02 6.6.2A and a Headless 6.6.4A for the headroom measurements in docs/PERF-MON.md."
     },
     {

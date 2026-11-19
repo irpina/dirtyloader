@@ -15,7 +15,7 @@ const g = { model: null, stock: null, build: null, urls: [], rec: null, busy: fa
 export async function initGuide(c) {
   ctx = c;
   try { index = await (await fetch('firmware/index.json', { cache: 'no-cache' })).json(); } catch { index = []; }
-  g.model = ctx.store.get('dl.fwModel', null) || 'm8-model02';
+  g.model = ctx.store.get('dl.fwModel', null) || 'm8-model02-664';   // Dirtywave's current download
   if (!index.some(e => e.target === g.model)) g.model = index[0]?.target || null;
   wireDrop('#fw-drop', '#fw-file', takeStock);
   wireDrop('#rec-drop', '#rec-file', takeRecovery);
