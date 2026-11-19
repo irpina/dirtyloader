@@ -62,7 +62,20 @@
         "fn": "core_midi_read",
         "event": "MIDI",
         "note": "usb_midi_read's bl usb_midi_read_message (0x600AF3C0)"
-      }
+      },
+      "0x6004B606": {
+        "fn": "core_vis_scope",
+        "event": "VIS_SCOPE",
+        "note": "the visualizer branch of the frame refresh 0x6004B514: bl 0x6004A64A, one track's scope (r0 = its object), 8 times a frame"
+      },
+      "0x6004B642": {"fn": "core_side0", "note": "the frame refresh's normal branch: bl 0x600474C4 (r0 0x200123F8); skipped under core's full-screen pages"},
+      "0x6004B680": {"fn": "core_side1", "note": "bl 0x600480F8 (r0 0x20015AE0); skipped under core's full-screen pages"},
+      "0x6004CB94": {"fn": "core_side2", "note": "the view-draw dispatcher 0x6004CB7C, before the view's draw: bl 0x6004B8C8 (r0 fw_ui); skipped under core's full-screen pages"},
+      "0x6004CBA0": {"fn": "core_side5", "note": "bl 0x6004A548; skipped under core's full-screen pages"},
+      "0x6004CBAC": {"fn": "core_side6", "note": "bl 0x60049664, a track of the right-hand column (r0 its object, 8 times); skipped under core's full-screen pages"},
+      "0x6004CBB6": {"fn": "core_side7", "note": "bl 0x600490B8; skipped under core's full-screen pages"},
+      "0x6004B696": {"fn": "core_side3", "note": "bl 0x600496F4 (r0 0x2001BC94); skipped under core's full-screen pages"},
+      "0x6004B6EC": {"fn": "core_side4", "note": "bl 0x6004B2FC, the output meters at the top right; skipped under core's full-screen pages"}
     },
     "sysex_handler": {
       "ptr": "0x20040748",
@@ -73,7 +86,80 @@
       "redraw": "0x20001888",
       "edited": "0x2000188C"
     },
-    "note": "core 0.5 for Model:02, from the headless core's sites found again in 6.6.2A (code matched by instruction runs, data through the literals the matched code loads; the map with its evidence: docs/MODEL02-PORT.md). Free flash past the image (ends 0x601EB000) up to the EEPROM emulation at 0x60FC0000; the ITCM tail after the firmware's ITCM code (0x2B8D0). Built, not run on a Model:02 unit."
+    "mids": {
+      "0x600585C2": {
+        "fn": "core_dest_cell",
+        "args": [
+          "r5",
+          "r4",
+          "r3"
+        ],
+        "ret": "r3",
+        "expect": "and r3, r3, #0xf",
+        "note": "INST. MODS loads the DEST field under the cursor into view+0xC: byte & 0xF (view r5, modulator x6 r4). Model:02: the same instructions at 0x600585C2 (headless 0x60056F9A)"
+      },
+      "0x60058C0C": {
+        "fn": "core_dest_store",
+        "args": [
+          "r4",
+          "r5",
+          "r7"
+        ],
+        "ret": "r7",
+        "expect": "and r7, r7, #0xf",
+        "note": "the DEST editor, after clamping to count-1, masks the value to 4 bits before bic/orr into the packed byte (view r4, modulator r5). Model:02: the same instructions at 0x60058C0C (headless 0x600575E4)"
+      },
+      "0x60058110": {
+        "fn": "core_dest_shown",
+        "args": [
+          "sl",
+          "r6",
+          "r5"
+        ],
+        "ret": "r5",
+        "expect": "and r5, r5, #0xf",
+        "note": "INST. MODS draws a DEST: byte & 0xF, then the engine's name(dest) (model sl: instrument at +0xC; modulator r6). Model:02: the same instructions at 0x60058110 (headless 0x60056AE8)"
+      },
+      "0x60054EC4": {
+        "fn": "core_dest_rand_count",
+        "args": [
+          "r0",
+          "r3"
+        ],
+        "ret": "fp",
+        "expect": "blx r3; mov fp, r0",
+        "note": "the instrument randomizer (action 0xE5): dest = rand() % count, ORed into the packed byte unmasked. Model:02: the same instructions at 0x60054EC4 (headless 0x600537F4)"
+      },
+      "0x60058334": {
+        "fn": "core_dest_copied",
+        "args": [
+          "r5",
+          "r4"
+        ],
+        "keep": true,
+        "expect": "movs r3, #0xfe; strb r3, [r5, #0x14]",
+        "note": "INST. MODS copies a modulator (SHIFT+OPT): its 6 bytes to view+0xD, +0x14 = 0xFE (view r5, modulator r4). Model:02: the same instructions at 0x60058334 (headless 0x60056D0C)"
+      },
+      "0x60058876": {
+        "fn": "core_dest_pasted",
+        "args": [
+          "r4",
+          "r6"
+        ],
+        "keep": true,
+        "expect": "ldrh.w r3, [r4, #0x11]",
+        "note": "INST. MODS pastes a modulator (SHIFT+EDIT): after the first 4 bytes are written (view r4, modulator x6 r6). Model:02: the same instructions at 0x60058876 (headless 0x6005724E)"
+      },
+      "0x6004B620": {
+        "fn": "core_vis_draw",
+        "event": "VIS_DRAW",
+        "args": ["r6"],
+        "keep": true,
+        "expect": "strh.w r8, [r4, #0x2ea]",
+        "note": "frame refresh 0x6004B514, the visualizer branch (taken while display+4, 0x200137FC, is set): after the eight tracks' draw (0x6004A64A each), the clip column grid+0x12EA is put back, then the frame is pushed by a tail call (0x6004B636). Reached from the loop's end and its early exit (0x6004B616 cbnz -> 0x6004B61E). r6 = fw_grid (0x20012464), the drawing context"
+      }
+    },
+    "note": "core 0.5 for Model:02, from the headless core's sites found again in 6.6.2A (code matched by instruction runs, data through the literals the matched code loads; the map with its evidence: docs/MODEL02-PORT.md). Free flash past the image (ends 0x601EB000) up to the EEPROM emulation at 0x60FC0000; the ITCM tail after the firmware's ITCM code (0x2B8D0). Runs on a Model:02 (2026-11-17)."
   },
   "core": {
     "BOOT": {
@@ -301,6 +387,12 @@
       "kind": "entry",
       "patch_at": "0x60055F60",
       "note": "headless 0x60054894: masked-imm run; 7 callers"
+    },
+    "TOUCH": {
+      "kind": "call_pre",
+      "patch_at": "0x600A5E88",
+      "target": "0x6007BB20",
+      "note": "the touch engine (0x600A5E60), after its poll (0x6007B6B4) fills the touch object 0x200177D4: the bl that asks it for activity (+0x52). Handlers get the object in r0; taking the event reads as no activity, so no view sees the frame. Static (no Model:02 unit run yet)."
     }
   }
 }

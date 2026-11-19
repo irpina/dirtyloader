@@ -28,6 +28,10 @@ CFLAGS = ["-mcpu=cortex-m7", "-mthumb", "-mfloat-abi=hard", "-mfpu=fpv5-d16", "-
 RELOC_PROBE = 0x01000000
 M8X_MAGIC = b"DLX1"
 M8X_HEADER = struct.Struct("<4sIIII")          # magic, image, bss, nrel, crc32(image + relocations)
+# DLX2 (core 0.7) adds where the image's writable part (.data) starts: the code and constants before it may run
+# from flash (core installs a mod there when it doesn't fit in ITCM), the rest goes to RAM
+M8X_MAGIC2 = b"DLX2"
+M8X_HEADER2 = struct.Struct("<4sIIIII")        # magic, image, bss, nrel, crc32(image + relocations), data offset
 DL_MOD_MAGIC = 0x314D4C44
 
 
@@ -119,6 +123,8 @@ def _mod_script(base: int) -> str:
   . = 0x{base:08X};
   .head : {{ KEEP(*(.dl_head)) }}
   .text : {{ *(.text*) *(.rodata*) }}
+  . = ALIGN(4);
+  __data_start = .;
   .data : {{ *(.data*) }}
   . = ALIGN(4);
   __image_end = .;
@@ -159,19 +165,28 @@ def build_m8x(sources: Sequence[str], defines: Optional[Dict[str, str]] = None,
     relb = b"".join(struct.pack("<I", r) for r in rel)
     crc = zlib.crc32(relb, zlib.crc32(a)) & 0xFFFFFFFF
     bss = bss_end - image_end
-    blob = M8X_HEADER.pack(M8X_MAGIC, len(a), bss, len(rel), crc) + a + relb
-    return blob, {"image": len(a), "bss": bss, "relocations": len(rel), "symbols": sa}
+    data = sa["__data_start"]
+    blob = M8X_HEADER2.pack(M8X_MAGIC2, len(a), bss, len(rel), crc, data) + a + relb
+    return blob, {"image": len(a), "bss": bss, "relocations": len(rel), "data": data, "symbols": sa}
 
 
 def parse_m8x(blob: bytes) -> dict:
     """Check an .m8x the way the core does and read its dl_mod header (for tools and tests)."""
     if len(blob) < M8X_HEADER.size:
         raise CCError("too short for an .m8x")
-    magic, image, bss, nrel, crc = M8X_HEADER.unpack_from(blob)
-    if magic != M8X_MAGIC:
+    magic = blob[:4]
+    if magic == M8X_MAGIC2 and len(blob) >= M8X_HEADER2.size:
+        _m, image, bss, nrel, crc, data = M8X_HEADER2.unpack_from(blob)
+        hs = M8X_HEADER2.size
+        if data > image or data & 3:
+            raise CCError("the writable part starts outside the image")
+    elif magic == M8X_MAGIC:
+        _m, image, bss, nrel, crc = M8X_HEADER.unpack_from(blob)
+        hs, data = M8X_HEADER.size, 0
+    else:
         raise CCError("not an .m8x")
-    img = blob[M8X_HEADER.size:M8X_HEADER.size + image]
-    relb = blob[M8X_HEADER.size + image:M8X_HEADER.size + image + 4 * nrel]
+    img = blob[hs:hs + image]
+    relb = blob[hs + image:hs + image + 4 * nrel]
     if len(img) != image or len(relb) != 4 * nrel:
         raise CCError("truncated .m8x")
     if zlib.crc32(relb, zlib.crc32(img)) & 0xFFFFFFFF != crc:
@@ -188,5 +203,5 @@ def parse_m8x(blob: bytes) -> dict:
     for i in range(nsubs):
         ev, order, fn = struct.unpack_from("<HHI", img, psubs + 8 * i)
         subs.append({"event": ev, "order": order, "handler": fn})
-    return {"image": image, "bss": bss, "relocations": rel, "abi": abi_, "id": cstr(pid),
+    return {"image": image, "bss": bss, "data": data, "header": hs, "relocations": rel, "abi": abi_, "id": cstr(pid),
             "version": cstr(pver), "title": cstr(ptitle), "subscribe": subs, "fw": fw}

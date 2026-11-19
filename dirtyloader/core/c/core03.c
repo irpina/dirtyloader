@@ -32,7 +32,16 @@
 #define MAX_PAGES    8
 #define MAX_DATA     8
 #define MIDI_Q       8
-#define MAX_SETTINGS 8
+#define MAX_SETTINGS 24
+#ifdef FW_MODULATOR_FIRST
+#define DEST_EXT 1                     /* the header has what extended destinations need (core 0.6) */
+#define DEST_EXTRA_MAX 16              /* destinations a mod may add to an engine: up to 31 in all */
+#else
+#define DEST_EXT 0
+#define DEST_EXTRA_MAX FW_MOD_DESTS_MAX
+#endif
+#define DEST_MARK 15u                  /* the packed byte's dest for "extended": the real one is in dests.ext */
+#define DEST_MISSING 0xFFu             /* dests.ext: the song names a destination no loaded mod adds */
 
 struct hook { uint16_t event, flags; void *fn; };
 
@@ -72,7 +81,7 @@ struct core_ram {
     uint32_t crash[8];             /* Teensyduino's crash record as the boot found it; [0] 0: none */
     uint32_t fault_orig, in_fault, fault_handled, fault_pc;   /* ev_crash; the last two survive the reset */
     uint32_t dest_name_orig[FW_ENGINES], dest_count_orig[FW_ENGINES], dest_stock[FW_ENGINES], dest_n[FW_ENGINES];
-    const char *dest_extra[FW_ENGINES][FW_MOD_DESTS_MAX];
+    const char *dest_extra[FW_ENGINES][DEST_EXTRA_MAX];
     uint32_t tap_orig, audio_subs;
     uint32_t track_orig, mfx_orig, delay_orig, reverb_orig, clock_orig, track_subs, fx_subs, params_subs;   /* the tap's update() core_tap wraps; ev_audio_out has handlers */
     uint32_t sysex_orig;           /* the firmware's SysEx handler core_sysex hands chunks on to */
@@ -80,7 +89,30 @@ struct core_ram {
     uint32_t nsettings, menu_sel, menu_back;
     uint32_t bulk_orig, cell_orig, snap_phrase;   /* ev_step_edit's bulk reports: the phrase as last seen */
     uint8_t snap[16 * 9];
+    /* core 0.6, extended destinations: a modulator whose packed byte holds DEST_MARK has its real destination
+       here, by instrument and modulator (0: none, read as DEST_MARK). Kept with the song (core:dests). */
+    struct {
+        uint8_t ext[128][4];
+        uint16_t hash[FW_ENGINES][DEST_EXTRA_MAX];   /* at save: each added destination's name, hashed */
+    } dests;
+    uint8_t dest_clip;             /* the modulator copied on INST. MODS (SHIFT+OPT): its real destination */
+    uint8_t dest_load_slot, dest_load_ok;
+    uint16_t dest_load[4];         /* ev_inst_load's sidecar (name hashes), resolved once the instrument is in */
     uint32_t usb_last;             /* usb_configuration as ev_usb last reported it; 0xFF before the first */
+    uint32_t spare_next;           /* ram_claim's next free byte in the firmware's spare RAM */
+    /* core 0.7: mods that don't fit in ITCM run their code from flash (FW_MOD_FLASH) */
+    uint32_t flash_next;           /* the next free 4 KB of it */
+    uint32_t last_flash, last_flash_n, last_written;   /* the mod load_one just placed there; 0: in ITCM */
+    /* core 0.7: each mod's code (its image in ITCM, or its code in flash): which mod a setting belongs to */
+    uint32_t mod_lo[MAX_MODS], mod_hi[MAX_MODS];
+    /* the machine pages (LEFT+RIGHT): a page per mod, its settings as knobs */
+    uint32_t mp_page, mp_sel, mp_prev, mp_back, mp_gfx;
+    uint16_t mp_drawn[8];          /* each knob's value as drawn, | 0x100 selected, | 0x8000 drawn at all */
+    /* the MOD LOADER (Model:02, LEFT+RIGHT): cards of the mods on the card */
+    uint32_t lm_sel, lm_tab, lm_prev, lm_back, lm_dirty, lm_wait, lm_shown_sel, lm_page, mp_dirty;
+    /* the extended theme: the draw loop's palette (the firmware's 13, mirrored, then 15 of core's) */
+    uint32_t xt_pal[28];
+    uint8_t xt_rgb[45], xt_flags, xt_on, xt_rsv[2];
 };
 _Static_assert(__builtin_offsetof(struct core_ram, api) == 0x208, "dl/core.h: DL_CORE_PTR is the RAM + 0x208");
 #ifdef DL_CORE_PTR
@@ -88,6 +120,7 @@ _Static_assert(DL_CORE_PTR == CORE_RAM + 0x208, "the device header's DL_CORE_PTR
 #endif
 #define PAGE_BACK_MODS 0xFFu
 #define PAGE_BACK_MENU 0xFEu
+#define PAGE_BACK_LOADER 0xFDu
 #define ram ((struct core_ram *)CORE_RAM)
 #define AREA_START ((CORE_RAM + sizeof(struct core_ram) + 7u) & ~7u)
 /* boot-time scratch for status.txt and active.txt at the top of ITCM, off the main stack */
@@ -99,6 +132,7 @@ _Static_assert(DL_CORE_PTR == CORE_RAM + 0x208, "the device header's DL_CORE_PTR
 /* ---- small libc ------------------------------------------------------------------------------------------ */
 static int seq(const char *a, const char *b) { while (*a && *a == *b) { a++; b++; } return *a == *b; }
 static void zero(void *p, uint32_t n) { uint8_t *b = p; while (n--) *b++ = 0; }
+__attribute__((unused)) static void copy(void *d, const void *s, uint32_t n) { uint8_t *o = d; const uint8_t *i = s; while (n--) *o++ = *i++; }
 static char *put(char *o, const char *s) { while (*s) *o++ = *s++; return o; }
 static char *put_hex(char *o, uint32_t v)
 {
@@ -203,16 +237,26 @@ static void forget_crash(void) { ((volatile uint32_t *)fw_fault_info)[0] = 0; }
 /* ---- loading ----------------------------------------------------------------------------------------------- */
 /* .m8x header (docs/LOADER.md) */
 struct m8x {
-    uint32_t magic;              /* "DLX1" */
+    uint32_t magic;              /* "DLX1", or "DLX2" */
     uint32_t image, bss, nrel;   /* bytes, bytes, relocation count */
     uint32_t crc;                /* crc32 of image then relocations */
+    uint32_t data;               /* DLX2: where the writable part (.data) starts; 0 for DLX1 */
 };
-#define M8X_MAGIC 0x31584C44u
+#define M8X_MAGIC  0x31584C44u
+#define M8X_MAGIC2 0x32584C44u
+#define M8X_HEAD1  20u
+static int read_header(struct fw_file *f, struct m8x *h)
+{
+    if (!read_exact(f, h, M8X_HEAD1)) return 0;
+    if (h->magic == M8X_MAGIC2) return read_exact(f, &h->data, 4) && h->data <= h->image && !(h->data & 3);
+    h->data = 0;
+    return h->magic == M8X_MAGIC;
+}
 
-enum { E_OPEN = 1, E_HEADER, E_SPACE, E_READ, E_CRC, E_MOD, E_FIRMWARE, E_DUPLICATE, E_TABLE, E_COUNT };
+enum { E_OPEN = 1, E_HEADER, E_SPACE, E_READ, E_CRC, E_MOD, E_FIRMWARE, E_DUPLICATE, E_TABLE, E_COUNT, E_FLASH };
 static const char *const ERRORS[] = {
     "", "cannot open", "not an .m8x", "no room", "read failed", "checksum", "not a dl_mod",
-    "built for other firmware", "id already loaded", "hook table full", "too many mods",
+    "built for other firmware", "id already loaded", "hook table full", "too many mods", "flash write failed",
 };
 
 static int add_hook(uint16_t event, uint16_t order, void *fn, uint16_t *orders)
@@ -241,6 +285,27 @@ static void flash_hooks(uint16_t *orders)
             add_hook(flash[i].event, 0, flash[i].fn, orders);
 }
 
+#ifdef FW_MOD_FLASH
+#define SCB_ICIALLU (*(volatile uint32_t *)0xE000EF50u)
+/* Make flash at `at` (4 KB-aligned) hold n bytes of code: 0 it already did, 1 written, -1 failed. The firmware's
+   routines run from ITCM with interrupts off and drop the D-cache lines they touch; the I-cache is ours to drop. */
+static int flash_install(uint32_t at, const uint8_t *code, uint32_t n)
+{
+    const volatile uint8_t *fl = (const volatile uint8_t *)at;
+    uint32_t i = 0;
+    while (i < n && fl[i] == code[i]) i++;
+    if (i == n) return 0;
+    for (uint32_t a = at; a < at + n; a += 0x1000u) fw_flash_erase_sector((void *)a);
+    for (uint32_t o = 0; o < n; o += 256u) fw_flash_write((void *)(at + o), code + o, n - o < 256u ? n - o : 256u);
+    __asm volatile("dsb\n isb" ::: "memory");
+    SCB_ICIALLU = 0;
+    __asm volatile("dsb\n isb" ::: "memory");
+    for (i = 0; i < n; i++)
+        if (fl[i] != code[i]) return -1;
+    return 1;
+}
+#endif
+
 static int load_one(const char *name, uint16_t *orders, const struct dl_mod **out)
 {
     char path[96];
@@ -252,37 +317,86 @@ static int load_one(const char *name, uint16_t *orders, const struct dl_mod **ou
     struct m8x h;
     if (!f_open(&f, path, FW_O_READ)) return E_OPEN;
     int err = 0;
-    uint32_t base = ram->next;
-    if (!read_exact(&f, &h, sizeof h) || h.magic != M8X_MAGIC || h.image < sizeof(struct dl_mod)
-        || h.image > AREA_END || h.nrel > AREA_END / 4 || h.bss > AREA_END) {
+    uint32_t base = ram->next, flash_was = ram->flash_next;
+    const struct dl_mod *m = 0;
+    ram->last_flash = ram->last_flash_n = ram->last_written = 0;
+    if (!read_header(&f, &h) || h.image < sizeof(struct dl_mod)
+        || h.image > 0x100000u || h.nrel > 0x40000u || h.bss > AREA_END) {
         err = E_HEADER;
         goto done;
     }
     uint32_t tail = h.nrel * 4 > h.bss ? h.nrel * 4 : h.bss;
-    if (base + h.image + tail > AREA_END) { err = E_SPACE; goto done; }
-    uint8_t *img = (uint8_t *)base;
-    uint32_t *rel = (uint32_t *)(base + h.image);   /* relocations sit where .bss will be */
-    if (!read_exact(&f, img, h.image) || !read_exact(&f, rel, h.nrel * 4)) { err = E_READ; goto done; }
-    if (crc32(crc32(0, img, h.image), (uint8_t *)rel, h.nrel * 4) != h.crc) { err = E_CRC; goto done; }
-    for (uint32_t i = 0; i < h.nrel; i++)
-        if (rel[i] > h.image - 4 || (rel[i] & 3)) { err = E_HEADER; goto done; }
-    for (uint32_t i = 0; i < h.nrel; i++)
-        *(uint32_t *)(img + rel[i]) += base;
-    zero(rel, tail);
-
-    const struct dl_mod *m = (const struct dl_mod *)img;
-    if (m->magic != DL_MOD_MAGIC || m->abi != DL_ABI) { err = E_MOD; goto done; }
-    if (m->fw && m->fw != DL_FW) { err = E_FIRMWARE; goto done; }
+    if (base + h.image + tail <= AREA_END) {
+        /* ITCM: the whole image, relocated where it runs */
+        uint8_t *img = (uint8_t *)base;
+        uint32_t *rel = (uint32_t *)(base + h.image);   /* relocations sit where .bss will be */
+        if (!read_exact(&f, img, h.image) || !read_exact(&f, rel, h.nrel * 4)) { err = E_READ; goto done; }
+        if (crc32(crc32(0, img, h.image), (uint8_t *)rel, h.nrel * 4) != h.crc) { err = E_CRC; goto done; }
+        for (uint32_t i = 0; i < h.nrel; i++)
+            if (rel[i] > h.image - 4 || (rel[i] & 3)) { err = E_HEADER; goto done; }
+        for (uint32_t i = 0; i < h.nrel; i++)
+            *(uint32_t *)(img + rel[i]) += base;
+        zero(rel, tail);
+        m = (const struct dl_mod *)img;
+        if (m->magic != DL_MOD_MAGIC || m->abi != DL_ABI) { err = E_MOD; goto done; }
+        if (m->fw && m->fw != DL_FW) { err = E_FIRMWARE; goto done; }
+        /* the relocations are spent: the mod keeps its image and .bss, and the next one may load over the rest (on
+           a Model:02, CHAOS CONTROL's 342 relocations held 1.1 KB of ITCM past its 212 B of .bss) */
+        ram->next = (base + h.image + h.bss + 7u) & ~7u;
+    }
+#ifdef FW_MOD_FLASH
+    else if (h.data >= sizeof(struct dl_mod)) {
+        /* flash (core 0.7, DLX2): code and constants (image[0, data)) run from FW_MOD_FLASH, .data and .bss sit in
+           ITCM. The code is relocated in the spare DTCM (nothing has claimed it before the mods' ev_boot) and
+           written only if flash doesn't already hold exactly that: an ordinary boot writes nothing. */
+        uint32_t code = h.data, wdata = h.image - h.data;
+        uint32_t at = ram->flash_next;
+        uint8_t *stage = (uint8_t *)FW_SPARE_RAM, *rw = (uint8_t *)base;
+        uint32_t *rel = (uint32_t *)(FW_SPARE_RAM + ((code + 3u) & ~3u));
+        if (base + wdata + h.bss > AREA_END || at + code > FW_MOD_FLASH_END
+            || (uint32_t)rel + h.nrel * 4 > FW_SPARE_RAM_END) { err = E_SPACE; goto done; }
+        if (!read_exact(&f, stage, code) || !read_exact(&f, rw, wdata) || !read_exact(&f, rel, h.nrel * 4)) {
+            err = E_READ;
+            goto done;
+        }
+        if (crc32(crc32(crc32(0, stage, code), rw, wdata), (uint8_t *)rel, h.nrel * 4) != h.crc) { err = E_CRC; goto done; }
+        for (uint32_t i = 0; i < h.nrel; i++) {
+            uint32_t off = rel[i];
+            if (off > h.image - 4 || (off & 3)) { err = E_HEADER; goto done; }
+            uint32_t *w = (uint32_t *)(off < code ? stage + off : rw + (off - code));
+            if (*w > h.image + h.bss) { err = E_HEADER; goto done; }
+            *w = *w < code ? at + *w : base + (*w - code);
+        }
+        zero(rw + wdata, h.bss);
+        const struct dl_mod *sm = (const struct dl_mod *)stage;
+        if (sm->magic != DL_MOD_MAGIC || sm->abi != DL_ABI) { err = E_MOD; goto done; }
+        if (sm->fw && sm->fw != DL_FW) { err = E_FIRMWARE; goto done; }
+        int w = flash_install(at, stage, code);
+        if (w < 0) { err = E_FLASH; goto done; }
+        m = (const struct dl_mod *)at;
+        ram->next = (base + wdata + h.bss + 7u) & ~7u;
+        ram->flash_next = (at + code + 0xFFFu) & ~0xFFFu;
+        ram->last_flash = at;
+        ram->last_flash_n = code;
+        ram->last_written = (uint32_t)w;
+    }
+#endif
+    else {
+        err = E_SPACE;
+        goto done;
+    }
     for (uint32_t i = 0; i < ram->nmods; i++)
         if (seq(ram->mods[i]->id, m->id)) { err = E_DUPLICATE; goto done; }
     if (ram->nmods >= MAX_MODS) { err = E_COUNT; goto done; }
     if (ram->count + m->nsubs > SLOTS) { err = E_TABLE; goto done; }
     for (uint32_t i = 0; i < m->nsubs; i++)
         add_hook(m->subs[i].event, m->subs[i].order, m->subs[i].fn, orders);
+    ram->mod_lo[ram->nmods] = ram->last_flash ? ram->last_flash : base;
+    ram->mod_hi[ram->nmods] = ram->last_flash ? ram->last_flash + ram->last_flash_n : base + h.image;
     ram->mods[ram->nmods++] = m;
-    ram->next = (base + h.image + tail + 7u) & ~7u;
     *out = m;
 done:
+    if (err) { ram->next = base; ram->flash_next = flash_was; ram->last_flash = 0; }   /* a refused mod leaves its room */
     fw_file_close(&f);
     return err;
 }
@@ -298,7 +412,7 @@ done:
 #define PKT_MARK  0xD1
 #define PKT_REPLY 0xF1
 #define PKT_MAX   1100u                             /* payload bytes; the request lands in SCRATCH */
-enum { C_INFO = 1, C_LIST, C_PUT, C_CHECK, C_GET, C_MKDIRS, C_RESTART, C_PEEK, C_DELETE, C_POKE };
+enum { C_INFO = 1, C_LIST, C_PUT, C_CHECK, C_GET, C_MKDIRS, C_RESTART, C_PEEK, C_DELETE, C_POKE, C_THEME, C_THEMEX };
 enum { S_OK = 0, S_BAD, S_SUM, S_PATH, S_IO, S_NOCARD, S_TIMEOUT, S_CMD };
 
 static int rx_peek(void)
@@ -388,6 +502,136 @@ static int mkdirs(const char *path)
     return ok;
 }
 
+#ifdef fw_sys
+/* The theme, as the shop sets it: the 13 colours (39 bytes, the .m8t order) into the system settings, the
+ * palette set from them, and every view repainted -- what the THEME page's LOAD does, without a file. */
+static void theme_apply(const uint8_t *c)
+{
+    for (int i = 0; i < 39; i++) fw_sys[FW_SYS_THEME + i] = c[i];
+    for (int i = 0; i < 13; i++) fw_set_pal(0, i, c[i * 3], c[i * 3 + 1], c[i * 3 + 2]);
+    fw_redraw(FW_REDRAW_OBJ, 1);
+}
+#endif
+
+#if defined(FW_ATTR_PAL_LIT) && defined(fw_sys)
+/* ---- the extended theme: 15 colours past the firmware's 13 -------------------------------------------------------
+ * The draw loop turns each cell's attribute byte into a palette index, and 'D'..'R' reach 13..27, which no screen
+ * uses. Core gives the loop a 28-entry palette (FW_ATTR_PAL_LIT): the firmware's 13, copied before each refresh, then
+ * these. Before each refresh that will draw, it rewrites the attribute bytes of the plain text it recolours:
+ *   0-7   TRACK 1..8: SONG's track columns (the header digit and the chains under it) and the track list ('1'..'8'
+ *         down one column, on every screen that shows it)
+ *   8-14  the title (TEXT:TITLES) per screen: SONG, CHAIN, PHRASE, INSTRUMENT (+ MODS, POOL), TABLE, MIXER (+ EFFECT
+ *         SETTINGS, EQ, LIMITER), everything else
+ *   XT_FOLLOW: CHAIN, PHRASE, TABLE and INSTRUMENT titles take the current track's colour (the track list's cursor)
+ * The cursor, selection and play markers are never touched. /dirtyloader/theme.ext keeps it: "DLXT", flags, 3 zero
+ * bytes, the 15 colours (R G B). */
+#define XT_N 15
+#define XT_PATH "/dirtyloader/theme.ext"
+#define XT_FILE 53u
+enum { XT_TRACKS = 1, XT_TITLES = 2, XT_FOLLOW = 4 };
+static uint32_t rgb565(const uint8_t *c) { return (uint32_t)(c[0] >> 3) << 11 | (uint32_t)(c[1] >> 2) << 5 | c[2] >> 3; }
+static void xt_colours(void) { for (int k = 0; k < XT_N; k++) ram->xt_pal[13 + k] = rgb565(ram->xt_rgb + 3 * k); }
+static int xt_idx(uint8_t c)                    /* the draw loop's decoding; -1: skipped */
+{
+    uint8_t r = (uint8_t)(c - 0x2Eu);
+    return r <= 9 ? r : r <= 0x24 ? c - 0x37 : -1;
+}
+static int xt_plain(uint8_t c, int lo, int hi)  /* text of colour lo..hi, not a cursor or selection block */
+{
+    int i = xt_idx(c);
+    return c != '5' && c != '6' && i >= lo && i <= hi;
+}
+static int xt_alnum(uint8_t c) { return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z'); }
+static void xt_paint(void)
+{
+    uint8_t *ch = fw_grid + FW_GRID_CHARS, *at = fw_grid + FW_GRID_ATTR;
+    const int W = FW_GRID_COLS, H = FW_GRID_ROWS;
+    const uint8_t f = ram->xt_flags;
+    int cur = -1, found = 0;
+    /* the track list: '1'..'8' down one column in the right half, each alone in its cell; not CHAIN's or PHRASE's
+       row numbers (a '0' above them, a '9' below) */
+    for (int c = W / 2; c < W - 1 && !found; c++)
+        for (int r = 1; r + 9 <= H; r++) {
+            int k = 0;
+            while (k < 8 && ch[(r + k) * W + c] == '1' + k && !xt_alnum(ch[(r + k) * W + c - 1])
+                   && !xt_alnum(ch[(r + k) * W + c + 1])) k++;
+            if (k < 8 || ch[(r - 1) * W + c] == '0' || ch[(r + 8) * W + c] == '9') continue;
+            for (int t = 0; t < 8; t++) {
+                uint8_t *a = &at[(r + t) * W + c];
+                if (xt_idx(*a) == 7) cur = t;
+                else if ((f & XT_TRACKS) && xt_plain(*a, 2, 4)) *a = (uint8_t)('D' + t);
+            }
+            found = 1;
+            break;
+        }
+    uint32_t view = fw_ui[FW_UI_VIEW];
+    if ((f & XT_TRACKS) && view == 0) {         /* SONG: the header's '1'..'8' (3 apart) and the chains under each */
+        int done = 0;
+        for (int r = 0; r < 10 && !done; r++)
+            for (int c = 0; c + 22 <= W; c++) {
+                int k = 0;
+                while (k < 8 && ch[r * W + c + 3 * k] == '1' + k) k++;
+                if (k < 8) continue;
+                for (int t = 0; t < 8; t++) {
+                    uint8_t *a = &at[r * W + c + 3 * t];
+                    if (xt_plain(*a, 2, 4)) *a = (uint8_t)('D' + t);
+                    for (int rr = r + 1; rr < H; rr++)
+                        for (int d = 0; d < 2; d++) {
+                            a = &at[rr * W + c + 3 * t + d];
+                            if (xt_plain(*a, 4, 4)) *a = (uint8_t)('D' + t);
+                        }
+                }
+                done = 1;
+                break;
+            }
+    }
+    if (f & (XT_TITLES | XT_FOLLOW)) {
+        int slot = -1, per_track = view == 2 || view == 3 || view == 4 || view == 5 || view == 0x16;
+        if ((f & XT_FOLLOW) && per_track && cur >= 0) slot = cur;
+        else if (f & XT_TITLES)
+            slot = 8 + (view == 0 ? 0 : view == 2 ? 1 : view == 3 ? 2 : view == 5 || view == 0x16 || view == 0x18 ? 3
+                        : view == 4 ? 4 : view == 0x0D || view == 0x0B || view == 0x19 || view == 0x1A ? 5 : 6);
+        if (slot >= 0)
+            for (int i = 0; i < W * H; i++) if (xt_plain(at[i], 5, 5)) at[i] = (uint8_t)('D' + slot);
+    }
+}
+/* ev_draw, last: before the frame refresh, after the screen has written its text */
+static void xt_draw(void *arg)
+{
+    (void)arg;
+    for (int i = 0; i < 13; i++) ram->xt_pal[i] = FW_PALETTE[i];
+    if (!ram->xt_flags || ram->page_mode || fw_millis - fw_frame_last < FW_FRAME_MS) return;   /* this pass won't draw */
+    xt_paint();
+}
+static void xt_boot(void)
+{
+    ram->xt_on = 0;
+    ram->xt_flags = 0;
+    zero(ram->xt_rgb, sizeof ram->xt_rgb);
+    struct fw_file f;
+    uint8_t b[XT_FILE];
+    if (FW_SD_MOUNTED() && f_open(&f, XT_PATH, FW_O_READ)) {
+        int n = f_read(&f, b, XT_FILE);
+        fw_file_close(&f);
+        if (n == (int)XT_FILE && b[0] == 'D' && b[1] == 'L' && b[2] == 'X' && b[3] == 'T') {
+            ram->xt_flags = b[4] & 7u;
+            for (uint32_t i = 0; i < sizeof ram->xt_rgb; i++) ram->xt_rgb[i] = b[8 + i];
+        }
+    }
+    for (int i = 0; i < 13; i++) ram->xt_pal[i] = FW_PALETTE[i];
+    xt_colours();
+    if (*FW_ATTR_PAL_LIT != (uint32_t)FW_PALETTE || ram->count >= SLOTS) return;   /* not this firmware's loop */
+    ram->table[ram->count].event = 0x0020u;      /* ev_draw, after every mod's handler */
+    ram->table[ram->count].flags = FLAG_ENABLED;
+    ram->table[ram->count].fn = (void *)xt_draw;
+    ram->count++;
+    __asm volatile("dsb" ::: "memory");
+    *FW_ATTR_PAL_LIT = (uint32_t)ram->xt_pal;
+    __asm volatile("dsb\n isb" ::: "memory");
+    ram->xt_on = 1;
+}
+#endif
+
 static void serve(uint8_t cmd, uint8_t seq, const uint8_t *p, uint32_t len)
 {
     char path[96];
@@ -403,7 +647,7 @@ static void serve(uint8_t cmd, uint8_t seq, const uint8_t *p, uint32_t len)
     }
     if (cmd == C_INFO) {
         char *o = (char *)out;
-        o = put(o, "dirtyloader core 0.5\nfirmware ");
+        o = put(o, "dirtyloader core 0.7\nfirmware ");
         o = put_hex(o, DL_FW);
         o = put(o, "\nsd ");
         o = put(o, FW_SD_MOUNTED() ? "mounted" : "none");
@@ -429,6 +673,59 @@ static void serve(uint8_t cmd, uint8_t seq, const uint8_t *p, uint32_t len)
         reply(cmd, seq, S_OK, 0, 0);
         return;
     }
+#ifdef fw_sys
+    /* THEME: no payload reads the 13 colours and the name (39 + 13 bytes). 39 colour bytes apply them now; a 40th,
+     * flags, bit 0: also save the settings to EEPROM (kept across power-off), so a preview while a colour is dragged
+     * writes nothing; then up to 12 name characters (A-Z 0-9 space - _), shown on the THEME page. */
+    if (cmd == C_THEME) {
+        if (!len) {
+            for (int i = 0; i < 39; i++) out[i] = fw_sys[FW_SYS_THEME + i];
+            for (int i = 0; i < 13; i++) out[39 + i] = fw_sys[FW_SYS_THEME_NAME + i];
+            reply(cmd, seq, S_OK, out, 52);
+            return;
+        }
+        if (len < 39 || len > 52) { reply(cmd, seq, S_BAD, 0, 0); return; }
+        theme_apply(p);
+        if (len > 40) {
+            for (uint32_t i = 0; i < 13; i++) {
+                uint8_t c = i < len - 40 ? p[40 + i] : 0;
+                if (c >= 'a' && c <= 'z') c = (uint8_t)(c - 32);
+                if (c && !((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == ' ' || c == '-' || c == '_')) c = ' ';
+                fw_sys[FW_SYS_THEME_NAME + i] = i < 12 ? c : 0;
+            }
+        }
+        if (len > 39 && (p[39] & 1)) fw_sys_save(fw_sys);
+        reply(cmd, seq, S_OK, 0, 0);
+        return;
+    }
+#endif
+#if defined(FW_ATTR_PAL_LIT) && defined(fw_sys)
+    /* THEMEX: the extended theme. No payload: flags (bit 0 track colours, 1 screen titles, 2 titles follow the
+     * track) and the 15 colours (1 + 45 bytes). Flags and colours (46 bytes) set them and repaint every view; a 47th
+     * byte, bit 0, also writes /dirtyloader/theme.ext so the next boot has them. */
+    if (cmd == C_THEMEX) {
+        if (!ram->xt_on) { reply(cmd, seq, S_CMD, 0, 0); return; }
+        if (!len) {
+            out[0] = ram->xt_flags;
+            for (uint32_t i = 0; i < sizeof ram->xt_rgb; i++) out[1 + i] = ram->xt_rgb[i];
+            reply(cmd, seq, S_OK, out, 46);
+            return;
+        }
+        if (len != 46 && len != 47) { reply(cmd, seq, S_BAD, 0, 0); return; }
+        ram->xt_flags = p[0] & 7u;
+        for (uint32_t i = 0; i < sizeof ram->xt_rgb; i++) ram->xt_rgb[i] = p[1 + i];
+        xt_colours();
+        fw_redraw(FW_REDRAW_OBJ, 1);              /* every view writes its text and attributes again */
+        if (len == 47 && (p[46] & 1)) {
+            uint8_t *b = out;
+            b[0] = 'D'; b[1] = 'L'; b[2] = 'X'; b[3] = 'T'; b[4] = ram->xt_flags; b[5] = b[6] = b[7] = 0;
+            for (uint32_t i = 0; i < sizeof ram->xt_rgb; i++) b[8 + i] = ram->xt_rgb[i];
+            if (!FW_SD_MOUNTED() || !write_file(XT_PATH, (const char *)b, XT_FILE)) { reply(cmd, seq, S_IO, 0, 0); return; }
+        }
+        reply(cmd, seq, S_OK, 0, 0);
+        return;
+    }
+#endif
     if (!FW_SD_MOUNTED()) { reply(cmd, seq, S_NOCARD, 0, 0); return; }
     if (cmd == C_MKDIRS) {
         reply(cmd, seq, mkdirs("/dirtyloader/mods") ? S_OK : S_IO, 0, 0);
@@ -492,7 +789,9 @@ static void serve(uint8_t cmd, uint8_t seq, const uint8_t *p, uint32_t len)
     reply(cmd, seq, S_CMD, 0, 0);
 }
 
-#define FW_VECTORS ((volatile uint32_t *)0x2000B800u)
+#ifndef FW_VECTORS
+#error "fw.h names the RAM vector table (FW_VECTORS)"
+#endif
 
 int core_serial(void *m8c)
 {
@@ -730,9 +1029,15 @@ static int check_m8x(const char *name)
     if (!f_open(&f, path, FW_O_READ)) return E_OPEN;
     int err = 0;
     uint8_t *buf = (uint8_t *)SCRATCH;               /* status text area: free after boot */
-    if (!read_exact(&f, &h, sizeof h) || h.magic != M8X_MAGIC || h.image < sizeof(struct dl_mod)) { err = E_HEADER; goto done; }
+    if (!read_header(&f, &h) || h.image < sizeof(struct dl_mod)) { err = E_HEADER; goto done; }
     uint32_t tail = h.nrel * 4 > h.bss ? h.nrel * 4 : h.bss;
-    if (h.image + tail > AREA_END - AREA_START) { err = E_SPACE; goto done; }
+    int fits = h.image + tail <= AREA_END - AREA_START;
+#ifdef FW_MOD_FLASH
+    fits = fits || (h.data >= sizeof(struct dl_mod) && h.image - h.data + h.bss <= AREA_END - AREA_START
+                    && h.data <= FW_MOD_FLASH_END - FW_MOD_FLASH
+                    && ((h.data + 3u) & ~3u) + h.nrel * 4 <= FW_SPARE_RAM_END - FW_SPARE_RAM);
+#endif
+    if (!fits) { err = E_SPACE; goto done; }
     uint32_t left = h.image + h.nrel * 4, crc = 0, first = 1;
     while (left) {
         uint32_t n = left < STATUS_SIZE ? left : STATUS_SIZE;
@@ -761,10 +1066,24 @@ static void page_set(uint32_t i, uint8_t on)
 
 static void menu_show(uint32_t back);
 static void menu_input(int action);
+static void mp_input(int action);
+static void mp_draw(void);
+static void mp_show(void);
+static void mp_close(void);
+#ifdef fw_rect
+static void lm_input(int action);
+static void lm_draw(void);
+static void lm_show(void);
+static void lm_close(void);
+#endif
 
 static void page_input(void *view, int action)
 {
     ram->last_action = (uint32_t)action;
+    if (ram->page_mode == 4) { mp_input(action); return; }
+#ifdef fw_rect
+    if (ram->page_mode == 5) { lm_input(action); return; }
+#endif
     if (ram->page_mode == 3) { menu_input(action); return; }
     if (ram->page_mode == 2) {                      /* a mod's page */
         const struct dl_page *p = ram->cur_page;
@@ -808,6 +1127,10 @@ static void menu_draw_all(void);
 
 static void page_draw(void *view)
 {
+    if (ram->page_mode == 4) { mp_draw(); return; }
+#ifdef fw_rect
+    if (ram->page_mode == 5) { lm_draw(); return; }
+#endif
     if (ram->page_mode == 2) {                      /* a mod's page: cleared once, then the mod draws */
         const struct dl_page *p = ram->cur_page;
         if (ram->page_dirty) {
@@ -825,9 +1148,20 @@ static void page_draw(void *view)
     else page_draw_all();
 }
 
+#ifdef FW_SIDE_0
+/* +0x18: does this screen keep the firmware's right-hand column (tempo, the tracks, the view map, the meters)? +0x1C:
+   its oscilloscope along the top? SETTINGS' methods say yes; core's full-screen pages (4 OPTIONS, 5 MOD LOADER) say
+   no to both, and core_side* hold off the rest */
+static int page_has_side(void *view) { (void)view; return !(ram->page_mode == 4u || ram->page_mode == 5u); }
+#define PAGE_FLAG_18 page_has_side
+#define PAGE_FLAG_1C page_has_side
+#else
+#define PAGE_FLAG_18 FW_VIEW_FLAG_18
+#define PAGE_FLAG_1C FW_VIEW_FLAG_1C
+#endif
 static const void *const page_vt[8] = {
     (const void *)page_enter, (const void *)FW_VIEW_SHARED_04, (const void *)page_input, (const void *)page_update,
-    (const void *)page_draw, (const void *)FW_VIEW_NOP, (const void *)FW_VIEW_FLAG_18, (const void *)FW_VIEW_FLAG_1C,
+    (const void *)page_draw, (const void *)FW_VIEW_NOP, (const void *)PAGE_FLAG_18, (const void *)PAGE_FLAG_1C,
 };
 
 /* Is core's screen reachable as view FW_VIEW_FREE? Headless: core put it in the firmware's views table. Model:02's
@@ -861,6 +1195,20 @@ int core_view(void *ui, int id)
 /* ev_key, order 0: EDIT on the settings row core adds opens the page */
 int core_key(void *ui, int action)
 {
+    if (action == 0x84 && page_installed()) {      /* LEFT+RIGHT: the machine pages (not over the visualizer) */
+#ifdef FW_UI_VISUALIZER
+        if (((uint8_t *)ui)[FW_UI_VISUALIZER]) return 0;
+#endif
+        int in_core = ((uint8_t *)ui)[FW_UI_VIEW] == FW_VIEW_FREE;
+        if (in_core && ram->page_mode == 4) mp_close();
+#ifdef fw_rect                                      /* the Model:02: the MOD LOADER; its OPTIONS are the knobs */
+        else if (in_core && ram->page_mode == 5) lm_close();
+        else lm_show();
+#else
+        else mp_show();
+#endif
+        return 1;
+    }
     if (((uint8_t *)ui)[FW_UI_VIEW] == FW_VIEW_SETTINGS && fw_settings[5] == SETTINGS_MODS_Y
         && action == FW_KEY_EDIT && page_installed()) {
         ram->page_mode = 0;
@@ -911,9 +1259,16 @@ static char *data_path(char *out)
     return o;
 }
 
+#if DEST_EXT
+static void dests_prepare(void);
+static void dest_load_done(void);
+#endif
 static int data_save(void)
 {
     if (!ram->ndata) return 1;
+#if DEST_EXT
+    dests_prepare();
+#endif
     char path[140];
     struct fw_file f;
     data_path(path);
@@ -1025,8 +1380,35 @@ static int song_loaded(void)                       /* 0 done, 1 the list could n
 #define SONG_TRIES 10u
 #define EV_USB_W 0x0003u
 static int fire(uint32_t word, uint32_t a0, uint32_t a1);
+
+/* ev_vis_draw (Model:02): a flash_mid site in the frame refresh's visualizer branch, after the eight tracks are
+   drawn and before the frame is pushed, while the firmware's clip column (grid + 0x12EA) is still 0. That branch
+   never reaches ev_draw's site. The argument is the drawing context (fw_grid): mods draw with fw_rect. */
+#define EV_VIS_DRAW_W 0x0021u
+void core_vis_draw(void *grid) { fire(EV_VIS_DRAW_W, (uint32_t)grid, 0); }
+/* ev_vis_scope (Model:02): the visualizer's call of its per-track scope drawing comes here (a `calls` site); a
+   handler that takes it skips that track's scope (CHAOS CONTROL draws its own, cheaper visualizer instead) */
+#ifdef fw_vis_scope_draw
+#define EV_VIS_SCOPE_W (0x0022u | 0x10000u)
+void core_vis_scope(void *scope) { if (!fire(EV_VIS_SCOPE_W, (uint32_t)scope, 0)) fw_vis_scope_draw(scope); }
+#endif
+#ifdef FW_SIDE_0
+/* core's full-screen pages (4 OPTIONS, 5 MOD LOADER) keep the firmware's right-hand column from painting over them */
+static int side_hidden(void) { return ram->page_mode == 4u || ram->page_mode == 5u; }
+void core_side0(void *o) { if (!side_hidden()) FW_SIDE_0(o); }
+void core_side1(void *o) { if (!side_hidden()) FW_SIDE_1(o); }
+void core_side2(void *o) { if (!side_hidden()) FW_SIDE_2(o); }
+void core_side3(void *o) { if (!side_hidden()) FW_SIDE_3(o); }
+void core_side4(void *o) { if (!side_hidden()) FW_SIDE_4(o); }
+void core_side5(void *o) { if (!side_hidden()) FW_SIDE_5(o); }
+void core_side6(void *o) { if (!side_hidden()) FW_SIDE_6(o); }
+void core_side7(void *o) { if (!side_hidden()) FW_SIDE_7(o); }
+#endif
 void core_tick(void)
 {
+#if DEST_EXT
+    if (ram->dest_load_ok) dest_load_done();      /* an .m8i load finished: its sidecar names its destinations */
+#endif
     uint32_t usb = fw_usb_configuration != 0;
     if (usb != ram->usb_last) { ram->usb_last = usb; fire(EV_USB_W, usb, 0); }
     if (ram->armed && ram->booted && fw_millis - ram->armed_at >= ARMED_MS && FW_SD_MOUNTED()) {
@@ -1245,7 +1627,8 @@ static void api_page_open(const struct dl_page *p)
     if (!p || !page_installed()) return;
     uint32_t here = fw_ui[FW_UI_VIEW];
     ram->page_back = here == FW_VIEW_FREE ? (ram->page_mode == 2 ? ram->page_back
-                                             : ram->page_mode == 3 ? PAGE_BACK_MENU : PAGE_BACK_MODS) : here;
+                                             : ram->page_mode == 3 ? PAGE_BACK_MENU
+                                             : ram->page_mode == 5 ? PAGE_BACK_LOADER : PAGE_BACK_MODS) : here;
     ram->cur_page = p;
     ram->page_mode = 2;
     ram->page_dirty = 1;
@@ -1262,6 +1645,9 @@ static void api_page_close(void)
         ram->page_dirty = 1;
     } else if (ram->page_back == PAGE_BACK_MENU) {
         ram->page_mode = 3;
+        ram->page_dirty = 1;
+    } else if (ram->page_back == PAGE_BACK_LOADER) {
+        ram->page_mode = 5;
         ram->page_dirty = 1;
     } else {
         fw_set_view(fw_ui, (int)ram->page_back);
@@ -1395,6 +1781,587 @@ static void menu_input(int action)
     ram->page_dirty = 1;
 }
 
+/* ---- the machine pages (core 0.7) -----------------------------------------------------------------------------
+ * LEFT+RIGHT, on any screen but the visualizer: a page per mod, its settings as up to eight knobs in two rows of four,
+ * in the manner of Elektron's machine pages (and Elekloader's machine-pages). Arrows pick a knob; EDIT+LEFT/RIGHT
+ * turn it by 1, EDIT+UP/DOWN by 4; SHIFT+LEFT/RIGHT flip pages; OPT or LEFT+RIGHT leave. A setting belongs to the mod
+ * whose code holds its dl_setting (they are const); a mod with more than eight gets more pages. On the Model:02 each
+ * knob is a 270-degree arc of dots drawn with the firmware's fill-rect, one frame after the text (so the text's own
+ * repaint doesn't cover it), and only again when its value or the selection changes. Headless shows a text bar. */
+#define ACTION_LEFT_RIGHT 0x84
+#define MP_MAX 8
+#ifdef fw_rect
+#include "dl/pixui.h"
+static const int8_t mp_dots[21][2] = {
+    {-18,18}, {-22,14}, {-25,8}, {-26,2}, {-26,-4}, {-24,-10}, {-21,-15}, {-17,-20}, {-12,-23}, {-6,-25}, {0,-26},
+    {6,-25}, {12,-23}, {17,-20}, {21,-15}, {24,-10}, {26,-4}, {26,2}, {25,8}, {22,14}, {18,18} };
+#endif
+
+static int setting_owner(const struct dl_setting *s)
+{
+    uint32_t a = (uint32_t)s;
+    for (uint32_t i = 0; i < ram->nmods; i++)
+        if (a >= ram->mod_lo[i] && a < ram->mod_hi[i]) return (int)i;
+    return -1;
+}
+/* page k's settings (up to 8) and its mod (0: settings no mod's code holds); returns how many pages there are */
+static uint32_t mp_page_of(uint32_t k, const struct dl_setting **out, uint32_t *n, const struct dl_mod **mod)
+{
+    uint32_t pages = 0;
+    *n = 0;
+    for (int mi = 0; mi <= (int)ram->nmods; mi++) {
+        int who = mi < (int)ram->nmods ? mi : -1;
+        uint32_t c = 0;
+        for (uint32_t i = 0; i < ram->nsettings; i++) {
+            if (setting_owner(ram->settings[i]) != who) continue;
+            if (pages == k) { out[c] = ram->settings[i]; *mod = who >= 0 ? ram->mods[who] : 0; *n = c + 1; }
+            if (++c == MP_MAX) { pages++; c = 0; }
+        }
+        if (c) pages++;
+    }
+    return pages;
+}
+static char *mp_title(char *o, const struct dl_mod *m)
+{
+    const char *t = m ? (m->title ? m->title : m->id) : "OTHER";
+    for (uint32_t k = 0; t[k] && t[k] != ':' && k < 22; k++) *o++ = t[k] >= 'a' && t[k] <= 'z' ? (char)(t[k] - 32) : t[k];
+    return o;
+}
+/* a knob's label: the setting's, less the mod's first word ("CHAOS FX" on CHAOS CONTROL's page shows "FX") */
+static const char *mp_label(const struct dl_setting *s, const struct dl_mod *m)
+{
+    const char *l = s->label, *t = m && m->title ? m->title : "";
+    uint32_t k = 0;
+    while (t[k] && t[k] != ' ' && t[k] != ':' && l[k] && (l[k] == t[k] || l[k] == t[k] - 32 || l[k] - 32 == t[k])) k++;
+    return k && l[k] == ' ' && (!t[k] || t[k] == ' ' || t[k] == ':') ? l + k + 1 : l;
+}
+#ifndef fw_rect                                     /* headless: the machine pages in the text grid */
+static void mp_center(int r, int col, const char *s, int sel)
+{
+    char b[12];
+    uint32_t n = 0;
+#ifdef fw_rect
+    (void)sel;                                      /* the selected knob is drawn white */
+    while (s[n] && n < 8) n++;
+    int pad = (int)(8 - n) / 2;
+#else
+    while (s[n] && n < 6) n++;
+    int pad = (int)(8 - n - (sel ? 2 : 0)) / 2;
+#endif
+    char *o;
+    for (int i = 0; i < 8; i++) b[i] = ' ';
+    o = b + (pad > 0 ? pad : 0);
+#ifndef fw_rect
+    if (sel) *o++ = '>';
+#endif
+    for (uint32_t i = 0; i < n; i++) *o++ = s[i];
+#ifndef fw_rect
+    if (sel) *o++ = '<';
+#endif
+    b[8] = 0;
+    fw_text(fw_grid, col * 8, r, b);
+}
+#endif
+static void mp_value(char *b, const struct dl_setting *s)
+{
+    uint8_t v = *s->value;
+    if (s->names) { const char *nm = s->names[v - s->min]; uint32_t k = 0; for (; nm[k] && k < 8; k++) b[k] = nm[k]; b[k] = 0; }
+    else *put_dec(b, v) = 0;
+}
+#define MP_ROW(g)    (5 + (g) * 8)                  /* a knob row's label row; its knob below, its value at +6 */
+#ifndef fw_rect
+static void mp_draw_text(void)
+{
+    const struct dl_setting *s[MP_MAX];
+    const struct dl_mod *m = 0;
+    uint32_t n, pages = mp_page_of(ram->mp_page, s, &n, &m);
+    char b[48], *o;
+    for (int r = 0; r < 23; r++) row(r, "");
+    o = put(b, " ");
+    o = mp_title(o, m);
+    if (pages > 1) { o = put(o, "  "); o = put_dec(o, ram->mp_page + 1); *o++ = '/'; o = put_dec(o, pages); }
+    *o = 0;
+    row(3, pages ? b : " MOD PAGES: NO MOD SETTINGS");
+    for (uint32_t i = 0; i < n; i++) {
+        int g = (int)i / 4, c = (int)i % 4;
+        mp_center(MP_ROW(g), c, mp_label(s[i], m), ram->mp_sel == i);
+        mp_value(b, s[i]);
+        mp_center(MP_ROW(g) + 6, c, b, 0);
+#ifndef fw_rect
+        uint32_t span = s[i]->max - s[i]->min, fill = span ? (uint32_t)(*s[i]->value - s[i]->min) * 6u / span : 6;
+        o = put(b, "[");                            /* 8 wide: a knob's column */
+        for (uint32_t k = 0; k < 6; k++) *o++ = k < fill ? '#' : '.';
+        *o++ = ']'; *o = 0;
+        fw_text(fw_grid, c * 8, MP_ROW(g) + 3, b);
+#endif
+    }
+    row(21, " ARROWS PICK  EDIT+</> TURN");
+    row(22, " SHIFT+</> MOD  OPT BACK");
+    for (int i = 0; i < MP_MAX; i++) ram->mp_drawn[i] = 0;
+    ram->mp_gfx = 2;                                /* the knobs, the frame after next */
+}
+#endif
+#ifdef fw_rect
+/* The Model:02's OPTIONS page, in the MOD LOADER's style: the mod's name in a purple header with the page, eight knob
+   cells (label, an arc of dots, value; the selected one in brackets) and the keys at the foot, all drawn with
+   dl/pixui.h across the whole screen (the firmware's right-hand column held off: core_side*), one piece a frame, each again only when it changes. */
+#define MPX(c)    (4 + (c) * 119)
+#define MPY(g)    (42 + (g) * 122)
+#define MP_D_HEAD 1u
+#define MP_D_FOOT 2u
+#define MP_D_KNOB(i) (4u << (i))
+#define MP_D_ALL  0x3FFu
+static void mp_rect(int x, int y, int w, int h, uint16_t c) { if (w > 0 && h > 0) fw_rect(fw_grid, x, y, w, h, c); }
+static void mp_g_head(const struct dl_mod *m, uint32_t pages)
+{
+    char b[28], *o = mp_title(b, m);
+    *o = 0;
+    mp_rect(4, 4, 472, 34, PUI_BG);
+    pui_fill(mp_rect, 4, 4, 280, 32, PUI_PURPLE);
+    int sc = pui_width(b, 3) <= 266 ? 3 : 2;
+    pui_text(mp_rect, 10, sc == 3 ? 9 : 13, b, sc, PUI_BG);
+    pui_box(mp_rect, 290, 4, 186, 32, 2, PUI_PURPLE);
+    o = b; *o++ = '}'; *o++ = ' ';
+    o = put_dec(o, ram->mp_page + 1); *o++ = '/'; o = put_dec(o, pages ? pages : 1);
+    *o++ = ' '; *o++ = '{'; *o = 0;
+    pui_text(mp_rect, 290 + (186 - pui_width(b, 2)) / 2, 13, b, 2, PUI_CREAM);
+}
+static void mp_g_knob(int i, const struct dl_setting *s, const struct dl_mod *m, int sel)
+{
+    int x = MPX(i % 4), y = MPY(i / 4);
+    mp_rect(x, y, 117, 120, PUI_BG);
+    if (!s) return;
+    char b[12];
+    const char *l = mp_label(s, m);
+    uint32_t k = 0;
+    for (; l[k] && k < 8; k++) b[k] = l[k];
+    b[k] = 0;
+    pui_text(mp_rect, x + (117 - pui_width(b, 2)) / 2, y + 6, b, 2, PUI_CREAM);
+    int cx = x + 58, cy = y + 58;
+    uint32_t span = s->max - s->min, lit = span ? (uint32_t)(*s->value - s->min) * 20u / span : 20;
+    uint16_t on = sel ? PUI_CREAM : PUI_PURPLE;
+    for (uint32_t d = 0; d < 21; d++)
+        mp_rect(cx + mp_dots[d][0] - 2, cy + mp_dots[d][1] - 2, d == lit ? 6 : 4, d == lit ? 6 : 4,
+                d <= lit ? on : PUI_DPURPLE);
+    pui_fill(mp_rect, cx - 5, cy - 5, 11, 11, sel ? PUI_CREAM : PUI_DPURPLE);   /* the hub */
+    mp_value(b, s);
+    pui_text(mp_rect, x + (117 - pui_width(b, 2)) / 2, y + 96, b, 2, sel ? PUI_PURPLE : PUI_CREAM);
+    if (sel) pui_brackets(mp_rect, x + 1, y + 1, 115, 118, 12, 3, PUI_PURPLE);
+}
+static void mp_g_foot(void)
+{
+    mp_rect(4, 288, 472, 31, PUI_BG);
+    pui_box(mp_rect, 4, 289, 472, 30, 2, PUI_PURPLE);
+    static const char *const key[4] = { "{}", "E{}", "S}", "OPT" }, *const what[4] = { "PICK", "TURN", "MOD", "BACK" };
+    int x = 10;
+    for (int i = 0; i < 4; i++) {
+        int kw = pui_width(key[i], 2);
+        pui_fill(mp_rect, x, 294, kw + 10, 20, PUI_PURPLE);
+        pui_text(mp_rect, x + 5, 297, key[i], 2, PUI_BG);
+        x = pui_text(mp_rect, x + kw + 15, 297, what[i], 2, PUI_CREAM) + 6;
+    }
+}
+static void mp_draw(void)
+{
+    if (ram->page_dirty) {                          /* a new page: blank the grid once, draw after its repaint */
+        ram->page_dirty = 0;
+        for (int r = 0; r < 23; r++) row(r, "");
+        ram->mp_gfx = 2;
+        ram->mp_dirty = MP_D_ALL;
+        return;
+    }
+    if (ram->mp_gfx && --ram->mp_gfx) return;
+    if (!ram->mp_dirty) return;
+    const struct dl_setting *s[MP_MAX];
+    const struct dl_mod *m = 0;
+    uint32_t n, pages = mp_page_of(ram->mp_page, s, &n, &m);
+    volatile uint16_t *clip = (volatile uint16_t *)(fw_grid + 0x12EA);
+    uint16_t was = *clip;
+    *clip = 0;
+    if (ram->mp_dirty == MP_D_ALL) mp_rect(0, 0, FW_SCREEN_W, 320, PUI_BG);
+    for (uint32_t bit = 0; bit < 10; bit++) {
+        uint32_t b = 1u << bit;
+        if (!(ram->mp_dirty & b)) continue;
+        ram->mp_dirty &= ~b;
+        if (b == MP_D_HEAD) { mp_g_head(m, pages); continue; }   /* the header goes with the next piece */
+        if (b == MP_D_FOOT) mp_g_foot();
+        else {
+            uint32_t i = bit - 2;
+            mp_g_knob((int)i, i < n ? s[i] : 0, m, ram->mp_sel == i);
+            if (!n && !i) pui_text(mp_rect, (FW_SCREEN_W - pui_width("NO SETTINGS", 2)) / 2, 150, "NO SETTINGS", 2, PUI_DIM);
+        }
+        break;
+    }
+    *clip = was;
+}
+#else
+static void mp_draw(void)
+{
+    if (ram->page_dirty) { ram->page_dirty = 0; mp_draw_text(); }
+}
+#endif
+static void mp_show(void)
+{
+    if (!page_installed()) return;
+    uint32_t here = fw_ui[FW_UI_VIEW];
+    ram->mp_prev = here == FW_VIEW_FREE ? ram->page_mode : 0xFFu;
+    ram->mp_back = here;
+    const struct dl_setting *s[MP_MAX];
+    const struct dl_mod *m;
+    uint32_t n, pages = mp_page_of(0, s, &n, &m);
+    if (ram->mp_page >= pages) ram->mp_page = 0;    /* ITCM keeps the last boot's: anything */
+    ram->mp_sel = 0;
+    ram->page_mode = 4;
+    ram->page_dirty = 1;
+    if (here != FW_VIEW_FREE) fw_set_view(fw_ui, FW_VIEW_FREE);
+#ifdef fw_rect
+    {                                               /* the screen before may have drawn more than text (a cursor) */
+        volatile uint16_t *clip = (volatile uint16_t *)(fw_grid + 0x12EA);
+        uint16_t was = *clip;
+        *clip = 0;
+        fw_rect(fw_grid, 0, 30, FW_SCREEN_W, 290, FW_RGB(0, 0, 0));
+        *clip = was;
+    }
+#endif
+}
+static void mp_close(void)
+{
+#ifdef fw_rect
+    {                                               /* hand the screen back without the knobs */
+        volatile uint16_t *clip = (volatile uint16_t *)(fw_grid + 0x12EA);
+        uint16_t was = *clip;
+        *clip = 0;
+        fw_rect(fw_grid, 0, 30, FW_SCREEN_W, 290, FW_RGB(0, 0, 0));
+        *clip = was;
+    }
+#endif
+    if (ram->mp_prev != 0xFFu) {                    /* back to core's own screen it was opened over */
+        ram->page_mode = ram->mp_prev;
+        if (!ram->page_mode && FW_SD_MOUNTED()) page_read();
+        ram->page_dirty = 1;
+    } else {
+        ram->page_mode = 0;
+        fw_set_view(fw_ui, (int)ram->mp_back);
+    }
+}
+static void mp_input(int action)
+{
+    const struct dl_setting *s[MP_MAX];
+    const struct dl_mod *m = 0;
+    uint32_t n, pages = mp_page_of(ram->mp_page, s, &n, &m), sel = ram->mp_sel;
+    if (action == FW_KEY_OPT) { mp_close(); return; }
+    if (action == (FW_KEY_SHIFT | FW_KEY_RIGHT) || action == (FW_KEY_SHIFT | FW_KEY_LEFT)) {
+        if (pages) ram->mp_page = (ram->mp_page + (action & FW_KEY_RIGHT ? 1 : pages - 1)) % pages;
+        ram->mp_sel = 0;
+        ram->page_dirty = 1;
+        return;
+    }
+    if (!n) return;
+    if (action & FW_KEY_EDIT) {
+        const struct dl_setting *t = s[sel < n ? sel : 0];
+        int v = *t->value, step = action & (FW_KEY_UP | FW_KEY_DOWN) ? 4 : 1;
+        if (action & (FW_KEY_RIGHT | FW_KEY_UP)) v += step;
+        else if (action & (FW_KEY_LEFT | FW_KEY_DOWN)) v -= step;
+        else return;
+        if (v < t->min) v = t->min;
+        if (v > t->max) v = t->max;
+        if (v != *t->value) {
+            *t->value = (uint8_t)v;
+            settings_save();
+            if (t->changed) t->changed();
+#ifdef fw_rect
+            ram->mp_dirty |= MP_D_KNOB(sel);
+#else
+            char b[12];
+            mp_value(b, t);
+            mp_center(MP_ROW((int)sel / 4) + 6, (int)sel % 4, b, 0);
+#endif
+        }
+        return;
+    }
+    uint32_t was = sel;
+    if (action == FW_KEY_LEFT && sel % 4) sel--;
+    else if (action == FW_KEY_RIGHT && sel % 4 < 3 && sel + 1 < n) sel++;
+    else if (action == FW_KEY_UP && sel >= 4) sel -= 4;
+    else if (action == FW_KEY_DOWN && sel + 4 < n) sel += 4;
+    if (sel != was) {
+        ram->mp_sel = sel;
+#ifdef fw_rect
+        ram->mp_dirty |= MP_D_KNOB(was) | MP_D_KNOB(sel);
+#else
+        mp_center(MP_ROW((int)was / 4), (int)was % 4, mp_label(s[was], m), 0);
+        mp_center(MP_ROW((int)sel / 4), (int)sel % 4, mp_label(s[sel], m), 1);
+#endif
+    }
+}
+
+/* ---- the MOD LOADER (core 0.7, Model:02): LEFT+RIGHT ------------------------------------------------------------
+ * After the concept art: a header (MOD LOADER, striped, and how many mods are on of how many), tabs (ALL INST FX
+ * SEQ UTIL), the mods on the card as cards two across and four down (an icon, the name, the category, a little
+ * picture of it; the selected one boxed in purple with brackets), and the keys at the foot. Drawn with fill-rects and
+ * dl/pixui.h in the left 34 columns (the firmware keeps its own column at the right on core's screen), one piece a
+ * frame, each piece only again when it changes: moving the selection redraws two cards' frames.
+ *   arrows       move
+ *   EDIT         a mod on / off (from the next RESTART, as on the MODS page)
+ *   SHIFT+RIGHT  OPTIONS: its settings as knobs (the machine pages)
+ *   SHIFT+LEFT   INFO: its own page
+ *   SHIFT+UP/DOWN the tab
+ *   OPT          back */
+#ifdef fw_rect
+#include "dl/pixui.h"
+enum { LM_ALL, LM_INST, LM_FX, LM_SEQ, LM_UTIL, LM_TABS };
+static const char *const lm_tab_names[LM_TABS] = { "ALL", "INST", "FX", "SEQ", "UTIL" };
+static const struct { const char *stem, *name; uint8_t cat, icon; } lm_known[] = {
+    { "chaos-control", "CHAOS PAD", LM_FX, PUI_I_SWIRL },     { "lfo-sends", "LFO SENDS", LM_INST, PUI_I_WAVE },
+    { "perf-mon", "PERF MON", LM_UTIL, PUI_I_BARS },          { "load-gen", "LOAD GEN", LM_UTIL, PUI_I_CUBE },
+    { "flash-probe", "FLASH TEST", LM_UTIL, PUI_I_CUBE },     { "core-api-demo", "API DEMO", LM_UTIL, PUI_I_GEAR },
+    { "core-selftest", "SELFTEST", LM_UTIL, PUI_I_GEAR },     { "sd-heartbeat", "HEARTBEAT", LM_UTIL, PUI_I_HEART },
+    { "audio-tone", "AUDIO TONE", LM_INST, PUI_I_WAVE },      { "track-silence", "SILENCE", LM_FX, PUI_I_RINGS },
+    { "fx-replace", "FX REPLACE", LM_FX, PUI_I_DOTS },
+};
+#define LM_PER  8
+#define LM_D_HEAD 1u
+#define LM_D_TABS 2u
+#define LM_D_FOOT 4u
+#define LM_D_CARD(i) (8u << (i))
+#define LM_D_ALL  0x7FFu
+static void lm_rect(int x, int y, int w, int h, uint16_t c)
+{
+    if (w > 0 && h > 0) fw_rect(fw_grid, x, y, w, h, c);
+}
+static int lm_known_of(const char *file)            /* lm_known's entry for an .m8x file, or -1 */
+{
+    for (uint32_t k = 0; k < sizeof lm_known / sizeof lm_known[0]; k++) {
+        const char *s = lm_known[k].stem;
+        uint32_t i = 0;
+        while (s[i] && file[i] == s[i]) i++;
+        if (!s[i] && (file[i] == '.' || !file[i])) return (int)k;
+    }
+    return -1;
+}
+static uint8_t lm_cat(uint32_t i) { int k = lm_known_of(ram->page[i].name); return k < 0 ? LM_UTIL : lm_known[k].cat; }
+/* the mods the tab shows, in order: their indices in ram->page */
+static uint32_t lm_list(uint32_t *out)
+{
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < ram->page_n; i++)
+        if (ram->lm_tab == LM_ALL || lm_cat(i) == ram->lm_tab) out[n++] = i;
+    return n;
+}
+static void lm_name(char *b, uint32_t i)
+{
+    int k = lm_known_of(ram->page[i].name);
+    const char *s = k >= 0 ? lm_known[k].name : ram->page[i].name;
+    uint32_t n = 0;
+    for (; s[n] && s[n] != '.' && n < 11; n++) b[n] = s[n] == '-' ? ' ' : s[n];
+    b[n] = 0;
+}
+#define LM_CX(c)  (4 + (c) * 238)
+#define LM_CY(r)  (70 + (r) * 54)
+#define LM_CW     234
+#define LM_CH     50
+static void lm_card_frame(int slot, int sel)
+{
+    int x = LM_CX(slot % 2), y = LM_CY(slot / 2);
+    pui_box(lm_rect, x, y, LM_CW, LM_CH, 3, sel ? PUI_PURPLE : PUI_BG);
+    pui_box(lm_rect, x + (sel ? 0 : 1), y + (sel ? 0 : 1), LM_CW - (sel ? 0 : 2), LM_CH - (sel ? 0 : 2), 2,
+            sel ? PUI_PURPLE : PUI_CREAM);
+    pui_brackets(lm_rect, x + 5, y + 5, LM_CW - 10, LM_CH - 10, 7, 2, sel ? PUI_CREAM : PUI_BG);
+}
+static void lm_card(int slot, int which)            /* which: an index into ram->page, or -1 for an empty slot */
+{
+    int x = LM_CX(slot % 2), y = LM_CY(slot / 2);
+    lm_rect(x, y, LM_CW, LM_CH, PUI_BG);
+    if (which < 0) return;
+    int k = lm_known_of(ram->page[which].name);
+    uint8_t cat = k < 0 ? LM_UTIL : lm_known[k].cat, on = ram->page[which].on;
+    pui_icon(lm_rect, x + 10, y + 5, k < 0 ? PUI_I_CUBE : lm_known[k].icon, 4);
+    char b[16];
+    lm_name(b, (uint32_t)which);
+    pui_text(lm_rect, x + 58, y + 7, b, 2, on ? PUI_CREAM : PUI_DIM);
+    const char *t = lm_tab_names[cat];
+    int tw = pui_width(t, 2);
+    pui_fill(lm_rect, x + 58, y + 27, tw + 10, 18, on ? PUI_PURPLE : PUI_DPURPLE);
+    pui_text(lm_rect, x + 63, y + 29, t, 2, PUI_BG);
+    int gx = x + 58 + tw + 18, gy = y + 27, gw = x + LM_CW - 8 - gx;   /* the little picture */
+    uint16_t c = on ? PUI_PURPLE : PUI_DPURPLE;
+    if (cat == LM_FX)                               /* a spectrum */
+        for (int i = 0, xx = gx; xx + 2 < gx + gw; i++, xx += 5) {
+            int h = 3 + (i * 7 + (i >> 1) * 5) % 13;
+            lm_rect(xx, gy + 18 - h, 3, h, c);
+        }
+    else if (cat == LM_INST) {                      /* a sine */
+        static const int8_t sn[8] = { 0, 5, 7, 5, 0, -5, -7, -5 };
+        for (int xx = 0; xx < gw - 3; xx += 3) lm_rect(gx + xx, gy + 8 + sn[(xx / 3) % 8], 3, 3, c);
+    } else if (cat == LM_SEQ)
+        for (int s = 0, xx = gx; xx + 9 < gx + gw; s++, xx += 12)
+            (s % 3 == 1) ? lm_rect(xx, gy + 4, 9, 9, c) : pui_box(lm_rect, xx, gy + 4, 9, 9, 2, c);
+    else                                            /* signal bars */
+        for (int s = 0; s < 4; s++) lm_rect(gx + gw - 32 + s * 8, gy + 14 - s * 4, 6, 4 + s * 4, c);
+}
+static void lm_head(void)
+{
+    lm_rect(4, 4, 472, 32, PUI_BG);
+    pui_fill(lm_rect, 4, 4, 280, 32, PUI_PURPLE);
+    pui_text(lm_rect, 10, 9, "MOD LOADER", 3, PUI_BG);
+    pui_stripes(lm_rect, 238, 4, 32, 3, 12, PUI_BG);
+    pui_box(lm_rect, 290, 4, 186, 32, 2, PUI_PURPLE);
+    uint32_t on = 0;
+    for (uint32_t i = 0; i < ram->page_n; i++) on += ram->page[i].on;
+    char b[12], *o = b;
+    *o++ = '}'; *o++ = ' ';
+    *o++ = (char)('0' + on / 10 % 10); *o++ = (char)('0' + on % 10); *o++ = '/';
+    *o++ = (char)('0' + ram->page_n / 10 % 10); *o++ = (char)('0' + ram->page_n % 10);
+    *o++ = ' '; *o++ = '{'; *o = 0;
+    pui_text(lm_rect, 290 + (186 - pui_width(b, 2)) / 2, 13, b, 2, PUI_CREAM);
+}
+static void lm_tabs(void)
+{
+    lm_rect(4, 40, 472, 26, PUI_BG);
+    for (int k = 0; k < LM_TABS; k++) {
+        int x = 4 + k * 84, sel = (uint32_t)k == ram->lm_tab;
+        if (sel) pui_fill(lm_rect, x, 42, 80, 22, PUI_PURPLE);
+        else pui_box(lm_rect, x, 42, 80, 22, 2, PUI_CREAM);
+        pui_text(lm_rect, x + (80 - pui_width(lm_tab_names[k], 2)) / 2, 46, lm_tab_names[k], 2, sel ? PUI_BG : PUI_CREAM);
+    }
+    pui_box(lm_rect, 428, 42, 48, 22, 2, PUI_CREAM);            /* the magnifier */
+    pui_box(lm_rect, 442, 45, 13, 13, 2, PUI_CREAM);
+    lm_rect(455, 57, 3, 3, PUI_CREAM); lm_rect(458, 60, 3, 3, PUI_CREAM);
+}
+static void lm_foot(void)
+{
+    lm_rect(4, 288, 472, 31, PUI_BG);
+    pui_box(lm_rect, 4, 289, 472, 30, 2, PUI_PURPLE);
+    static const char *const key[4] = { "E", "S}", "S{", "OPT" },
+                             *const what[4] = { "ENABLE", "OPTIONS", "INFO", "BACK" };
+    int x = 10;
+    for (int i = 0; i < 4; i++) {
+        int kw = pui_width(key[i], 2);
+        pui_fill(lm_rect, x, 294, kw + 10, 20, PUI_PURPLE);
+        pui_text(lm_rect, x + 5, 297, key[i], 2, PUI_BG);
+        x = pui_text(lm_rect, x + kw + 16, 297, what[i], 2, PUI_CREAM) + 8;
+    }
+}
+static void lm_draw(void)
+{
+    if (ram->page_dirty) {                          /* entered, or a new page: blank the grid once */
+        ram->page_dirty = 0;
+        for (int r = 0; r < 23; r++) row(r, "");
+        ram->lm_wait = 2;                           /* draw after the grid's own repaint */
+        ram->lm_dirty = LM_D_ALL;
+        return;
+    }
+    if (ram->lm_wait && --ram->lm_wait) return;
+    if (!ram->lm_dirty) return;
+    volatile uint16_t *clip = (volatile uint16_t *)(fw_grid + 0x12EA);
+    uint16_t clip_was = *clip;
+    *clip = 0;
+    if (ram->lm_dirty == LM_D_ALL) lm_rect(0, 30, FW_SCREEN_W, 290, PUI_BG);
+    uint32_t list[MAX_MODS], n = lm_list(list), page = ram->lm_sel / LM_PER;
+    for (uint32_t bit = 0; bit < 11; bit++) {
+        uint32_t m = 1u << bit;
+        if (!(ram->lm_dirty & m)) continue;
+        ram->lm_dirty &= ~m;
+        if (m == LM_D_HEAD) lm_head();
+        else if (m == LM_D_TABS) lm_tabs();
+        else if (m == LM_D_FOOT) lm_foot();
+        else {
+            int slot = (int)bit - 3;
+            uint32_t at = page * LM_PER + (uint32_t)slot;
+            lm_card(slot, at < n ? (int)list[at] : -1);
+            if (at < n) lm_card_frame(slot, at == ram->lm_sel);
+            if (!n && !slot) pui_text(lm_rect, (FW_SCREEN_W - pui_width("NO MODS HERE", 2)) / 2, 150, "NO MODS HERE", 2, PUI_DIM);
+        }
+        if (bit) break;                             /* one piece a frame (the header goes with the next) */
+    }
+    ram->lm_page = page;
+    *clip = clip_was;
+}
+static void lm_clear(void)                          /* hand the screen back clean (the clip lifted) */
+{
+    volatile uint16_t *clip = (volatile uint16_t *)(fw_grid + 0x12EA);
+    uint16_t was = *clip;
+    *clip = 0;
+    lm_rect(0, 0, FW_SCREEN_W, 320, PUI_BG);
+    *clip = was;
+}
+static void lm_show(void)
+{
+    if (!page_installed()) return;
+    uint32_t here = fw_ui[FW_UI_VIEW];
+    ram->lm_prev = here == FW_VIEW_FREE ? ram->page_mode : 0xFFu;
+    ram->lm_back = here;
+    if (FW_SD_MOUNTED()) page_read();
+    if (ram->lm_tab >= LM_TABS) ram->lm_tab = LM_ALL;
+    if (ram->lm_sel >= ram->page_n) ram->lm_sel = 0;
+    ram->page_mode = 5;
+    ram->page_dirty = 1;
+    if (here != FW_VIEW_FREE) fw_set_view(fw_ui, FW_VIEW_FREE);
+    lm_clear();
+}
+static void lm_close(void)
+{
+    lm_clear();
+    if (ram->lm_prev != 0xFFu && ram->lm_prev != 5u) {
+        ram->page_mode = ram->lm_prev;
+        if (!ram->page_mode && FW_SD_MOUNTED()) page_read();
+        ram->page_dirty = 1;
+    } else {
+        ram->page_mode = 0;
+        fw_set_view(fw_ui, (int)(ram->lm_back == FW_VIEW_FREE ? FW_VIEW_SETTINGS : ram->lm_back));
+    }
+}
+static void lm_input(int action)
+{
+    uint32_t list[MAX_MODS], n = lm_list(list), sel = ram->lm_sel, was = sel;
+    if (action == FW_KEY_OPT) { lm_close(); return; }
+    if (action == (FW_KEY_SHIFT | FW_KEY_UP) || action == (FW_KEY_SHIFT | FW_KEY_DOWN)) {
+        ram->lm_tab = (ram->lm_tab + (action & FW_KEY_DOWN ? 1 : LM_TABS - 1)) % LM_TABS;
+        ram->lm_sel = 0;
+        ram->lm_dirty = LM_D_ALL & ~LM_D_FOOT & ~LM_D_HEAD;
+        lm_rect(4, 70, 472, 216, PUI_BG);
+        return;
+    }
+    if (!n) return;
+    if (sel >= n) sel = 0;
+    uint32_t file = list[sel];
+    if (action == FW_KEY_EDIT) {                    /* on / off from the next RESTART */
+        page_set(file, !ram->page[file].on);
+        ram->lm_dirty |= LM_D_CARD(sel % LM_PER) | LM_D_HEAD;
+        return;
+    }
+    if (action == (FW_KEY_SHIFT | FW_KEY_RIGHT) || action == (FW_KEY_SHIFT | FW_KEY_LEFT)) {
+        const struct dl_mod *m = mod_of_file(ram->page[file].name);
+        const struct dl_page *pg = page_of_file(ram->page[file].name);
+        if (action & FW_KEY_RIGHT && m) {           /* OPTIONS: its knobs, if it has settings */
+            const struct dl_setting *s[MP_MAX];
+            const struct dl_mod *pm;
+            uint32_t k, pages = mp_page_of(0, s, &k, &pm);
+            for (uint32_t p = 0; p < pages; p++) {
+                mp_page_of(p, s, &k, &pm);
+                if (pm == m) { ram->mp_page = p; mp_show(); return; }
+            }
+        }
+        if (pg) { lm_clear(); api_page_open(pg); }  /* INFO, or OPTIONS of a mod without settings: its page */
+        return;
+    }
+    if (action == FW_KEY_LEFT && sel % 2) sel--;
+    else if (action == FW_KEY_RIGHT && !(sel % 2) && sel + 1 < n) sel++;
+    else if (action == FW_KEY_UP && sel >= 2) sel -= 2;
+    else if (action == FW_KEY_DOWN && sel + 2 < n) sel += 2;
+    else if (action == FW_KEY_DOWN && sel + 1 < n) sel = n - 1;
+    if (sel == was) return;
+    ram->lm_sel = sel;
+    if (sel / LM_PER != was / LM_PER) {             /* another page of cards */
+        lm_rect(4, 70, 472, 216, PUI_BG);
+        ram->lm_dirty |= 0x7F8u;
+    } else {
+        lm_card_frame((int)(was % LM_PER), 0);
+        lm_card_frame((int)(sel % LM_PER), 1);
+    }
+}
+#endif
+
 static int api_song_data(const struct dl_song_data *d)
 {
     if (!d || !d->id || ram->ndata >= MAX_DATA) return 0;
@@ -1438,11 +2405,15 @@ static const char *core_dest_name(void *eng, uint32_t dest)
     int i = engine_of(eng);
     if (i < 0) return "";
     uint32_t n = ram->dest_stock[i] + ram->dest_n[i];
+    if (dest == DEST_MISSING) return "MISSING";
     if (dest >= n) dest = n - 1;
     if (dest < ram->dest_stock[i])                  /* the stock getter clamps with the count: below it, fine */
         return ((const char *(*)(void *, uint32_t))ram->dest_name_orig[i])(eng, dest);
     return ram->dest_extra[i][dest - ram->dest_stock[i]];
 }
+#if DEST_EXT
+static void dest_ext_on(void);
+#endif
 static int api_mod_dest_add(int engine, const char *name)
 {
     if (engine < 0 || engine >= FW_ENGINES || !name) return 0;
@@ -1457,10 +2428,215 @@ static int api_mod_dest_add(int engine, const char *name)
         vt[FW_VT_DEST_NAME / 4] = (uint32_t)core_dest_name | 1;
         vt[FW_VT_DEST_COUNT / 4] = (uint32_t)core_dest_count | 1;
     }
-    if (ram->dest_stock[engine] + ram->dest_n[engine] >= FW_MOD_DESTS_MAX) return 0;
+    if (ram->dest_n[engine] >= DEST_EXTRA_MAX
+        || (!DEST_EXT && ram->dest_stock[engine] + ram->dest_n[engine] >= FW_MOD_DESTS_MAX)) return 0;
     ram->dest_extra[engine][ram->dest_n[engine]++] = name;
-    return (int)(ram->dest_stock[engine] + ram->dest_n[engine] - 1);
+    int index = (int)(ram->dest_stock[engine] + ram->dest_n[engine] - 1);
+#if DEST_EXT
+    dest_ext_on();
+#endif
+    return index;
 }
+
+#if DEST_EXT
+/* ---- core 0.6: extended destinations (docs/MOD-DESTS.md) -------------------------------------------------
+ * An instrument keeps each modulator's destination in the low 4 bits of a packed byte (type << 4 | dest), which
+ * songs and .m8i files store as they are. The stock destinations stay there. A destination a mod added holds
+ * DEST_MARK in the byte, and its index is in ram->dests.ext[instrument][modulator]. Core keeps that with the song
+ * (song data "core:dests") and with the instrument (clone, paste, clear, .m8i save / load: a <file>.dldest beside
+ * it) and a copied modulator. Indices depend on which mods add destinations, and in what order, so the song data
+ * and the sidecar also carry each destination's name (hashed): a load maps them to this boot's indices, and a
+ * name no mod adds now reads as DEST_MISSING ("MISSING", applied by nobody). The firmware's 4-bit places get
+ * core's C instead (bindings "mids"): the INST. MODS field's value, the editor's store, the DEST name drawn,
+ * modulator copy / paste, and the randomizer's count (it picks stock destinations only). Mods get the index with
+ * api->mod_dest_of. Without core 0.6 such a modulator shows the engine's last destination and does nothing. */
+static void dests_loaded(uint32_t n);
+static const struct dl_song_data dests_data = { "core:dests", &ram->dests, sizeof ram->dests, dests_loaded };
+static void dest_ext_on(void)
+{
+    for (uint32_t i = 0; i < ram->ndata; i++) if (ram->data[i] == &dests_data) return;
+    api_song_data(&dests_data);
+}
+static uint32_t name_hash(const char *s)            /* FNV-1a, folded to 16 bits; never 0 */
+{
+    uint32_t h = 2166136261u;
+    while (*s) { h ^= (uint8_t)*s++; h *= 16777619u; }
+    h = (h ^ (h >> 16)) & 0xFFFFu;
+    return h ? h : 1;
+}
+static int engine_of_type(uint32_t type)            /* an instrument's type byte -> FW_ENGINE_* */
+{
+    static const int8_t map[7] = { FW_ENGINE_WAV, FW_ENGINE_MACRO, FW_ENGINE_SAMPLER, FW_ENGINE_MIDI_OUT,
+                                   FW_ENGINE_FM, FW_ENGINE_HYPER, FW_ENGINE_EXTERNAL };
+    return type < 7 ? map[type] : -1;
+}
+static int inst_engine(uint32_t inst) { return inst < 128 ? engine_of_type(FW_INSTRUMENT(inst)[0]) : -1; }
+/* is `value` one of the destinations a mod added to this instrument's engine? */
+static int added_dest(uint32_t inst, uint32_t value)
+{
+    int e = inst_engine(inst);
+    if (e < 0 || !ram->dest_n[e]) return value >= DEST_MARK;
+    return value >= ram->dest_stock[e];
+}
+static uint32_t dest_hash_of(int e, uint32_t index)  /* the name hash of an added destination, 0: none */
+{
+    if (e < 0 || index == DEST_MISSING || index < ram->dest_stock[e]) return 0;
+    uint32_t k = index - ram->dest_stock[e];
+    return k < ram->dest_n[e] ? name_hash(ram->dest_extra[e][k]) : 0;
+}
+static uint32_t dest_by_hash(int e, uint32_t h)      /* this boot's index for a hashed name, DEST_MISSING: none */
+{
+    if (e < 0 || !h) return DEST_MISSING;
+    for (uint32_t k = 0; k < ram->dest_n[e]; k++)
+        if (name_hash(ram->dest_extra[e][k]) == h) return ram->dest_stock[e] + k;
+    return DEST_MISSING;
+}
+static void dests_prepare(void)                     /* before the song data is written */
+{
+    zero(ram->dests.hash, sizeof ram->dests.hash);
+    for (int e = 0; e < FW_ENGINES; e++)
+        for (uint32_t k = 0; k < ram->dest_n[e] && k < DEST_EXTRA_MAX; k++)
+            ram->dests.hash[e][k] = (uint16_t)name_hash(ram->dest_extra[e][k]);
+}
+/* after a song load: the saved indices, by name, to this boot's. The saved index's place in its engine's added
+   list is index - the engine's stock count (15, or 14 for SAMPLER and EXTERNAL; the same every boot). */
+static uint32_t stock_count(int e)
+{
+    return e == FW_ENGINE_SAMPLER || e == FW_ENGINE_EXTERNAL ? 14u : 15u;
+}
+static void dests_loaded(uint32_t n)
+{
+    if (n != sizeof ram->dests) { zero(&ram->dests, sizeof ram->dests); return; }
+    for (uint32_t i = 0; i < 128; i++) {
+        int e = inst_engine(i);
+        for (uint32_t k = 0; k < 4; k++) {
+            uint32_t v = ram->dests.ext[i][k];
+            if (!v || v == DEST_MISSING) continue;
+            uint32_t slot = e < 0 || v < stock_count(e) ? DEST_EXTRA_MAX : v - stock_count(e);
+            uint32_t h = slot < DEST_EXTRA_MAX ? ram->dests.hash[e][slot] : 0;
+            ram->dests.ext[i][k] = (uint8_t)(h ? dest_by_hash(e, h) : DEST_MISSING);
+        }
+    }
+}
+static uint32_t dest_real(uint32_t inst, uint32_t k, uint32_t byte)
+{
+    uint32_t d = byte & 15u;
+    if (d == DEST_MARK && inst < 128 && k < 4 && ram->dests.ext[inst][k]) return ram->dests.ext[inst][k];
+    return d;
+}
+/* INST. MODS loads the field under the cursor: (view, modulator x 6, packed byte) -> the value to edit */
+uint32_t core_dest_cell(const uint8_t *view, uint32_t k6, uint32_t byte) { return dest_real(view[8], k6 / 6, byte); }
+/* the editor stores the clamped value: (view, modulator, value) -> the 4 bits for the packed byte */
+uint32_t core_dest_store(const uint8_t *view, uint32_t k, uint32_t value)
+{
+    uint32_t inst = view[8];
+    int ext = inst < 128 && k < 4 && added_dest(inst, value);
+    if (inst < 128 && k < 4) ram->dests.ext[inst][k] = (uint8_t)(ext ? value : 0);
+    return ext ? DEST_MARK : value & 15u;
+}
+/* the DEST name drawn: (the screen's model, modulator, packed byte) -> the index name() gets */
+uint32_t core_dest_shown(const uint8_t *model, uint32_t k, uint32_t byte) { return dest_real(model[0xC], k, byte); }
+/* the randomizer's dest = rand() % count: only the stock destinations, which the byte holds as they are */
+uint32_t core_dest_rand_count(void *eng, uint32_t count_fn)
+{
+    uint32_t c = ((uint32_t (*)(void *))count_fn)(eng);
+    int e = engine_of(eng);
+    if (e >= 0 && ram->dest_n[e] && c > ram->dest_stock[e]) c = ram->dest_stock[e];
+    return c > DEST_MARK ? DEST_MARK : c;
+}
+/* a modulator copied (SHIFT+OPT) and pasted (SHIFT+EDIT) on INST. MODS: the clipboard is the packed bytes */
+void core_dest_copied(const uint8_t *view, uint32_t k)
+{
+    uint32_t inst = view[8];
+    ram->dest_clip = inst < 128 && k < 4 && (FW_INSTRUMENT(inst)[FW_INST_MODS + 6 * k] & 15u) == DEST_MARK
+                     ? ram->dests.ext[inst][k] : 0;
+}
+void core_dest_pasted(const uint8_t *view, uint32_t k6)
+{
+    uint32_t inst = view[8], k = k6 / 6;
+    if (inst < 128 && k < 4) ram->dests.ext[inst][k] = ram->dest_clip;
+}
+/* whole instruments: ev_inst_copy (clone src -> dst), ev_inst_paste (the copy SHIFT+OPT made: its slot is at
+   instview + 0x10, the target at +0xC), ev_inst_clear, ev_inst_save / ev_inst_load (the .dldest sidecar) */
+static void dest_move(uint32_t src, uint32_t dst)
+{
+    if (src < 128 && dst < 128 && src != dst) copy(ram->dests.ext[dst], ram->dests.ext[src], 4);
+}
+int core_inst_copy(void *instview, int src, int dst) { (void)instview; dest_move((uint32_t)src, (uint32_t)dst); return 0; }
+int core_inst_paste(const uint8_t *instview, int action)
+{
+    (void)action;
+    if (instview[0x10] != 0xFF) dest_move(instview[0x10], instview[0xC]);
+    return 0;
+}
+int core_inst_clear(void *song, int slot, int full)
+{
+    (void)song; (void)full;
+    if (slot >= 0 && slot < 128) zero(ram->dests.ext[slot], 4);
+    return 0;
+}
+#define DEST_FILE_MAGIC 0x32444C44u        /* "DLD2": then 4 name hashes, one per modulator (0: stock) */
+static char *dest_file(char *out, const char *path)
+{
+    char *o = out;
+    for (uint32_t i = 0; path[i] && i < 120; i++) *o++ = path[i];
+    o = put(o, ".dldest");
+    *o = 0;
+    return out;
+}
+int core_inst_save(void *songs, const char *path, int slot)
+{
+    (void)songs;
+    if (slot < 0 || slot > 127 || !path) return 0;
+    uint32_t w[3] = { DEST_FILE_MAGIC, 0, 0 };
+    uint16_t h[4];
+    int e = inst_engine((uint32_t)slot), any = 0;
+    for (uint32_t k = 0; k < 4; k++) any |= (h[k] = (uint16_t)dest_hash_of(e, ram->dests.ext[slot][k])) != 0;
+    if (!any) return 0;                         /* nothing added: no sidecar (a stale one is ignored on load) */
+    copy(&w[1], h, sizeof h);
+    char p[136];
+    write_file(dest_file(p, path), (const char *)w, sizeof w);
+    return 0;
+}
+int core_inst_load(void *songs, const char *path, int slot)
+{
+    (void)songs;
+    if (slot < 0 || slot > 127 || !path) return 0;
+    uint32_t w[3] = { 0, 0, 0 };
+    char p[136];
+    if (api_file_read(dest_file(p, path), 0, w, sizeof w) != (int)sizeof w || w[0] != DEST_FILE_MAGIC) w[1] = w[2] = 0;
+    copy(ram->dest_load, &w[1], sizeof ram->dest_load);
+    ram->dest_load_slot = (uint8_t)slot;
+    ram->dest_load_ok = 1;                      /* the instrument (its type) is in by the next tick */
+    return 0;
+}
+static void dest_load_done(void)
+{
+    uint32_t slot = ram->dest_load_slot;
+    ram->dest_load_ok = 0;
+    if (slot > 127) return;
+    int e = inst_engine(slot);
+    for (uint32_t k = 0; k < 4; k++) {
+        uint32_t marked = (FW_INSTRUMENT(slot)[FW_INST_MODS + 6 * k] & 15u) == DEST_MARK;
+        ram->dests.ext[slot][k] = (uint8_t)(marked && ram->dest_load[k] ? dest_by_hash(e, ram->dest_load[k]) : 0);
+    }
+}
+/* for mods' ev_mod_apply (audio thread): the real destination of a modulator whose dest() is DEST_MARK */
+static int api_mod_dest_of(void *modulator, int dest)
+{
+    if (dest != (int)DEST_MARK || !modulator) return dest;
+    uint8_t *m = (uint8_t *)modulator;
+    uint8_t *first = *(uint8_t **)(m + FW_MODULATOR_FIRST);
+    if (!first || m < first) return dest;
+    const uint8_t *mods = FW_MODULATOR_INST_MODS(first);
+    uint32_t k = (uint32_t)(m - first) / FW_MODULATOR_SIZE;
+    uint32_t inst = (uint32_t)(mods - FW_INSTRUMENT(0) - FW_INST_MODS) / FW_INST_SIZE;
+    if (!mods || mods < FW_INSTRUMENT(0) || inst > 127 || k > 3 || !ram->dests.ext[inst][k]) return dest;
+    return ram->dests.ext[inst][k];
+}
+#else
+static int api_mod_dest_of(void *modulator, int dest) { (void)modulator; return dest; }
+#endif
 static int api_inst_load(const char *path, int slot)
 {
     if (slot < 0 || slot > 0x7F || !FW_SD_MOUNTED()) return 0;
@@ -1472,11 +2648,24 @@ static int api_inst_save(const char *path, int slot)
     return fw_inst_save(fw_songs, path, slot);
 }
 
+static void *api_ram_claim(uint32_t bytes)
+{
+#ifdef FW_SPARE_RAM
+    uint32_t at = (ram->spare_next + 7u) & ~7u;
+    if (at < FW_SPARE_RAM || bytes > FW_SPARE_RAM_END - at) return 0;
+    ram->spare_next = at + bytes;
+    return (void *)at;
+#else
+    (void)bytes;
+    return 0;
+#endif
+}
+
 static const struct dl_core api = {
     DL_CORE_MAGIC, DL_CORE_VERSION, sizeof(struct dl_core),
     api_restart, api_page_add, api_page_open, api_page_close, api_song_data, api_file_read, api_file_write,
     api_midi_receive, api_midi_send, ram->crash, ram->song, api_inst_load, api_inst_save, api_mod_dest_add,
-    api_setting_add, api_menu_open,
+    api_setting_add, api_menu_open, api_mod_dest_of, api_ram_claim,
 };
 
 /* ev_crash: core's handler in front of Teensyduino's for HardFault, MemManage, BusFault and UsageFault (RAM vector
@@ -1584,18 +2773,34 @@ void core_load(void)
     ram->armed = 0;
     ram->song[0] = 0;
     ram->usb_last = 0xFFu;
+    ram->dest_clip = ram->dest_load_ok = 0;
+    zero(ram->dest_n, sizeof ram->dest_n);          /* ITCM keeps the last boot's (or another core's) values */
+#ifdef FW_SPARE_RAM
+    ram->spare_next = FW_SPARE_RAM;
+#endif
+    zero(ram->dest_stock, sizeof ram->dest_stock);
     ram->loaded = 1;
     ram->nmods = 0;
     ram->nboot = 0;
     ram->next = AREA_START;
+#ifdef FW_MOD_FLASH
+    ram->flash_next = FW_MOD_FLASH;
+#endif
+    ram->mp_page = ram->mp_sel = 0;
     flash_hooks(orders);
     if (!FW_SD_MOUNTED())
         return;
 
-    o = put(o, "dirtyloader core 0.5\nmods area ");
+    o = put(o, "dirtyloader core 0.7\nmods area ");
     o = put_dec(o, AREA_END - AREA_START);
     o = put(o, " bytes at ");
     o = put_hex(o, AREA_START);
+#ifdef FW_MOD_FLASH
+    o = put(o, "; flash ");
+    o = put_dec(o, (FW_MOD_FLASH_END - FW_MOD_FLASH) >> 10);
+    o = put(o, " KB at ");
+    o = put_hex(o, FW_MOD_FLASH);
+#endif
     o = put(o, "\n");
 
     int skip = SKIP_NONE;
@@ -1651,7 +2856,7 @@ void core_load(void)
                 if (!*q) break;
             }
         char *p = list;
-        while (*p && o < status + STATUS_SIZE - 120) {
+        while (*p && o < status + STATUS_SIZE - 200) {
             char *line = p;
             while (*p && *p != '\n' && *p != '\r') p++;
             if (*p) *p++ = 0;
@@ -1683,6 +2888,13 @@ void core_load(void)
                 o = put(o, ", ");
                 o = put_dec(o, ram->next - at);
                 o = put(o, " bytes, ");
+                if (ram->last_flash) {                  /* its code in flash */
+                    o = put(o, "code in flash at ");
+                    o = put_hex(o, ram->last_flash);
+                    o = put(o, ", ");
+                    o = put_dec(o, ram->last_flash_n);
+                    o = put(o, ram->last_written ? " bytes (written), " : " bytes, ");
+                }
                 o = put_dec(o, m->nsubs);
                 o = put(o, " hooks");
             }
@@ -1731,6 +2943,9 @@ void core_boot(void)
             vt[0] = (uint32_t)core_tap | 1;
         }
     }
+#if defined(FW_ATTR_PAL_LIT) && defined(fw_sys)
+    xt_boot();                                      /* the extended theme: its palette and its ev_draw handler */
+#endif
     ram->track_subs = has_subs(EV_TRACK_AUDIO_W);   /* the graph's objects: wrapped only for a subscriber */
     ram->fx_subs = has_subs(EV_FX_AUDIO_W & 0xFFFFu);
     ram->params_subs = has_subs(EV_PARAMS_W);

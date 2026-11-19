@@ -46,6 +46,8 @@ class Event(IntEnum):
     CRASH = 0x0004       # a fault, before Teensyduino's handler records it and resets
     TICK = 0x0010        # each loop() iteration (UI thread)
     DRAW = 0x0020        # each UI frame, before it is pushed to the display
+    VIS_DRAW = 0x0021    # each visualizer frame (Model:02), before it is pushed: ev_draw doesn't run there
+    VIS_SCOPE = 0x0022   # the visualizer is about to draw one track's scope (Model:02); take it to skip it
     RENDER_IN = 0x0030   # audio block entry (audio thread, IRQ 70)
     RENDER_OUT = 0x0031  # audio block exit
     AUDIO_OUT = 0x0032   # the master output block, before USB / I2S (insert or exclusive audio)
@@ -112,7 +114,9 @@ EVENTS = {
     Event.RENDER_PARAMS: EventInfo("ev_render_params", "audio", False, "void f(void *engine)", "implemented (headless)"),
     Event.KEY: EventInfo("ev_key", "ui", True, "int f(void *ui, int action)", "implemented (headless)"),
     Event.VIEW: EventInfo("ev_view", "ui", True, "int f(void *ui, int view)", "implemented (headless)"),
-    Event.TOUCH: EventInfo("ev_touch", "ui", True, "int f(struct m8_touch *t)", "site pinned"),
+    Event.VIS_DRAW: EventInfo("ev_vis_draw", "ui", False, "void f(void *grid)", "implemented (Model:02)"),
+    Event.VIS_SCOPE: EventInfo("ev_vis_scope", "ui", True, "int f(void *scope)", "implemented (Model:02)"),
+    Event.TOUCH: EventInfo("ev_touch", "ui", True, "int f(void *touch)", "implemented (Model:02)"),
     Event.MIDI: EventInfo("ev_midi", "ui", True, "int f(uint32_t packet)", "implemented (headless: USB MIDI)"),
     Event.MIDI_OUT: EventInfo("ev_midi_out", "ui", True, "int f(uint32_t packet)", "implemented (headless: USB MIDI)"),
     Event.SETTINGS: EventInfo("ev_settings", "ui", False, "void f(void *menu)", "design only"),

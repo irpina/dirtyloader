@@ -20,7 +20,7 @@
 #include <stdint.h>
 
 #define DL_CORE_MAGIC   0x34434C44u      /* "DLC4" */
-#define DL_CORE_VERSION 0x00000500u      /* 0.5: inst_load, inst_save */
+#define DL_CORE_VERSION 0x00000600u      /* 0.6: mod_dest_of; mod_dest_add past 16 */
 
 /* A screen of a mod's own (core-dn1's Mod Menu entry and mod page in one). Core shows it in the firmware's free
  * view slot: from the MODS page (RIGHT on the mod's row, which shows ">" when it has a page), or when the mod
@@ -85,8 +85,9 @@ struct dl_core {
 
     /* 0.5: a modulation destination added to an engine's list (FW_ENGINE_*): it shows in the instrument MODS
        page's DEST and can be picked like a stock one; ev_mod_apply gets its index as `dest` (the stock code does
-       nothing with it). Returns that index, or 0 when the engine's list is full (16, the storage's limit). Call
-       at ev_boot; the name must stay valid. */
+       nothing with it). Returns that index, or 0 when the engine's list is full (16, the storage's limit; 0.6:
+       31 where extended destinations exist, and indices from 15 come through mod_dest_of). Call at ev_boot; the
+       name must stay valid. */
     int (*mod_dest_add)(int engine, const char *name);
 
     /* 0.5: the Mod Menu (core-dn1's): a screen with every mod page as a grid, and below it the mods' settings
@@ -95,6 +96,17 @@ struct dl_core {
        it in /dirtyloader/settings.txt by label and puts it back when setting_add is called (at ev_boot). */
     int  (*setting_add)(const struct dl_setting *s);        /* 1, or 0 when full (8) */
     void (*menu_open)(void);
+
+    /* 0.6 (check version >= 0x600): extended destinations. On firmware that has them (headless 6.6.4A),
+       mod_dest_add takes up to 16 more per engine, past the storage's 4 bits: a modulator on one keeps 15 in its
+       packed byte and core keeps the real index (docs/MOD-DESTS.md). In ev_mod_apply, mod_dest_of(modulator,
+       dest) gives the real index; it returns `dest` itself for every other modulator. Audio thread safe. */
+    int (*mod_dest_of)(void *modulator, int dest);
+
+    /* 0.6: a buffer from RAM the firmware never uses (headless: 40 KB of DTCM between .bss and the stack), 8-byte
+       aligned, for as long as the unit runs; 0 when there is not that much left, or none on this firmware. Call
+       at ev_boot. Not zeroed. */
+    void *(*ram_claim)(uint32_t bytes);
 };
 
 /* USB MIDI packets: byte 0 is cable << 4 | CIN (the status's high nibble for channel messages), then the bytes */

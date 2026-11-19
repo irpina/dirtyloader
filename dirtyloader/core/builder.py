@@ -315,6 +315,59 @@ def relocate_prologue(fw: M8Firmware, fn: int, need: int = 4, before: int = 0) -
     return "\n".join(lines), n
 
 
+def _mid_stub(fw: M8Firmware, at: int, fn: int, m: dict) -> str:
+    """A flash_mid site (core 0.6): the instruction(s) at `at` (m["expect"], at least 4 bytes, "; "-separated)
+    become a branch to a stub that calls core's C `fn` with m["args"] (registers; r0-r3 as they were) and puts its
+    result in m["ret"], keeping every other register, the flags' users aside, and s0-s15. With m["keep"] the
+    replaced instructions run after the call (they must be plain); without it the C does their work. Nothing may
+    branch into the middle of the replaced bytes. Sets m["_n"], the bytes replaced."""
+    md = _md()
+    off = fw.addr_to_offset(at)
+    want = [w.strip() for w in m["expect"].split(";")]
+    got, n = [], 0
+    for ins in md.disasm(bytes(fw.payload[off:off + 16]), at):
+        if len(got) == len(want):
+            break
+        got.append(f"{ins.mnemonic} {ins.op_str}")
+        n += ins.size
+    if got != want or n < 4:
+        raise RuntimeError(f"0x{at:08X}: expected {want}, found {got}")
+    for ins in md.disasm(bytes(fw.payload[off - 0x400:off + 0x400]), at - 0x400):
+        if ins.mnemonic.startswith(("b", "cb")) and ins.op_str.startswith("#"):
+            t = int(ins.op_str.lstrip("#"), 16)
+            if at < t < at + n:
+                raise RuntimeError(f"0x{ins.address:08X} branches into the flash_mid site at 0x{at:08X}")
+    keep = ""
+    if m.get("keep"):
+        for w in want:
+            if w.split()[0].startswith(("b", "cb", "tb", "it", "adr")) or "pc" in w:
+                raise RuntimeError(f"0x{at:08X}: {w} cannot run in the stub")
+        keep = "\n".join(want)
+    slot = {f"r{i}": 8 + 64 + 4 * i for i in range(4)}            # r0-r3 as pushed, past sub sp and s0-s15
+    moves = []
+    for i, src in enumerate(m.get("args", [])):
+        moves.append(f"ldr r{i}, [sp, #{slot[src]}]" if src in slot else
+                     f"movw r{i}, #{int(src[1:], 0)}" if src.startswith("#") else f"mov r{i}, {src}")
+    ret = m.get("ret")
+    if ret in ("ip", "r12", "lr", "sp", "pc"):
+        raise RuntimeError(f"0x{at:08X}: cannot return into {ret}")
+    put = (f"str r0, [sp, #{4 * int(ret[1:])}]" if ret in slot else f"mov {ret}, r0") if ret else ""
+    m["_n"] = n
+    return f"""
+        push  {{r0, r1, r2, r3, ip, lr}}
+        vpush {{s0-s15}}
+        sub   sp, #8
+        {chr(10).join(moves)}
+        bl    #{fn}
+        add   sp, #8
+        vpop  {{s0-s15}}
+        {put}
+        pop   {{r0, r1, r2, r3, ip, lr}}
+        {keep}
+        b.w   #{at + n}
+    """
+
+
 @dataclass
 class Core02:
     blob: bytes                     # the whole region (header + table + code)
@@ -328,7 +381,8 @@ MAX_VENEERS = 16
 
 
 def build_core02(fw: M8Firmware, bindings: dict, ram: int = 0, early: int = 0, boot: int = 0,
-                 layout: int = 2, calls_before: dict = None, itcm_load: int = 0, veneers_at: int = 0) -> Core02:
+                 layout: int = 2, calls_before: dict = None, itcm_load: int = 0, veneers_at: int = 0,
+                 mids: list = None) -> Core02:
     """Assemble core 0.2 for one firmware from its bindings' "core" sites. core 0.3 passes the address of its
     ITCM table (`ram`) and of core03.c's `early` (before setup) and `boot` (after setup, before ev_boot). `calls_before`
     maps the address of a `bl` to a function to call first (core 0.3's loader, inside setup())."""
@@ -513,6 +567,13 @@ def build_core02(fw: M8Firmware, bindings: dict, ram: int = 0, early: int = 0, b
         stubs[name] = stub
         sites.append((at, new, f"{ev.name} ({kind}) -> stub 0x{stub:08X}"))
 
+    for at, fn, m in (mids or []):
+        stub = emit(_mid_stub(fw, at, fn, m))
+        n = m["_n"]
+        new = _asm(f"b.w #{stub}", at)
+        new += b"\x00\xbf" * ((n - len(new)) // 2)
+        sites.append((at, new, f"core: {m['fn']} at 0x{at:08X} (flash_mid) -> stub 0x{stub:08X}"))
+
     for at, fn in (calls_before or {}).items():
         target = _decode_bl(fw, at)
         stub = emit(f"""
@@ -610,7 +671,11 @@ def build_asm_mod(fw: M8Firmware, stock_sha256: str, mod_id: str, title: str, ca
 # core 0.2's hook bus plus the SD-card loader in dirtyloader/core/c/core03.c (docs/LOADER.md). The C is
 # compiled with arm-none-eabi-gcc (dirtyloader.cc) and placed in free flash past the stock image; its state
 # and the mods it loads live in the free ITCM tail. Bound per firmware by the bindings' "loader" block.
-CORE03_VERSION = "0.5.0"
+CORE03_VERSION = "0.7.0"
+# core 0.6's extended modulation destinations (docs/MOD-DESTS.md): core keeps each extended modulator's real
+# destination with the song and moves it with the instrument
+DEST_EXT_HANDLERS = {"INST_COPY": "core_inst_copy", "INST_PASTE": "core_inst_paste", "INST_CLEAR": "core_inst_clear",
+                     "INST_SAVE": "core_inst_save", "INST_LOAD": "core_inst_load"}
 CORE03_SOURCE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "c", "core03.c")
 
 
@@ -631,6 +696,9 @@ def build_core03_mod(fw: M8Firmware, stock_sha256: str, bindings: dict) -> Mod:
     calls = {int(a, 16): c for a, c in ld.get("calls", {}).items()}   # a bl that calls core's C instead
     entries = ["core_early", "core_load", "core_boot", "core_serial", "core_key", "core_tick", "core_song_load",
                "core_song_save"] + [c["fn"] for c in calls.values()] + (["core_view"] if ld.get("view_switch") else [])
+    mids = {int(a, 16): dict(m) for a, m in ld.get("mids", {}).items()}   # core 0.6: instructions core's C replaces
+    dest_ext = any(m["fn"].startswith("core_dest_") for m in mids.values())   # the extended-destination sites
+    entries += [m["fn"] for m in mids.values()] + (list(DEST_EXT_HANDLERS.values()) if dest_ext else [])
     c_img, syms = cc.build_fixed([CORE03_SOURCE], c_at, entries, defines)
     if c_at < fw.load_addr + len(fw.payload):
         raise RuntimeError(f"loader address 0x{c_at:08X} is inside the stock image")
@@ -647,7 +715,8 @@ def build_core03_mod(fw: M8Firmware, stock_sha256: str, bindings: dict) -> Mod:
     load_at = int(ld["load_at"], 16)
     img = build_core02(fw, bindings, ram=ram, early=syms["core_early"], boot=syms["core_boot"], layout=3,
                        calls_before={load_at: syms["core_load"]}, itcm_load=int(ld.get("itcm_load", "0"), 16),
-                       veneers_at=int(ld.get("veneers", "0"), 16))
+                       veneers_at=int(ld.get("veneers", "0"), 16),
+                       mids=[(a, syms[m["fn"]] | 1, m) for a, m in mids.items()])
     region_off = fw.addr_to_offset(REGION)
     stock_region = bytes(fw.payload[region_off:region_off + len(img.blob)])
     if set(stock_region) - {0xFF}:
@@ -663,7 +732,7 @@ def build_core03_mod(fw: M8Firmware, stock_sha256: str, bindings: dict) -> Mod:
         if bytes(fw.payload[o:o + 2])[1] & 0xF8 != 0xF0:
             raise RuntimeError(f"0x{at:08X} is not a bl")
         sites.append(Site.from_bytes(at, bytes(fw.payload[o:o + 4]), new_bl, "code",
-                                     f"{c['event']}: bl -> {c['fn']} (core's C)"))
+                                     f"{c.get('event', 'core')}: bl -> {c['fn']} (core's C)"))
     o = fw.addr_to_offset(c_at)
     sites.append(Site.from_bytes(c_at, bytes(fw.payload[o:o + len(c_img)]), c_img, "code",
                                  f"core 0.3 loader ({len(c_img)} B, core03.c)"))
@@ -692,7 +761,8 @@ def build_core03_mod(fw: M8Firmware, stock_sha256: str, bindings: dict) -> Mod:
                 raise RuntimeError(f"0x{lit:08X} names neither of the settings templates")
             sites.append(Site.from_bytes(lit, bytes(fw.payload[o:o + 4]), struct.pack("<I", t_at + v - tpl), "data",
                                          "SYSTEM SETTINGS: the templates are core's copy"))
-    events = list(dict.fromkeys([n.split("@")[0] for n in img.stubs] + [c["event"] for c in calls.values()]))
+    events = list(dict.fromkeys([n.split("@")[0] for n in img.stubs] + [c["event"] for c in calls.values() if c.get("event")]
+                                + [m["event"] for m in mids.values() if m.get("event")]))
     mod = Mod(
         id="core", version=CORE03_VERSION, title="dirtyloader core", author="dirtyloader", category="Core",
         license="GPL-2.0-or-later",
@@ -705,7 +775,9 @@ def build_core03_mod(fw: M8Firmware, stock_sha256: str, bindings: dict) -> Mod:
                   + [{"event": ev, "handler": syms[fn] | 1, "order": 0}
                      for ev, fn in (("KEY", "core_key"), ("TICK", "core_tick"), ("SONG_LOAD", "core_song_load"),
                                     ("SONG_SAVE", "core_song_save"), ("VIEW", "core_view"))
-                     if ev in events and fn in syms],
+                     if ev in events and fn in syms]
+                  + ([{"event": ev, "handler": syms[fn] | 1, "order": 0}
+                      for ev, fn in DEST_EXT_HANDLERS.items() if ev in events] if dest_ext else []),
         resources={"names": ["core:hook-table", "core:region", "core:loader", "core:itcm-tail"]},
     )
     return mod

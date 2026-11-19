@@ -72,7 +72,7 @@ IRQ 70 (software, priority 0xD0) — the audio thread, once per audio block
   │     → per-tick slot scan 0x28424 → dispatch 0x27BF0 → executor 0x27124 (78-case) ; ratchet 0x27080
   ├─ instrument voice nodes (one class per engine, below)
   ├─ ~15 mix / send / master-chain nodes built by 0x6009A9F4
-  └─ I2S output node update 0x1F8F0 → SAI1 DMA (ISR 0x1EA9C)
+  └─ outputs: USB audio node 0x1F8F0, I2S output node 0x1E9C8 → SAI1 DMA (ISR 0x1EA9C)
 ```
 
 The **sequencer runs inside the audio interrupt**, as an audio-graph node, which is why it was never reachable
@@ -104,7 +104,8 @@ are known, and they expose the per-track design:
 | **8** | `0x203B8` | 1.8 KB / 203 | **per-track channel strip** (filter, amp, limit, pan) | S3 |
 | 1 each | `0x0F3FC` HYPERSYNTH (9.1 KB / 2038), `0x15144` SAMPLER (5.9 KB / 756), `0x0D990` FMSYNTH (2.9 KB / 514), `0x18574` WAVSYNTH (1.5 KB / 193), `0x122CC` MACROSYNTH, `0x6003EA2C` EXTERNAL (flash) | | **one node per engine type** — matched by constructor source span | S3 |
 | 1 | `0x22720` | 402 B / 44 | **sequencer clock** | S1 |
-| 1 | `0x1F8F0` | 308 B / 0 | **I2S output** (receive + release only — a sink) | S2 |
+| 1 | `0x1F8F0` (obj `0x20010620`) | 308 B / 0 | **USB audio output**: 24 inputs (the main pair from `0x2001D854`, then MFX, delay and reverb pairs on 18–23). *Corrected:* first read as the I2S output. Walked on a Model:02 through the nodes' destination lists | S1 |
+| 1 | `0x1E9C8` (obj `0x2001D2CC`) | | **I2S output**: the end of soft clip `0x2001DA34` → `0x2001DA7C` → `0x20037A90` → `0x2001BE9C` | S1 |
 | 1 | `0x09328` (obj `0x20021F18`) | 3.3 KB / 561 | **REVERB**: the effects setter writes size, decay, mod depth, mod freq, width and shimmer to its `+0x98..+0xB0` | S1 |
 | 1 | `0x08CD8` (obj `0x2001DD14`) | | **MODFX**: MOD TYPE (chorus/phaser/flanger) lands at `+0x30`; depth/freq/width are globals at `0x20021BD4..0x20021BE4` | S2 |
 | 1 + 1 | `0x05C50` (obj `0x2001BF40`), `0x070D8` (obj `0x20021D4C`) | | **DELAY**: feedback and stereo width go to these two nodes; the delay time is set through the clock object (`0x6009A5F0`/`0x6009A69C`, next to `setTempo`), so the time is tempo-synced | S2 |
@@ -284,6 +285,51 @@ the touch engine serves.
   master chain **LIMITER (+ scope) → SOFT CLIP → DJ FILTER (LP/HP, LP/BS, BS/HP) → OTT (time, color)**.
 - **FX commands**: 78 global (`0x00..0x4D`) + instrument commands (`0x80|n`, from the descriptor tables).
 - **Views**: 30 ids (`0x00..0x1D`, 7 unused), current at `ui+0x15` — named in §8.
+
+### The theme (core 0.7's THEME command, the shop's theme picker)
+
+The **system settings** are one 0xCC-byte struct, kept in Teensyduino's EEPROM emulation: loaded at boot,
+saved by `settings_save(struct)`, which writes a checksum of the first 0xC8 bytes at `+0xC8` and then
+`eeprom_write_byte` only for the bytes that differ. THEME SETTINGS calls it when you leave it after an edit,
+and so do eleven other places, so a change in RAM can reach the EEPROM without anyone asking (seen on the unit).
+
+| | Headless 6.6.4A | Model:02 6.6.2A |
+|---|---|---|
+| settings struct | `0x2001C70C` | `0x200159C0` |
+| `+0x24`: the 13 colours, R G B (`.m8t` order) | `0x2001C730` | `0x200159E4` |
+| `+0x4B`: the theme name, 13 bytes | | |
+| `settings_save(struct)` | `0x6009C986` | `0x600A7318` |
+| `set_pal(_, index, r, g, b)`: one RGB565 entry (b on the stack; the first argument is unused) | `0x6009AF28` | `0x600A5654` |
+| the palette (13 words) | `0x2000B590` | |
+| `redraw(obj, 1)`: every view again, in the new palette | `0x600496B8`, obj `0x2001A4F4` | `0x6004AF18`, obj `0x200137F8` |
+| apply: the colours from the struct into the palette, then the redraw | `0x60075CF0` | the loop at `0x600770EA` |
+| `.m8t` load (fs, path) | `0x6007CB8C` | `0x6007F548` |
+| `eeprom_read_byte` / `eeprom_write_byte` | `0x600A2640` / `0x600A26BC` | `0x600ADD94` / `0x600ADE10` |
+
+The screen draws from the palette, not from the struct: writing the struct alone changes nothing until the
+palette is set again. A `.m8t` is `M8VERSION `, four version bytes (read and ignored), then the 39 colour bytes:
+53 bytes. At boot the firmware writes its nine stock themes to `/Themes` from a table at `0x601D42A4` (Model:02).
+
+### How a cell gets its colour (core's extended theme)
+
+The screen is a 40 × 24 grid of characters (`grid + 0x10 + row·40 + col`) with an **attribute byte** per cell beside
+them (`grid + 0x3D1 + row·40 + col`). Screens write both (`0x18FAC`/headless, `0x18C24`/Model:02: text with an
+attribute) or copy a template's attribute array; the refresh's draw loop (headless ITCM `0x1902A`, Model:02 `0x18B84`)
+turns each attribute into a palette index and sets the text colours (grid `+0x12DE` fg, `+0x12E0` bg) before
+`write(c)` (headless `0x19240` → `0x190A6`, which skips a cell whose character and colour haven't changed):
+
+| attribute | index | |
+|---|---|---|
+| `.` `/` `0`…`7` | 0…9 | BACKGROUND, EMPTY, INFO, DEFAULT, VALUE, TITLES, PLAY, CURSOR, SELECTION, SCOPE |
+| `8`…`C` | 1…12 | (`A` `B` `C`: the meters) |
+| `5`, `6` | 7, 8 | fg and bg swapped: the cursor and selection blocks |
+| `0xAE` | | skipped |
+| `D`…`R` | **13…27** | past the 13-entry palette: no screen uses them |
+
+The loop loads the palette's address from a literal in ITCM: headless run `0x190A0`, Model:02 run `0x18C1C` (both
+`FW_ATTR_PAL_LIT`). Core 0.7 points it at a 28-entry table: the firmware's 13 copied in before each refresh, then 15
+of its own, and writes `D`… into the cells it recolours (see LOADER.md, THEMEX). The frame refresh draws only after
+32 ms (headless, last time `0x200206BC`) or 16 ms (Model:02, `0x2001B4DC`).
 
 ## 10. Libraries recognised
 

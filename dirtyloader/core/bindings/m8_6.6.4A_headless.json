@@ -63,6 +63,71 @@
       "redraw": "0x2000173C",
       "edited": "0x20001740",
       "note": "the phrase view's vtable (RAM) +0x34 (bulk redraw: cut, clear, paste, interpolate, rotate, fill, transpose) and +0x38 (a cell edited); core wraps them for ev_step_edit's bulk reports"
+    },
+    "mids": {
+      "0x60056F9A": {
+        "fn": "core_dest_cell",
+        "args": [
+          "r5",
+          "r4",
+          "r3"
+        ],
+        "ret": "r3",
+        "expect": "and r3, r3, #0xf",
+        "note": "INST. MODS loads the DEST field under the cursor into view+0xC: byte & 0xF (view r5, modulator x6 r4)"
+      },
+      "0x600575E4": {
+        "fn": "core_dest_store",
+        "args": [
+          "r4",
+          "r5",
+          "r7"
+        ],
+        "ret": "r7",
+        "expect": "and r7, r7, #0xf",
+        "note": "the DEST editor, after clamping to count-1, masks the value to 4 bits before bic/orr into the packed byte (view r4, modulator r5)"
+      },
+      "0x60056AE8": {
+        "fn": "core_dest_shown",
+        "args": [
+          "sl",
+          "r6",
+          "r5"
+        ],
+        "ret": "r5",
+        "expect": "and r5, r5, #0xf",
+        "note": "INST. MODS draws a DEST: byte & 0xF, then the engine's name(dest) (model sl: instrument at +0xC; modulator r6)"
+      },
+      "0x600537F4": {
+        "fn": "core_dest_rand_count",
+        "args": [
+          "r0",
+          "r3"
+        ],
+        "ret": "fp",
+        "expect": "blx r3; mov fp, r0",
+        "note": "the instrument randomizer (action 0xE5): dest = rand() % count, ORed into the packed byte unmasked"
+      },
+      "0x60056D0C": {
+        "fn": "core_dest_copied",
+        "args": [
+          "r5",
+          "r4"
+        ],
+        "keep": true,
+        "expect": "movs r3, #0xfe; strb r3, [r5, #0x14]",
+        "note": "INST. MODS copies a modulator (SHIFT+OPT): its 6 bytes to view+0xD, +0x14 = 0xFE (view r5, modulator r4)"
+      },
+      "0x6005724E": {
+        "fn": "core_dest_pasted",
+        "args": [
+          "r4",
+          "r6"
+        ],
+        "keep": true,
+        "expect": "ldrh.w r3, [r4, #0x11]",
+        "note": "INST. MODS pastes a modulator (SHIFT+EDIT): after the first 4 bytes are written (view r4, modulator x6 r6)"
+      }
     }
   },
   "core": {

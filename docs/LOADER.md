@@ -139,7 +139,9 @@ checks it and returns 0 under an older core. Take it at `ev_boot`.
 | `last_crash` | Teensyduino's crash record as the boot found it (`[0]` 0: none, `[6]` the pc) | `ev_crash` |
 | `inst_load(path, slot)`, `inst_save(path, slot)` (0.5) | an `.m8i` into a slot, or a slot to a file, through the firmware's own routines | `core_pool_load` |
 | `setting_add(setting)`, `menu_open()` (0.5) | a settings row in the Mod Menu (`{label, value, min, max, names, changed}`), kept in `/dirtyloader/settings.txt`; open the Mod Menu | `core_additem`, the Mod Menu |
-| `mod_dest_add(engine, name)` (0.5) | a modulation destination added to an engine's list (up to 16): pickable in DEST, applied in `ev_mod_apply` | LFO destination names |
+| `mod_dest_add(engine, name)` (0.5) | a modulation destination added to an engine's list (up to 16; 0.6 headless: 31, [MOD-DESTS.md](MOD-DESTS.md)): pickable in DEST, applied in `ev_mod_apply` | LFO destination names |
+| `mod_dest_of(modulator, dest)` (0.6) | the real destination in `ev_mod_apply` (core keeps added destinations by name with the song and the instrument) | — |
+| `ram_claim(bytes)` (0.6) | a buffer from RAM the firmware never uses (40 KB of DTCM between `.bss` and the stack), for as long as the unit runs | — |
 | `song` | the path of the song last loaded or saved | |
 
 `examples/core-api-demo` uses all of it: a page (song value, MIDI counts), a value kept with the song, a note
@@ -183,6 +185,75 @@ A mod is C built with the SDK (`dirtyloader/sdk/include/dl/mod.h`) and linked at
 
 Relocations are found without parsing ELF: the mod is linked at 0 and at `0x01000000`, and every word that
 differs by exactly that amount is an address into the image. Anything else that differs is refused.
+
+**DLX2** (core 0.7, what the SDK builds now) adds a sixth header word: the offset where the image's writable part
+(`.data`) starts. Everything before it is code and constants. Core 0.7 reads both versions.
+
+### MOD LOADER and OPTIONS (core 0.7): LEFT+RIGHT
+
+LEFT+RIGHT (input action `0x84`, unused by the firmware) opens core's mod screens from any screen except the
+Model:02's visualizer; LEFT+RIGHT again, or OPT, goes back.
+
+**Model:02: the MOD LOADER.** A full-screen page drawn with `dl/pixui.h` (5×7 font, pixel icons, cut-corner boxes):
+- **Header:** MOD LOADER on a striped purple tab, and how many mods are on of how many on the card.
+- **Tabs:** ALL, INST, FX, SEQ, UTIL (SHIFT+UP/DOWN). Each known mod has a name, category and icon in core's table
+  (`lm_known`); others show their file name under UTIL.
+- **Cards:** 2 × 4 a page. Each has the icon, the name (dimmed when off), a category pill and a small picture. The
+  selected card has a purple frame and corner brackets. Arrows move.
+- **Keys:** EDIT switches the mod on or off (from the next restart, as on the MODS page). SHIFT+RIGHT opens its
+  OPTIONS, SHIFT+LEFT its own page (INFO), OPT goes back.
+- **OPTIONS:** the mod's settings (`setting_add`) as up to eight knobs (a 270° arc of 21 dots, label, value), in two
+  rows of four; the selected knob is in brackets. Arrows pick, EDIT+LEFT/RIGHT turns by 1, EDIT+UP/DOWN by 4,
+  SHIFT+LEFT/RIGHT flips between mods. Values are saved in `settings.txt` as from the Mod Menu.
+- **Drawing:** one piece a frame (header, tabs, a card, the footer), each again only when it changes.
+- **The whole screen:** on these two pages core's view says no to the firmware's right-hand column and top
+  oscilloscope (its view methods `+0x18` / `+0x1C`, which the frame refresh `0x6004B514` and the view-draw dispatcher
+  `0x6004CB7C` ask). It also holds off the column's other routines through `calls` sites (`core_side0`–`7`).
+  Leaving gives the firmware its screen back whole.
+
+**Headless: the machine pages.** The same knobs as text pages, a page per mod, in the manner of Elektron's machine
+pages and Elekloader's machine-pages mod.
+
+**Ownership:** a setting belongs to the mod whose code holds its `dl_setting`, so declare it `const`. Core records
+each mod's code range at load. Core keeps up to 24 settings (8 before 0.7).
+
+Known gaps:
+- Core's own screens (MODS page, Mod Menu, loader, OPTIONS) take every key, so PLAY doesn't start or stop the song
+  while they're open.
+- The search box and the concept's SORT key are drawn but do nothing yet.
+
+| MOD LOADER | OPTIONS |
+|---|---|
+| ![MOD LOADER on a Model:02](../shots/core07/loader.png) | ![OPTIONS on a Model:02](../shots/core07/loader-options.png) |
+
+### Flash placement (core 0.7)
+
+Mods run from ITCM, and ITCM is small: about 12.5 KB for mods on a Model:02, 20 KB on headless. So a mod that
+doesn't fit there runs its code from flash:
+- **Where:** core installs it from the SD card into a 1 MB flash area (`FW_MOD_FLASH`, `0x60600000`), which is
+  erased on a stock unit and outside the firmware, core, and EEPROM emulation.
+- **What goes where:** code and constants (DLX2's image up to the `.data` offset) go to flash, each mod on a 4 KB
+  boundary. `.data` and `.bss` go to ITCM.
+- **Relocation:** the code is relocated in the spare DTCM (`FW_SPARE_RAM`; no mod has claimed it yet), then
+  compared with flash. Flash is erased and programmed only if it differs, so an ordinary boot writes nothing.
+  `status.txt` says "(written)" when it did.
+- **Writing:** core uses Teensyduino's own routines (`eepromemu_flash_erase_sector` / `eepromemu_flash_write`, in
+  ITCM, interrupts off), then drops the instruction cache.
+- **Order:** mods load in `active.txt` order, and each goes to ITCM if it fits, otherwise to flash. Put a mod whose
+  `.bss` is large early: its `.bss` needs ITCM either way.
+- **Cost** (PERF MON on headless, CHAOS CONTROL): from flash it takes 5–16 µs more per audio block on average, and
+  its worst blocks about twice as long (instruction-cache misses). Fine for most mods; keep the heaviest DSP in
+  ITCM if you can.
+
+Tested on both units:
+- examples/flash-probe has a 24 KB table and only fits in flash. Its table sum, function-pointer table, `.data`
+  pointer into flash and `.bss` counter all read back right. A second boot didn't write.
+- On a Model:02, CHAOS CONTROL (10 KB of code) runs from flash beside lfo-sends and perf-mon in ITCM.
+
+Core reads the relocations in just past the image, where the `.bss` goes. So loading needs image + the larger of
+the two. Once they are applied, the mod keeps only image + `.bss`, and the next mod loads right after (since
+0.6; before, the relocations' space stayed reserved). A mod's literal pools make many relocations: CHAOS CONTROL
+has 342, 1.4 KB, against 212 B of `.bss`.
 `dl_mod.fw` names the firmware the mod was built for (the device header sets `DL_FW`); core refuses others.
 
 ## Transfer (USB)
@@ -210,6 +281,8 @@ data, alongside any display frames.
 | 8 PEEK | address u32, count u16 (≤ 512) | memory, for development. Nothing guards the read: stay in RAM, and away from address 0 and the stack guard at `0x200415E0`, which fault |
 | 9 DELETE | name (under `/dirtyloader` only) | (core 0.4; SdFat's `FatFile::remove` `0x6009FF4C` / `ExFatFile::remove` `0x6009DADC`) |
 | 10 POKE | address u32, bytes | (core 0.5) write RAM, `0x20000000..0x20280000` only: development and tests (the hardware tests write OFF notes into a phrase with it) |
+| 11 THEME | none, or 39 colour bytes [+ flags u8 [+ name ≤ 12]] | (core 0.7) none: the 13 colours (39 bytes, the `.m8t` order) and the 13-byte name. Colours: set them in the system settings, the palette and a full redraw, at once. Flags bit 0: also save the settings to EEPROM (kept across power-off). A name (A–Z 0–9 space - _) shows on THEME SETTINGS. See "The theme" in [FIRMWARE-MAP.md](FIRMWARE-MAP.md) |
+| 12 THEMEX | none, or flags u8 + 15 colours (45 bytes) [+ save u8] | (core 0.7) the extended theme: none reads the flags (1 track colours, 2 screen titles, 4 titles of CHAIN/PHRASE/TABLE/INSTRUMENT follow the current track) and the 15 colours (tracks 1–8; the titles of SONG, CHAIN, PHRASE, INSTRUMENT, TABLE, MIXER, the rest). Setting them repaints every view; save bit 0 also writes `/dirtyloader/theme.ext` (`DLXT`, flags, 3 zero bytes, the colours: 53 bytes), which the next boot loads. See [The extended theme](#the-extended-theme-core-07) |
 
 Status: 0 ok, 1 bad request, 2 checksum, 3 bad path or no file, 4 SD error, 5 no card, 6 timeout, 7 unknown.
 Names are `[A-Za-z0-9._-/]`, no `..`, under 64 bytes. PUT writes only under `/dirtyloader/` (names are
@@ -225,7 +298,31 @@ The host side is `dirtyloader.unit` (Python, no dependencies; `dirtyloader.seria
     python -m dirtyloader.unit restart
     python -m dirtyloader.unit status
 
-Close m8c first; the port can only be open once. A web shop can speak the same protocol over Web Serial.
+Close m8c first; the port can only be open once. The [mod shop](SHOP.md) (`site/shop`) speaks the same
+protocol over Web Serial: install, switch on and off, remove, restart, and the theme.
+
+## The extended theme (core 0.7)
+
+The M8's THEME page has 13 colours. Core adds 15: a colour per track, and a title colour per screen. It gives the
+firmware's draw loop a 28-entry palette (the 13, copied before each refresh, then core's 15; FIRMWARE-MAP.md, "How a
+cell gets its colour") and, at `ev_draw` after every mod's handler and only on passes that will refresh, rewrites the
+attribute bytes of the plain text it recolours:
+- **Track colours** (flag 1): SONG's header `1`…`8` and the chains under each (VALUE text), and the track list: `1`…`8`
+  down one column in the right half, each alone in its cell, not a `0` above or a `9` below (so CHAIN's and PHRASE's
+  row numbers stay as they are).
+- **Screen titles** (flag 2): TEXT:TITLES text takes its screen's colour: SONG, CHAIN, PHRASE, INSTRUMENT (+ MODS,
+  POOL), TABLE, MIXER (+ EFFECT SETTINGS, EQ, LIMITER), everything else.
+- **Follow the track** (flag 4): CHAIN, PHRASE, TABLE and INSTRUMENT titles take the current track's colour: the one
+  the cursor colour marks in the track list.
+
+The cursor, selection blocks and play markers are never changed, nor are core's own pages. Turning it off repaints
+every view from scratch (`redraw(obj, 1)`). If the literal doesn't hold the firmware's palette at boot (another
+firmware), core leaves it alone and THEMEX answers "unknown command".
+
+On the Headless Teensy (2026-11-18): rainbow tracks on SONG, the track list on SONG, CHAIN and PHRASE; CHAIN's and
+PHRASE's titles in their screen colours, then in track 1's and track 4's as the cursor moved; kept across a restart
+from `theme.ext`; off restores the stock screen. perf-mon: UI loop 260–268 k passes a second with it on, 266 k off.
+The Model:02's addresses are checked against its image (tests/test_model02.py), not yet on the unit.
 
 ## Bring-up notes
 

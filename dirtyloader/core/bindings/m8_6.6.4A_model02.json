@@ -1,0 +1,422 @@
+{
+  "firmware": "M8 firmware 6.6.4A (Model02)",
+  "stock_sha256": "7bca8f34191eba0ac2ebc266427b7b2686e377f6924e80b13bcd15ae10b2b0e0",
+  "load_addr": "0x60000000",
+  "derived_by": "dirtyloader.re.portmap from Model:02 6.6.2A and Headless 6.6.4A, each address checked by hand (docs/MODEL02-664-PORT.md)",
+  "symbols": {
+    "entry": "0x60001649",
+    "startup": "0x60001430",
+    "main": "0x600B42F0",
+    "setup": "0x6008595C",
+    "loop": "0x60085368",
+    "yield": "0x600BAF30"
+  },
+  "hook_sites": {
+    "BOOT": {
+      "patch_at": "0x600B42F2",
+      "instruction": "bl setup (0x6008595C)",
+      "strategy": "detour the call; run BOOT handlers after setup() returns, once",
+      "note": "fires a single time, right before the main loop begins"
+    },
+    "TICK": {
+      "patch_at": "0x600B42F6",
+      "instruction": "bl loop (0x60085368)",
+      "strategy": "detour the call; run TICK handlers each frame, then call loop()",
+      "note": "loop is a b.w veneer to 0x6008646C, which runs the touch engine (0x60086008) and goes on to the loop body at 0x60086294"
+    }
+  },
+  "loop_subsystems_partial": [
+    "0x6007F214",
+    "0x6007FD30"
+  ],
+  "notes": [
+    "loop (0x60085368) is a b.w veneer, as on headless; yield (main's bl 0x600BAF30) is an ldr.w pc veneer to ITCM 0x2BACD.",
+    "6.6.4A Model:02 is built like Headless 6.6.4A where 6.6.2A Model:02 was not: the audio engine is one object (0x2000C780, a function-local static built by 0x6009D9D4) reached through a pointer, set_view reads a 30-slot view table (0x20000BD8), players are 0x248 apart. Its Model:02 parts (touch, the visualizer, the right-hand column, 32-frame audio blocks, the track strips' class) follow 6.6.2A Model:02."
+  ],
+  "loader": {
+    "c_at": "0x601F8000",
+    "ram": "0x0002BFB0",
+    "ram_end": "0x0002FF80",
+    "veneers": "0x0002FF80",
+    "itcm_load": "0x60001680",
+    "fw_header": "m8-model02-6.6.4A/fw.h",
+    "load_at": "0x60085A4E",
+    "settings_row": {
+      "template": "0x601D871C",
+      "attrs": "0x3C4",
+      "literals": [
+        "0x60078150",
+        "0x60078158",
+        "0x60078934"
+      ],
+      "row": 22,
+      "attr_like": 7,
+      "field_y": 14,
+      "text": " MODS (TELOS) {OPEN}",
+      "note": "the same template as 6.6.2A Model:02 (BATT.CHARGING row 20, FIRMWARE UPDATE row 21, 14 fields): the MODS row goes in row 22, field 14. 0x60078150/58 hold the template, 0x60078934 the colours (template + 0x3C4)"
+    },
+    "calls": {
+      "0x600B5712": {
+        "fn": "core_midi_read",
+        "event": "MIDI",
+        "note": "usb_midi_read's bl usb_midi_read_message (0x600B5664); both sources map here"
+      },
+      "0x6004E312": {
+        "fn": "core_vis_scope",
+        "event": "VIS_SCOPE",
+        "note": "the visualizer branch of the frame refresh 0x6004E218: bl 0x6004D31A, one track's scope (r0 = its object), 8 times a frame"
+      },
+      "0x6004E376": {
+        "fn": "core_side0",
+        "note": "the frame refresh's normal branch: bl 0x6004A1BC; skipped under core's full-screen pages"
+      },
+      "0x6004E3B0": {
+        "fn": "core_side1",
+        "note": "bl 0x6004ADB0; skipped under core's full-screen pages"
+      },
+      "0x6004F4BC": {
+        "fn": "core_side2",
+        "note": "the view-draw dispatcher 0x6004F4A4 (bl at 0x6004E3BA, r0 fw_ui), before the view's draw: bl 0x6004E600; skipped under core's full-screen pages"
+      },
+      "0x6004F4C8": {
+        "fn": "core_side5",
+        "note": "bl 0x6004D214; skipped under core's full-screen pages"
+      },
+      "0x6004F4D4": {
+        "fn": "core_side6",
+        "note": "bl 0x6004C330, a track of the right-hand column (r0 its object, 8 times); skipped under core's full-screen pages"
+      },
+      "0x6004F4DE": {
+        "fn": "core_side7",
+        "note": "bl 0x6004BD84; skipped under core's full-screen pages"
+      },
+      "0x6004E3C6": {
+        "fn": "core_side3",
+        "note": "bl 0x6004C3C0; skipped under core's full-screen pages"
+      },
+      "0x6004E408": {
+        "fn": "core_side4",
+        "note": "bl 0x6004DFF8, the output meters at the top right; skipped under core's full-screen pages"
+      }
+    },
+    "sysex_handler": {
+      "ptr": "0x2004093C",
+      "stock": "0x600ACCF1",
+      "note": "set at 0x6008D314"
+    },
+    "phrase_slots": {
+      "redraw": "0x20001908",
+      "edited": "0x2000190C"
+    },
+    "mids": {
+      "0x6005B63A": {
+        "fn": "core_dest_cell",
+        "args": [
+          "r5",
+          "r4",
+          "r3"
+        ],
+        "ret": "r3",
+        "expect": "and r3, r3, #0xf",
+        "note": "the same instructions as 6.6.2A Model:02 0x600585C2 and Headless 0x60056F9A: both map here"
+      },
+      "0x6005BC84": {
+        "fn": "core_dest_store",
+        "args": [
+          "r4",
+          "r5",
+          "r7"
+        ],
+        "ret": "r7",
+        "expect": "and r7, r7, #0xf",
+        "note": "the same instructions as 6.6.2A Model:02 0x60058C0C and Headless 0x600575E4: both map here"
+      },
+      "0x6005B188": {
+        "fn": "core_dest_shown",
+        "args": [
+          "sl",
+          "r6",
+          "r5"
+        ],
+        "ret": "r5",
+        "expect": "and r5, r5, #0xf",
+        "note": "the same instructions as 6.6.2A Model:02 0x60058110 and Headless 0x60056AE8: both map here"
+      },
+      "0x60057E94": {
+        "fn": "core_dest_rand_count",
+        "args": [
+          "r0",
+          "r3"
+        ],
+        "ret": "fp",
+        "expect": "blx r3; mov fp, r0",
+        "note": "the same instructions as 6.6.2A Model:02 0x60054EC4 and Headless 0x600537F4: both map here"
+      },
+      "0x6005B3AC": {
+        "fn": "core_dest_copied",
+        "args": [
+          "r5",
+          "r4"
+        ],
+        "keep": true,
+        "expect": "movs r3, #0xfe; strb r3, [r5, #0x14]",
+        "note": "the same instructions as 6.6.2A Model:02 0x60058334 and Headless 0x60056D0C: both map here"
+      },
+      "0x6005B8EE": {
+        "fn": "core_dest_pasted",
+        "args": [
+          "r4",
+          "r6"
+        ],
+        "keep": true,
+        "expect": "ldrh.w r3, [r4, #0x11]",
+        "note": "the same instructions as 6.6.2A Model:02 0x60058876 and Headless 0x6005724E: both map here"
+      },
+      "0x6004E32C": {
+        "fn": "core_vis_draw",
+        "event": "VIS_DRAW",
+        "args": [
+          "r6"
+        ],
+        "keep": true,
+        "expect": "strh.w r8, [r4, #0x2ea]",
+        "note": "frame refresh 0x6004E218, the visualizer branch: after the eight tracks' draw (0x6004D31A each), the clip column grid+0x12EA is put back, then the frame is pushed. r6 = fw_grid (0x20018CF0)"
+      }
+    },
+    "note": "core 0.7 for Model:02 6.6.4A: free flash past the image (ends 0x601F1400) up to the EEPROM emulation at 0x60FC0000; the ITCM tail after the firmware's ITCM code (0x2BFB0, 16.3 KB to 0x2FF80). No view_switch: set_view reads a view table (slot 7 empty), as on headless. load_at is the bl 0x600A07AC in setup() right after the card is mounted (bl 0x60080604 at 0x60085A3E): its first call builds the audio engine, as at headless's load_at."
+  },
+  "core": {
+    "BOOT": {
+      "kind": "call_post",
+      "patch_at": "0x600B42F2",
+      "target": "0x6008595C",
+      "note": "main: bl setup; 6.6.2A Model:02 and Headless both map here"
+    },
+    "TICK": {
+      "kind": "call_pre",
+      "patch_at": "0x600B42F6",
+      "target": "0x60085368",
+      "note": "main: bl loop (the veneer 0x60085368)"
+    },
+    "DRAW": {
+      "kind": "call_pre",
+      "patch_at": "0x600862EE",
+      "target": "0x6004E218",
+      "note": "loop body: ui update 0x6004ED58, then bl frame_refresh(display 0x2001A084)"
+    },
+    "KEY": {
+      "kind": "call_pre",
+      "patch_at": "0x600863F2",
+      "target": "0x6004F620",
+      "note": "loop body: read the input (0x6007EA64), then bl input router(ui 0x2001BD34, action); the router stores millis at ui+8 and toggles the visualizer on 0xE4, as 6.6.2A's 0x6004C6C8"
+    },
+    "VIEW": {
+      "kind": "entry",
+      "patch_at": "0x6004EEA4",
+      "note": "set_view: the same code as Headless 0x6004A96C (reads the view table 0x20000BD8)"
+    },
+    "SONG_LOAD": {
+      "kind": "entry",
+      "patch_at": "0x60066854",
+      "note": "the same code as Headless 0x60062154 (r0 songs 0x2001C48C)"
+    },
+    "SONG_SAVE": {
+      "kind": "entry",
+      "patch_at": "0x600812FC",
+      "note": "the same code as Headless 0x6007AFC0 (0x600812F4 before it is a veneer)"
+    },
+    "NOTE": {
+      "kind": "itcm_entry",
+      "patch_at": "0x00024A2C",
+      "note": "6.6.2A Model:02 0x0002464C and Headless 0x22BDC both map here"
+    },
+    "PLAY": {
+      "kind": "entry",
+      "patch_at": "0x600A1010",
+      "note": "the same code as Headless 0x60090618 (seq r0, mode r1)"
+    },
+    "STOP": {
+      "kind": "entry",
+      "patch_at": "0x600A119C",
+      "note": "the same code as Headless 0x600907A4 (the engine pointer 0x2001E20C)"
+    },
+    "SERIAL": {
+      "kind": "entry",
+      "patch_at": "0x6007D0CC",
+      "note": "6.6.2A Model:02 0x60079A7C and Headless 0x6007846C both map here"
+    },
+    "MIDI_OUT": {
+      "kind": "entry",
+      "patch_at": "0x600B51E0",
+      "note": "6.6.2A Model:02 0x600AEF3C and Headless 0x600A3238 both map here"
+    },
+    "TEMPO": {
+      "kind": "entry",
+      "patch_at": "0x600A1370",
+      "note": "6.6.2A Model:02 0x6009A6C0 and Headless 0x60090978 both map here"
+    },
+    "SEQ_TICK": {
+      "kind": "itcm_entry",
+      "patch_at": "0x000238B4",
+      "note": "the same code as Headless 0x21A64 (the movs r3, #0 before the push)"
+    },
+    "NOTE_OFF": {
+      "kind": "itcm_entry",
+      "patch_at": "0x00024910",
+      "note": "6.6.2A Model:02 0x00024530 and Headless 0x22AC0 both map here"
+    },
+    "ROW": {
+      "kind": "itcm_mid",
+      "patch_at": "0x000269CC",
+      "args": [
+        "r4"
+      ],
+      "note": "6.6.2A Model:02 0x00026558 and Headless 0x24B7C both map here"
+    },
+    "FX_ROW": {
+      "kind": "itcm_entry",
+      "patch_at": "0x00024C34",
+      "note": "6.6.2A Model:02 0x00024854 and Headless 0x22DE4 both map here"
+    },
+    "FX_COMMAND": {
+      "kind": "itcm_entry",
+      "patch_at": "0x0002773C",
+      "note": "6.6.2A Model:02 0x00027124 and Headless 0x258EC both map here"
+    },
+    "MOD_APPLY@FM": {
+      "kind": "itcm_mid",
+      "patch_at": "0x0000CC4A",
+      "args": [
+        "r0",
+        "r4",
+        "r5",
+        "#0"
+      ],
+      "taken_to": "0x0000CC9A",
+      "note": "6.6.2A Model:02 0x0000C9CA and Headless 0xCC8A both map here"
+    },
+    "MOD_APPLY@HYPER": {
+      "kind": "itcm_mid",
+      "patch_at": "0x0000E7CC",
+      "args": [
+        "r0",
+        "r4",
+        "r5",
+        "#1"
+      ],
+      "taken_to": "0x0000E81C",
+      "note": "6.6.2A Model:02 0x0000E54C and Headless 0xE80C both map here"
+    },
+    "MOD_APPLY@MACRO": {
+      "kind": "itcm_mid",
+      "patch_at": "0x00011AD4",
+      "args": [
+        "r0",
+        "r4",
+        "r5",
+        "#2"
+      ],
+      "taken_to": "0x00011B24",
+      "note": "6.6.2A Model:02 0x00011854 and Headless 0x11B14 both map here"
+    },
+    "MOD_APPLY@SAMPLER": {
+      "kind": "itcm_mid",
+      "patch_at": "0x000146FC",
+      "args": [
+        "r0",
+        "r4",
+        "r5",
+        "#3"
+      ],
+      "taken_to": "0x0001474E",
+      "note": "6.6.2A Model:02 0x00014398 and Headless 0x1473C both map here"
+    },
+    "MOD_APPLY@WAV": {
+      "kind": "itcm_mid",
+      "patch_at": "0x00017594",
+      "args": [
+        "r0",
+        "r4",
+        "r5",
+        "#4"
+      ],
+      "taken_to": "0x000175DA",
+      "note": "6.6.2A Model:02 0x000171B4 and Headless 0x175D4 both map here"
+    },
+    "MOD_APPLY@EXTERNAL": {
+      "kind": "itcm_mid",
+      "patch_at": "0x0000B5FA",
+      "args": [
+        "r0",
+        "r4",
+        "r6",
+        "#5"
+      ],
+      "taken_to": "0x0000B64A",
+      "note": "6.6.2A Model:02 0x0000B37E and Headless 0xB63E both map here"
+    },
+    "MOD_APPLY@SAMPLER0": {
+      "kind": "itcm_mid",
+      "patch_at": "0x00012AEE",
+      "args": [
+        "r3",
+        "r4",
+        "r5",
+        "#3"
+      ],
+      "taken_to": "0x00012B40",
+      "note": "6.6.2A Model:02 0x00012866 and Headless 0x12B2E both map here"
+    },
+    "MUTE": {
+      "kind": "entry",
+      "patch_at": "0x6003CE7C",
+      "note": "6.6.2A Model:02 0x6003A4B4 and Headless 0x60038940 both map here"
+    },
+    "INST_LOAD": {
+      "kind": "entry",
+      "patch_at": "0x6008210C",
+      "note": "6.6.2A Model:02 0x6007E78C and Headless 0x6007BDD0 both map here"
+    },
+    "INST_SAVE": {
+      "kind": "entry",
+      "patch_at": "0x600827B8",
+      "note": "6.6.2A Model:02 0x6007EE38 and Headless 0x6007C47C both map here"
+    },
+    "PARAM_SET": {
+      "kind": "entry",
+      "patch_at": "0x600581D0",
+      "note": "6.6.2A Model:02 0x60055200 and Headless 0x60053B30 both map here"
+    },
+    "STEP_EDIT": {
+      "kind": "entry",
+      "patch_at": "0x600648FC",
+      "note": "6.6.2A Model:02 0x60061768 and Headless 0x6006025C both map here"
+    },
+    "INST_CLEAR": {
+      "kind": "entry",
+      "patch_at": "0x6008675C",
+      "note": "6.6.2A Model:02 0x60082AD8 and Headless 0x6007FF34 both map here"
+    },
+    "LIVE_NOTE": {
+      "kind": "itcm_entry",
+      "patch_at": "0x000251C4",
+      "note": "6.6.2A Model:02 0x00024DE0 and Headless 0x23374 both map here"
+    },
+    "INST_COPY": {
+      "kind": "entry",
+      "patch_at": "0x600598EC",
+      "note": "6.6.2A Model:02 0x60056918 and Headless 0x6005524C both map here"
+    },
+    "INST_PASTE": {
+      "kind": "entry",
+      "patch_at": "0x60058F34",
+      "note": "6.6.2A Model:02 0x60055F60 and Headless 0x60054894 both map here"
+    },
+    "TOUCH": {
+      "kind": "call_pre",
+      "patch_at": "0x60086030",
+      "target": "0x6007F180",
+      "note": "the touch engine (0x60086008, called from the loop at 0x600862BE), after its poll (0x6007ED14) fills the touch object 0x2001C9E0: the bl that asks it for activity (+0x52). Static (no Model:02 6.6.4A unit run yet)."
+    }
+  }
+}

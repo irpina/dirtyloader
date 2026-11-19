@@ -42,7 +42,7 @@ Mods subscribe with `DL_ON(EV_..., order, handler)` (`dl/mod.h`); firmware locat
 | `ev_card_ready` | core_load, after the mods load (0.5) | `void f(int mounted)` | before the firmware first uses the card; before `ev_boot` |
 | `ev_usb` | `ev_tick`, when `usb_configuration` (`0x2004159F`) changes (0.5) | `void f(int configured)` | |
 | `ev_sysex` | usbMIDI's SysEx handler pointer (`0x20040654`), chained at boot (0.5) | `int f(const uint8_t *data, int len, int last)` | take it to keep the firmware's handler from seeing the chunk |
-| `ev_audio_out` | the audio tap's `update()` (vtable slot in RAM, engine `0x2000BE80` + `0x9308`) (0.5) | `int f(float *left, float *right, int frames)` | audio thread, ~690 a second, 64 float frames. Process in place (insert) or write and take (exclusive); a silent output gets zeroed blocks |
+| `ev_audio_out` | the master soft clip's `update()` (vtable slot in RAM, engine `0x2000BE80` + `0x9750`; Model:02 `0x2001DA34`), on its input (0.5; moved in 0.6) | `int f(float *left, float *right, int frames)` | audio thread, ~690 a second, 64 float frames (Model:02: 32). Process in place (insert) or write and take (exclusive); a silent output gets zeroed blocks. The soft clip feeds both USB (`+0x9308`) and the I2S branch (headphones, speaker); wrapping `+0x9308`, as 0.5 did, reached USB only |
 | `ev_seq_tick` | the tick processor, ITCM run `0x21A64` (0.5) | `int f(void *engine)` | audio thread, 192 a beat |
 | `ev_row` | the sequencer's row fire, inside run `0x24650` at `0x24B7C` (0.5, `itcm_mid`) | `void f(void *player)` | audio thread; the 9-byte row at `player + 0x4C`, before its note and FX |
 | `ev_note_off` | note off, ITCM run `0x22AC0` (0.5) | `int f(void *player, int kill)` | audio thread; take it to keep the note sounding |
@@ -99,7 +99,7 @@ about copying `.itcm` apply to built-in (linked) mods only.
 | `ev_boot` | once, after `setup()`, before the first `loop()`; UI thread | `void f(void)` | the core has copied `.itcm` and zeroed mods' `.bss` already | site pinned |
 | `ev_tick` | every `loop()` iteration; UI thread | `void f(void)` | free-running, thousands a second (not 30 like the Digitakt's): do almost nothing, or count | **implemented** |
 | `ev_draw` | each UI frame (~66 a second), after the views have drawn and **before the frame is pushed** to the display | `void f(void *ui)` | draw over the frame with `fw_text` and friends; what you draw lasts one frame | site pinned |
-| `ev_key` | each input action, before the current view handles it; UI thread | `int f(void *ui, int action)` | `action` is the M8's input-action code (each view's `+0x08` handler switches on it; `0xE4` is a global action). Return nonzero to take it | site pinned |
+| `ev_key` | each input action, before the current view handles it; UI thread | `int f(void *ui, int action)` | `action` is the M8's input-action code (each view's `+0x08` handler switches on it). `0xE4`, all four directions, toggles the Model:02's visualizer (`ui + 0`); headless has no visualizer ([CHAOS-CONTROL.md](CHAOS-CONTROL.md)). Return nonzero to take it | site pinned |
 | `ev_render_in` | audio block entry, before any node renders; audio thread | `void f(void)` | interrupt level | site pinned |
 | `ev_render_out` | audio block exit, after every node; audio thread | `void f(void)` | interrupt level | site pinned |
 | `ev_midi` | each MIDI message in | `int f(const unsigned char *msg, int port)` | return nonzero to take it. Headless: `int f(uint32_t packet)`, a USB MIDI packet, with `ev_midi_out` for what goes out | implemented (headless) |
@@ -114,7 +114,9 @@ There is no `ev_enc`: the M8 has no encoders. Its continuous control is the touc
 | event | when | C prototype | notes | status |
 |---|---|---|---|---|
 | `ev_view` | before the screen changes (`set_view`); UI thread | `int f(void *ui, int view)` | `view` is the target id (`0x00` SONG … `0x1D`, [FIRMWARE-MAP.md](FIRMWARE-MAP.md) §8); the current one is `*(uint8_t *)(ui + 0x15)`. Return nonzero to stay on the current screen. Ids from `0x1E` are mods' screens (`core_views`, below) | site pinned |
-| `ev_touch` | each touch frame, before the stock touch engine; UI thread | `int f(struct m8_touch *t)` | `t->x`, `t->y`, `t->dx`, `t->dy` (floats). Return nonzero to take the frame: the stock engine does not see it (a KAOSS-pad mod) | site pinned |
+| `ev_touch` | each loop, after the touch engine polled the controller and before it asks for a gesture; UI thread | `int f(void *touch)` | the touch object (`fw_touch`, m8-model02/fw.h): x `+0x40` (from the left), y `+0x44` (from the **bottom**), both 0..1; `+0x58` nonzero while a finger is down, though it reads 0 for a moment now and then (debounce a lift). Return nonzero to take the frame: no view sees it (CHAOS CONTROL) | Model:02 6.6.2A: `call_pre` on the `bl 0x6007BB20` at `0x600A5E88`, run on a unit; headless has no touch screen |
+| `ev_vis_scope` | the Model:02's visualizer is about to draw one track's scope (8 a frame); UI thread | `int f(void *scope)` | take it to skip that scope. The stock scopes take 11–21 ms a frame with every track playing; CHAOS CONTROL's FXPAD skips them and draws its own pad (3.8–5.4 ms a frame) | Model:02 6.6.2A: a `calls` site on the `bl 0x6004A64A` at `0x6004B606` (core 0.7) |
+| `ev_vis_draw` | each frame of the Model:02's visualizer (all four directions), after its eight scopes are drawn and before the frame is pushed; UI thread | `void f(void *grid)` | the visualizer's frame path never reaches `ev_draw`'s site. Draw with `fw_rect(grid, x, y, w, h, rgb565)` on the 480 × 320 screen. The scopes repaint only the pixels that change and nothing clears the frame, so what you draw stays until you erase it; on leaving, the firmware repaints only text cells that change, so erase in `ev_draw` (CHAOS CONTROL) | Model:02 6.6.2A: `flash_mid` at `0x6004B620` (core 0.6), run on a unit |
 | `ev_note` | a row fires on a track, before its note and FX are applied; audio thread | `int f(int track, const unsigned char *step)` | `step` is the phrase step (9 bytes: note, velocity, instrument, 3 × (command, value)); the handler may read it, not write it. Return nonzero to skip the row | site pinned |
 | `ev_fx_command` | an FX command runs on a track (the per-tick executor); audio thread | `int f(int track, int cmd, int value)` | `cmd` `0x00..0x4D` are the global commands, `0x80 \| n` an instrument's. Return nonzero to take it: the stock executor does not run it — the way a mod adds a command or changes one | site pinned (argument mapping to confirm) |
 | `ev_fx_row` | a row's FX column is applied at row fire; audio thread | `int f(int track, int column, int cmd, int value)` | `column` 0–2; take it to replace that column's stock effect | site pinned |
@@ -132,9 +134,15 @@ places them and refuses clashes by `resources.names`.
 | `core_views` | `{ int id; void *view; const char *name; }` — `view` an object whose first word is a `View` vtable (8 slots: enter, …, input `+0x08`, …, leave `+0x14`) | `set_view(id)` for `id >= 0x1E` switches to it like a stock screen: leave the old view, set `ui+4`, enter the new one; touch and keys reach it through its own vtable | `view:<name>` |
 | `core_mod_dests` | `{ uint8_t engines; const char *name; }` — `engines` a bit per engine (WAVSYNTH, MACROSYNTH, SAMPLER, FMSYNTH, HYPERSYNTH, EXTERNAL, MIDI OUT) | extends each engine's destination count (`vt+0x104`) and name table (`vt+0x0F8`) with the entries, in link order; their indices then reach `ev_mod_apply` | `moddest:<name>` |
 
-The extended-LFO-destinations mod is one `core_mod_dests` entry per send (DRY, MODFX, DELAY, REVERB) and one
-`ev_mod_apply` handler that writes the modulated level into the track's send mixer (`fw_send_mixer`). The KAOSS
-mod is a `core_views` screen plus an `ev_touch` handler.
+The extended-LFO-destinations mod is [examples/lfo-sends](../examples/lfo-sends/lfo_sends.c). It adds DRY, MFX
+SEND, DEL SEND and REV SEND to every sound engine's DEST list with `mod_dest_add`. A modulator keeps its destination
+in 4 bits and the stock lists use 14 or 15 of them, so this relies on core 0.6's extended destinations: core keeps
+the real index with the song and the instrument, and `mod_dest_of` gives it in `ev_mod_apply`.
+`ev_track_audio` then sets the track's strip gains (`fw_gain_set`, m8-headless/fw.h) on the firmware's curve.
+[MOD-DESTS.md](MOD-DESTS.md) has the findings, the six `flash_mid` sites and the hardware results.
+The KAOSS mod is [examples/chaos-control](../examples/chaos-control/chaos.c), CHAOS CONTROL
+([CHAOS-CONTROL.md](CHAOS-CONTROL.md)): a page of its own, `ev_audio_out` for the sound, and on the Model:02 `ev_touch`
+for the pad and `ev_vis_draw` for its overlay on the visualizer.
 
 ## Firmware locations (6.6.2A)
 
