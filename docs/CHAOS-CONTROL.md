@@ -56,7 +56,7 @@ CHAOS mode is the M8's visualizer. The pad only plays in CHAOS mode. Touch, MIDI
 and leaving it releases everything.
 
 - **Model:02, how to get there:** open the MOD LOADER (all four directions at once, the input action `0xE4`), move
-  to CHAOS PAD and press **EDIT**: the MOD LOADER closes and the visualizer opens. Any key leaves it. Core took the
+  to CHAOS CONTROL and press **EDIT**: the MOD LOADER closes and the visualizer opens. Any key leaves it. Core took the
   chord for the MOD LOADER, so the chord no longer opens the visualizer by itself (inside it, it still closes it);
   SHIFT+EDIT on the card switches the mod on or off. MIDI CC 16 still toggles it as before.
 - **Model:02, what the firmware does:**

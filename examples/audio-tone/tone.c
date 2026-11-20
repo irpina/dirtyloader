@@ -23,4 +23,7 @@ static int on_audio_out(float *left, float *right, int frames)
     return 1;
 }
 
-DL_MOD("audio-tone", "0.1.0", "440 Hz tone (exclusive audio)", DL_ON(EV_AUDIO_OUT, 50, on_audio_out));
+DL_MOD("audio-tone", "0.1.1", "440 Hz tone (exclusive audio)",
+       DL_INFO("dirtyloader", "Replaces the output with a 440 Hz tone: an example of ev_audio_out. Loud: not for a "
+                              "song."),
+       DL_ON(EV_AUDIO_OUT, 50, on_audio_out));

@@ -47,12 +47,16 @@ static int on_tempo(float bpm)
 }
 
 #ifndef M8_MODEL02
-DL_MOD("sd-heartbeat", "0.1.1", "SD heartbeat",
+DL_MOD("sd-heartbeat", "0.1.2", "SD heartbeat",
+       DL_INFO("dirtyloader", "The smallest mod: on a bare Teensy it blinks the LED to show that core loads mods. On"
+                              " a Model:02 it leaves the LED alone and only shows up as loaded."),
        DL_ON(EV_BOOT, 50, on_boot),
        DL_ON(EV_TICK, 50, on_tick),
        DL_ON(EV_TEMPO, 50, on_tempo));
 #else
-DL_MOD("sd-heartbeat", "0.1.1", "SD heartbeat",
+DL_MOD("sd-heartbeat", "0.1.2", "SD heartbeat",
+       DL_INFO("dirtyloader", "The smallest mod: on a bare Teensy it blinks the LED to show that core loads mods. On"
+                              " a Model:02 it leaves the LED alone and only shows up as loaded."),
        DL_ON(EV_TICK, 50, on_tick),
        DL_ON(EV_TEMPO, 50, on_tempo));
 #endif

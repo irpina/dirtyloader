@@ -55,13 +55,13 @@
    "summary": "A Kaoss-style X/Y effects pad on the master output: twelve effects (filter, repeat, tape stop, echo, jet, pitch, scratch, grain, swirl...). Play it with the touch screen, the keys or MIDI CC 12-15. Open it from the MOD LOADER: EDIT on its card shows the FXPAD.",
    "details": "On the Model:02, CHAOS mode is the visualizer: FXPAD draws a 38 x 38 LED pad that swirls, ripples or shows the tracks around your finger, for about a third of the stock scopes' cost. On the Headless, the mod opens its own screen and MIDI plays it. Settings (effect, hold, the visual) are rows in its OPTIONS page in the MOD LOADER (all four directions). On the Headless, all four directions open its screen.",
    "keys": [
-    "MOD LOADER > CHAOS PAD > EDIT: CHAOS mode (the FXPAD; Headless: all four directions)",
+    "MOD LOADER > CHAOS CONTROL > EDIT: CHAOS mode (the FXPAD; Headless: all four directions)",
     "MOD LOADER > SHIFT+EDIT: on / off",
     "Touch / keys / CC 12-15: X, Y, on, effect",
     "FULLSCREEN button (the pad's top right) or CC 17: the pad on the whole screen; OPT: back"
    ],
    "on_unit": "Played on a Model:02 6.6.2A with the touch screen (FILTER, the three FXPAD styles) and on a Headless 6.6.4A over MIDI (all twelve effects).",
-   "version": "0.3.0",
+   "version": "0.3.1",
    "header_title": "CHAOS CONTROL: an X/Y effects pad on the master output",
    "hooks": [
     "audio_out",
@@ -75,24 +75,24 @@
    "builds": {
     "m8-model02": {
      "file": "mods/m8-model02/chaos-control.m8x",
-     "size": 20800,
-     "sha256": "b1d3c1a51963f204fb963c17bd2e8cf165b341d6a76a4671db9dc1d2df702b2a",
+     "size": 21048,
+     "sha256": "1906e1336c52abad38dcce3858ed5e5a65531b8d575254c6531a7534f9e4199b",
      "fw": 33949186,
-     "version": "0.3.0"
+     "version": "0.3.1"
     },
     "m8-model02-664": {
      "file": "mods/m8-model02-664/chaos-control.m8x",
-     "size": 20800,
-     "sha256": "c0ddd6175bef152582843eea9b9ac85024a9541b2c304f6fbda4f748bceafbb2",
+     "size": 21048,
+     "sha256": "1d6099a83ae72b676b3ac4676e243ff83b953572508c0d4015f34ec93d719c72",
      "fw": 33949188,
-     "version": "0.3.0"
+     "version": "0.3.1"
     },
     "m8-headless": {
      "file": "mods/m8-headless/chaos-control.m8x",
-     "size": 9244,
-     "sha256": "96c1d719aa667035b87ff28220e00795197565019b444305b14e68ee1a20433c",
+     "size": 9488,
+     "sha256": "11d7e99f5c8f2c3857c670ce6f88e1e6c6060dda2144343a2634f2c836001065",
      "fw": 394756,
-     "version": "0.3.0"
+     "version": "0.3.1"
     }
    },
    "source": "https://github.com/irpina/dirtyloader/tree/main/examples/chaos-control"
@@ -108,7 +108,7 @@
     "Instrument > MODS: DEST lists the four sends"
    ],
    "on_unit": "Checked on a Model:02 6.6.2A (DRY pumps, the destination survives a reload) and a Headless 6.6.4A.",
-   "version": "0.2.0",
+   "version": "0.2.1",
    "header_title": "LFO SENDS: DRY, MFX, DEL and REV SEND as modulation destinations",
    "hooks": [
     "boot",
@@ -118,24 +118,24 @@
    "builds": {
     "m8-model02": {
      "file": "mods/m8-model02/lfo-sends.m8x",
-     "size": 2384,
-     "sha256": "eb16e0f19c183811b1e4ff8358acc6c93ee4f00a4559d45d3660eba072dd6779",
+     "size": 2576,
+     "sha256": "cbd444465a6f1c9b80eba23283d796a55e8c5b2fc71f3606c8f845dfe8b7974a",
      "fw": 33949186,
-     "version": "0.2.0"
+     "version": "0.2.1"
     },
     "m8-model02-664": {
      "file": "mods/m8-model02-664/lfo-sends.m8x",
-     "size": 2372,
-     "sha256": "51072db5639934717783522a3dade0a9320ce71f32e2ef3633c0b908a0f489ac",
+     "size": 2564,
+     "sha256": "0908c640980112a832a3206b65b24a8505bfe0053038eab1c141b402002e1cd6",
      "fw": 33949188,
-     "version": "0.2.0"
+     "version": "0.2.1"
     },
     "m8-headless": {
      "file": "mods/m8-headless/lfo-sends.m8x",
-     "size": 2448,
-     "sha256": "1688473c1a541d85d066ec779de3701b24756acc2c7d9116793afb833f77617c",
+     "size": 2640,
+     "sha256": "bb2ce27b3f99b3eb14533422fc9357fa55be53ad1209da8c3bde19e944174f46",
      "fw": 394756,
-     "version": "0.2.0"
+     "version": "0.2.1"
     }
    },
    "source": "https://github.com/irpina/dirtyloader/tree/main/examples/lfo-sends"
@@ -149,7 +149,7 @@
    "details": "A starting point for a send effect of your own: the reverb's input comes to the mod, and what it writes is the reverb's output.",
    "keys": [],
    "on_unit": "Checked on a Headless 6.6.4A.",
-   "version": "0.1.0",
+   "version": "0.1.1",
    "header_title": "Replace the reverb (ev_fx_audio)",
    "hooks": [
     "fx_audio"
@@ -157,24 +157,24 @@
    "builds": {
     "m8-model02": {
      "file": "mods/m8-model02/fx-replace.m8x",
-     "size": 180,
-     "sha256": "d3c919c06dc9017165c2cb287e72255b612ab98c99de77bb1104858abdfacd7e",
+     "size": 344,
+     "sha256": "0ce63c6fe0a07ed15baf2f5ba37f949d9fcb75b73aadfe9826b38c46bee756f9",
      "fw": 33949186,
-     "version": "0.1.0"
+     "version": "0.1.1"
     },
     "m8-model02-664": {
      "file": "mods/m8-model02-664/fx-replace.m8x",
-     "size": 180,
-     "sha256": "a653ffe9005173d0be9680c80f0127447a88593d417fc5faef546fd363bfc2e9",
+     "size": 344,
+     "sha256": "e4fb0ce58e085c5249c32de1a13f2ba64b2266fec5d1dde0e4f0c8cc73d75be1",
      "fw": 33949188,
-     "version": "0.1.0"
+     "version": "0.1.1"
     },
     "m8-headless": {
      "file": "mods/m8-headless/fx-replace.m8x",
-     "size": 180,
-     "sha256": "e5e84ba4f3508fc7d6830b776281f24af5d6a05e5e26d5936df0fb1392cf6669",
+     "size": 344,
+     "sha256": "d172aab3d600e006041a83f2b644f90c65197a000aaadffdf0e7f7b012a0dc98",
      "fw": 394756,
-     "version": "0.1.0"
+     "version": "0.1.1"
     }
    },
    "source": "https://github.com/irpina/dirtyloader/tree/main/examples/fx-replace"
@@ -190,7 +190,7 @@
     "MOD LOADER (all four directions) > PERF MON; Headless: LEFT+RIGHT"
    ],
    "on_unit": "Used on a Model:02 6.6.2A and a Headless 6.6.4A for the headroom measurements in docs/PERF-MON.md.",
-   "version": "0.1.1",
+   "version": "0.1.2",
    "header_title": "PERF MON: timings",
    "hooks": [
     "audio_out",
@@ -202,24 +202,24 @@
    "builds": {
     "m8-model02": {
      "file": "mods/m8-model02/perf-mon.m8x",
-     "size": 1876,
-     "sha256": "5d1a2c49cae35f524e2dda50c2dd78e0a891f5b599c98968292fa9980957fba0",
+     "size": 2060,
+     "sha256": "66343e6a73eaead7439094f12ddbf1e44ab6c246d02f5f8201e19d3501c9583e",
      "fw": 33949186,
-     "version": "0.1.1"
+     "version": "0.1.2"
     },
     "m8-model02-664": {
      "file": "mods/m8-model02-664/perf-mon.m8x",
-     "size": 1876,
-     "sha256": "cf559d0b6931404575aa5f65ac70e1d6c626891eaf17932b1167bbf74e71725d",
+     "size": 2060,
+     "sha256": "8167f869eeac6d6345b0678a90fc5ee4fc92ebe1d21ff0ea8ccf0c94018ee779",
      "fw": 33949188,
-     "version": "0.1.1"
+     "version": "0.1.2"
     },
     "m8-headless": {
      "file": "mods/m8-headless/perf-mon.m8x",
-     "size": 1608,
-     "sha256": "cf8c607f1ce9684d414e4d792575f549699d88658b2464f1ce2ff25ef64c18b4",
+     "size": 1792,
+     "sha256": "0579a9aa315e1821ca7063a3566e6cc5f1f1d6383f65e46b3bc55d002f181a05",
      "fw": 394756,
-     "version": "0.1.1"
+     "version": "0.1.2"
     }
    },
    "source": "https://github.com/irpina/dirtyloader/tree/main/examples/perf-mon"
@@ -237,7 +237,7 @@
     "CC 21: UI load"
    ],
    "on_unit": "Used for the headroom sweep in docs/PERF-MON.md.",
-   "version": "0.1.1",
+   "version": "0.1.2",
    "header_title": "load-gen: a CPU load for headroom tests (CC 20 audio, CC 21 UI)",
    "hooks": [
     "audio_out",
@@ -247,24 +247,24 @@
    "builds": {
     "m8-model02": {
      "file": "mods/m8-model02/load-gen.m8x",
-     "size": 472,
-     "sha256": "fef9cefca633ef82569ab8540fde45d69515527b02394fe1d09ec1b89bc2e2d0",
+     "size": 616,
+     "sha256": "7bf455f259edd03c3b2a6eaaaf91aa82430c2a339bb6e099a8388ebb7d0048c7",
      "fw": 33949186,
-     "version": "0.1.1"
+     "version": "0.1.2"
     },
     "m8-model02-664": {
      "file": "mods/m8-model02-664/load-gen.m8x",
-     "size": 472,
-     "sha256": "c7a5bc120f4e08f0d35929e3124d2f4e9764cc86d307049e12098bd73d6c99f8",
+     "size": 616,
+     "sha256": "78bae897bbe598933c7c06e82f515a949d8126fa457ed383e0d590ad29e7b224",
      "fw": 33949188,
-     "version": "0.1.1"
+     "version": "0.1.2"
     },
     "m8-headless": {
      "file": "mods/m8-headless/load-gen.m8x",
-     "size": 472,
-     "sha256": "e6fcbb40dd4781181ba5d409049cd25ff82cbc765e277cf4081a97a79b6d4a49",
+     "size": 616,
+     "sha256": "fedb5e5f054188aff91f7140abec8413b3e24f4bff74815be8e27b9d5330a61d",
      "fw": 394756,
-     "version": "0.1.1"
+     "version": "0.1.2"
     }
    },
    "source": "https://github.com/irpina/dirtyloader/tree/main/examples/load-gen"
@@ -279,7 +279,7 @@
    "details": "Read its source for how a mod uses dl/core.h. Its WAV DEMO destination takes WAVSYNTH's only free slot, so it and LFO SENDS don't go together.",
    "keys": [],
    "on_unit": "Checked on a Headless 6.6.4A.",
-   "version": "0.1.0",
+   "version": "0.1.1",
    "header_title": "Core API demo",
    "hooks": [
     "boot",
@@ -290,24 +290,24 @@
    "builds": {
     "m8-model02": {
      "file": "mods/m8-model02/core-api-demo.m8x",
-     "size": 1604,
-     "sha256": "b45e4e9afa91659526b3fcd97d6a46a6d747dfab5f6b41c9e794c79d9860fc09",
+     "size": 1752,
+     "sha256": "1a35d85af6bb4de755dde7aebb5d3af811228df20089a4076af34541aa1ab7f6",
      "fw": 33949186,
-     "version": "0.1.0"
+     "version": "0.1.1"
     },
     "m8-model02-664": {
      "file": "mods/m8-model02-664/core-api-demo.m8x",
-     "size": 1604,
-     "sha256": "c9ba0182c356ee4e3e1172b22c2a246ccc42f9b7c6ee757fb8523362357b1ef4",
+     "size": 1752,
+     "sha256": "550480f2072a445f7ab18cb43b00495dc3de97f2deced376f527e821199c75c3",
      "fw": 33949188,
-     "version": "0.1.0"
+     "version": "0.1.1"
     },
     "m8-headless": {
      "file": "mods/m8-headless/core-api-demo.m8x",
-     "size": 1604,
-     "sha256": "2cf2863e53de593b1b05a30e348016db71b01781dad5ac85f09f6d0d392c052e",
+     "size": 1752,
+     "sha256": "99bcaa159b8e8d6584a011244ad6dc9a639b6066a81a4bd9a4438ba1321ec9c4",
      "fw": 394756,
-     "version": "0.1.0"
+     "version": "0.1.1"
     }
    },
    "source": "https://github.com/irpina/dirtyloader/tree/main/examples/core-api-demo"
@@ -322,7 +322,7 @@
    "details": "PEEK its counters over USB, or read its page.",
    "keys": [],
    "on_unit": "Used to check core 0.3 to 0.7 on a Headless 6.6.4A.",
-   "version": "0.1.0",
+   "version": "0.1.1",
    "header_title": "Core self-test",
    "hooks": [
     "audio_out",
@@ -368,24 +368,24 @@
    "builds": {
     "m8-model02": {
      "file": "mods/m8-model02/core-selftest.m8x",
-     "size": 1532,
-     "sha256": "ff96c27bc17c44a26a677523c68acd8f202045bf2075b0cb6a3daa222bb3a55c",
+     "size": 1684,
+     "sha256": "7e0ac1dddd77ebff1713cbcd065f9b85c957de7629877fd9427486ce9f995ab3",
      "fw": 0,
-     "version": "0.1.0"
+     "version": "0.1.1"
     },
     "m8-model02-664": {
      "file": "mods/m8-model02-664/core-selftest.m8x",
-     "size": 1532,
-     "sha256": "ff96c27bc17c44a26a677523c68acd8f202045bf2075b0cb6a3daa222bb3a55c",
+     "size": 1684,
+     "sha256": "7e0ac1dddd77ebff1713cbcd065f9b85c957de7629877fd9427486ce9f995ab3",
      "fw": 0,
-     "version": "0.1.0"
+     "version": "0.1.1"
     },
     "m8-headless": {
      "file": "mods/m8-headless/core-selftest.m8x",
-     "size": 1532,
-     "sha256": "ff96c27bc17c44a26a677523c68acd8f202045bf2075b0cb6a3daa222bb3a55c",
+     "size": 1684,
+     "sha256": "7e0ac1dddd77ebff1713cbcd065f9b85c957de7629877fd9427486ce9f995ab3",
      "fw": 0,
-     "version": "0.1.0"
+     "version": "0.1.1"
     }
    },
    "source": "https://github.com/irpina/dirtyloader/tree/main/examples/core-selftest"
@@ -400,7 +400,7 @@
    "details": "",
    "keys": [],
    "on_unit": "Checked on a Headless 6.6.4A.",
-   "version": "0.1.0",
+   "version": "0.1.1",
    "header_title": "flash-probe: a mod that only fits in flash",
    "hooks": [
     "boot",
@@ -409,24 +409,24 @@
    "builds": {
     "m8-model02": {
      "file": "mods/m8-model02/flash-probe.m8x",
-     "size": 24920,
-     "sha256": "7514429043f5c37399998635a5cd80841dfb9b1f8fafa95dd128cfd4e0aa5ad3",
+     "size": 25068,
+     "sha256": "d995f03c26bddfcbb9809b1f27b40ff198acb1e649678a243d327b96b7c09333",
      "fw": 33949186,
-     "version": "0.1.0"
+     "version": "0.1.1"
     },
     "m8-model02-664": {
      "file": "mods/m8-model02-664/flash-probe.m8x",
-     "size": 24920,
-     "sha256": "211b33255c7c22b348e0a7b9a2f0435fd512f8f5a327f90c0589f2c678b76eb0",
+     "size": 25068,
+     "sha256": "d8da12a5d21bf1b0a0e3642260cfa49a61e863844a827223da3e2f00c34547ad",
      "fw": 33949188,
-     "version": "0.1.0"
+     "version": "0.1.1"
     },
     "m8-headless": {
      "file": "mods/m8-headless/flash-probe.m8x",
-     "size": 24920,
-     "sha256": "e8b6194120cafff78e45882167000f8e2e2bf5f2ac2c5b8401e95fa86c37031e",
+     "size": 25068,
+     "sha256": "e0982d9b3200617123e5b12dfa5fadab4806bf68057bb19f17efbea1c31bf2ee",
      "fw": 394756,
-     "version": "0.1.0"
+     "version": "0.1.1"
     }
    },
    "source": "https://github.com/irpina/dirtyloader/tree/main/examples/flash-probe"
@@ -441,7 +441,7 @@
    "details": "",
    "keys": [],
    "on_unit": "Checked on a Teensy (headless) and on a Model:02 (6.6.4A). Before 0.1.1 it hung a Model:02.",
-   "version": "0.1.1",
+   "version": "0.1.2",
    "header_title": "SD heartbeat",
    "hooks": [
     "boot",
@@ -451,24 +451,24 @@
    "builds": {
     "m8-model02": {
      "file": "mods/m8-model02/sd-heartbeat.m8x",
-     "size": 148,
-     "sha256": "7249dd6f24c59c8e954843b248c401f48de531c30acce2233fea5610fa3b7204",
+     "size": 340,
+     "sha256": "72dcb56029a3ce60f7b5813470467ac7e999a9b04c19f5226edb5fd7502ce21d",
      "fw": 33949186,
-     "version": "0.1.1"
+     "version": "0.1.2"
     },
     "m8-model02-664": {
      "file": "mods/m8-model02-664/sd-heartbeat.m8x",
-     "size": 148,
-     "sha256": "373d7b65c782f5a5c363fd58aab481c3996310876e243fb25f3eb2f741118ead",
+     "size": 340,
+     "sha256": "8f4cd28eb5311d51cfc2dd742d8bda8656ca79e32c7c516bfdefce132b85fe86",
      "fw": 33949188,
-     "version": "0.1.1"
+     "version": "0.1.2"
     },
     "m8-headless": {
      "file": "mods/m8-headless/sd-heartbeat.m8x",
-     "size": 288,
-     "sha256": "71ced80b6de68ff37e71f737298ee646e05602d6def941afda039d39c1e0575b",
+     "size": 480,
+     "sha256": "2a90e7ecd1b0e497d85bf9b4e9d7244ffee90c918b783f4f4051809062f145ed",
      "fw": 394756,
-     "version": "0.1.1"
+     "version": "0.1.2"
     }
    },
    "source": "https://github.com/irpina/dirtyloader/tree/main/examples/sd-heartbeat"
@@ -483,7 +483,7 @@
    "details": "",
    "keys": [],
    "on_unit": "Checked on a Headless 6.6.4A.",
-   "version": "0.1.0",
+   "version": "0.1.1",
    "header_title": "440 Hz tone (exclusive audio)",
    "hooks": [
     "audio_out"
@@ -491,24 +491,24 @@
    "builds": {
     "m8-model02": {
      "file": "mods/m8-model02/audio-tone.m8x",
-     "size": 312,
-     "sha256": "f9f5a836c4e91035f59d91a98bc288e42f0a6e18049ab0d753f60ab62c570992",
+     "size": 444,
+     "sha256": "cd15177ccf6d453f3b96d5e7db4ca8125524c7618492379f43531f1f9274934f",
      "fw": 33949186,
-     "version": "0.1.0"
+     "version": "0.1.1"
     },
     "m8-model02-664": {
      "file": "mods/m8-model02-664/audio-tone.m8x",
-     "size": 312,
-     "sha256": "a83b23252c84f67138df941d18b9a60cca94c5b01cef11cd72da2cc015606e3e",
+     "size": 444,
+     "sha256": "a36ed9fe20fd7dc4a2d15b78647790421a24bc95a422a17893da4184139a3d22",
      "fw": 33949188,
-     "version": "0.1.0"
+     "version": "0.1.1"
     },
     "m8-headless": {
      "file": "mods/m8-headless/audio-tone.m8x",
-     "size": 312,
-     "sha256": "0ae9c84c497a41aec36e0293871dd904bbad6c12a5eebce20cea56729f211738",
+     "size": 444,
+     "sha256": "97374e161ac3aecf8ea7f33bdf10dd88fe39d66611869116d380a27683876e11",
      "fw": 394756,
-     "version": "0.1.0"
+     "version": "0.1.1"
     }
    },
    "source": "https://github.com/irpina/dirtyloader/tree/main/examples/audio-tone"
@@ -523,7 +523,7 @@
    "details": "",
    "keys": [],
    "on_unit": "Checked on a Headless 6.6.4A.",
-   "version": "0.1.0",
+   "version": "0.1.1",
    "header_title": "Silence track 1 (ev_track_audio)",
    "hooks": [
     "track_audio"
@@ -531,24 +531,24 @@
    "builds": {
     "m8-model02": {
      "file": "mods/m8-model02/track-silence.m8x",
-     "size": 156,
-     "sha256": "ccf912e980c6f14215de90c36a5d6dd60cf7620f0cf26dfc5460082a4258387b",
+     "size": 284,
+     "sha256": "c3f36bb178e8bf6fbec7479fe3e47bef1093f1957307334cc0f6bcc81dc2ae7e",
      "fw": 33949186,
-     "version": "0.1.0"
+     "version": "0.1.1"
     },
     "m8-model02-664": {
      "file": "mods/m8-model02-664/track-silence.m8x",
-     "size": 156,
-     "sha256": "18dbb6384216ac24d83a4aea5b4b3298863999adfb43f0e199d0c6cf396de749",
+     "size": 284,
+     "sha256": "b140007f6f9a32b5aae3cb0ec016f97790c057ea0c81f530b8b81984fde78774",
      "fw": 33949188,
-     "version": "0.1.0"
+     "version": "0.1.1"
     },
     "m8-headless": {
      "file": "mods/m8-headless/track-silence.m8x",
-     "size": 156,
-     "sha256": "fe46afd159516db114c4596788dab16ee2641db858c252dd68fac3fbf532659b",
+     "size": 284,
+     "sha256": "733f3e686ff84ef32dbed14f6dc012014ff4a6fea875e34d0bd79274cbe49931",
      "fw": 394756,
-     "version": "0.1.0"
+     "version": "0.1.1"
     }
    },
    "source": "https://github.com/irpina/dirtyloader/tree/main/examples/track-silence"

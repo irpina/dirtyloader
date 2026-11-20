@@ -33,6 +33,7 @@ M8X_HEADER = struct.Struct("<4sIIII")          # magic, image, bss, nrel, crc32(
 M8X_MAGIC2 = b"DLX2"
 M8X_HEADER2 = struct.Struct("<4sIIIII")        # magic, image, bss, nrel, crc32(image + relocations), data offset
 DL_MOD_MAGIC = 0x314D4C44
+EV_INFO = 0x00F0                # DL_INFO's entry in a mod's subscriptions (dl/mod.h): not an event
 
 
 class CCError(RuntimeError):
@@ -199,9 +200,120 @@ def parse_m8x(blob: bytes) -> dict:
     def cstr(p):
         return img[p:img.index(b"\0", p)].decode("ascii", "replace")
 
-    subs = []
+    subs, info = [], {}
     for i in range(nsubs):
         ev, order, fn = struct.unpack_from("<HHI", img, psubs + 8 * i)
-        subs.append({"event": ev, "order": order, "handler": fn})
+        if ev == EV_INFO:                             # DL_INFO: who made it and what it does, not a hook
+            author, about = struct.unpack_from("<II", img, fn)
+            info = {"author": cstr(author) if author else "", "about": cstr(about) if about else ""}
+        else:
+            subs.append({"event": ev, "order": order, "handler": fn})
     return {"image": image, "bss": bss, "data": data, "header": hs, "relocations": rel, "abi": abi_, "id": cstr(pid),
-            "version": cstr(pver), "title": cstr(ptitle), "subscribe": subs, "fw": fw}
+            "version": cstr(pver), "title": cstr(ptitle), "subscribe": subs, "fw": fw, "info": info}
+
+
+# ---- the command line: build a mod for one firmware or all of them -------------------------------------------------
+# The targets the SDK builds for (the shop's site/shop/meta.json lists the same; tests/test_cc_cli.py checks they
+# agree). A mod includes "m8-headless/fw.h" whatever it targets: for the Model:02 the build puts that firmware's header
+# under that name (alias), and defines M8_MODEL02.
+TARGETS = {
+    "m8-headless": {"label": "M8 Headless", "firmware": "6.6.4A", "defines": {}, "alias": None},
+    "m8-model02": {"label": "M8 Model:02", "firmware": "6.6.2A", "defines": {"M8_MODEL02": "1"}, "alias": "6.6.2A"},
+    "m8-model02-664": {"label": "M8 Model:02", "firmware": "6.6.4A", "defines": {"M8_MODEL02": "1"},
+                       "alias": "6.6.4A"},
+}
+
+
+def build_target(sources: Sequence[str], target: str, defines: Optional[Dict[str, str]] = None) -> Tuple[bytes, dict]:
+    """build_m8x for one of TARGETS: its defines (plus yours) and its fw.h as m8-headless/fw.h."""
+    if target not in TARGETS:
+        raise CCError(f"unknown target {target!r}: one of {', '.join(TARGETS)}")
+    t = TARGETS[target]
+    includes: List[str] = []
+    if t["alias"]:
+        from dirtyloader.core.build_model02 import _alias_dir   # (imports this module: not at the top)
+        includes.append(_alias_dir(t["alias"]))
+    return build_m8x(sources, defines={**t["defines"], **(defines or {})} or None, includes=includes)
+
+
+def _sources(paths: Sequence[str]) -> List[str]:
+    out: List[str] = []
+    for p in paths:
+        if os.path.isdir(p):
+            found = sorted(os.path.join(p, f) for f in os.listdir(p) if f.endswith(".c"))
+            if not found:
+                raise CCError(f"{p}: no .c files in it")
+            out += found
+        elif os.path.isfile(p):
+            out.append(p)
+        else:
+            raise CCError(f"{p}: no such file or folder")
+    return out
+
+
+def _event_names() -> Dict[int, str]:
+    import re
+    with open(os.path.join(SDK_INCLUDE, "dl", "mod.h"), encoding="utf-8") as f:
+        text = f.read()
+    return {int(v, 16): n.lower() for n, v in re.findall(r"\b(EV_[A-Z0-9_]+)\s*=\s*(0x[0-9A-Fa-f]+)", text)}
+
+
+def describe(blob: bytes) -> str:
+    p = parse_m8x(blob)
+    names = _event_names()
+    hooks = ", ".join(f"{names.get(s['event'], hex(s['event']))}@{s['order']}" for s in p["subscribe"])
+    where = "flash or ITCM (DLX2)" if p["data"] else "ITCM"
+    out = (f"{p['id']} {p['version']} \"{p['title']}\": {len(blob)} bytes, code+data {p['image']}, bss {p['bss']}, "
+           f"{len(p['relocations'])} relocations, firmware {p['fw']:#010x}, runs from {where}\n  hooks: {hooks}")
+    if p["info"]:
+        out += f"\n  by {p['info']['author'] or '?'}: {p['info']['about']}"
+    return out
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    import argparse
+    ap = argparse.ArgumentParser(prog="python -m dirtyloader.cc",
+                                 description="Build loadable mods (.m8x) for core 0.7 from C, or describe one.")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    b = sub.add_parser("build", help="compile a mod's .c files (or its folder) into an .m8x per target")
+    b.add_argument("paths", nargs="+", help="the mod's folder, or its .c files")
+    b.add_argument("--target", "-t", action="append", choices=list(TARGETS) + ["all"],
+                   help="firmware to build for (repeat it; default all)")
+    b.add_argument("--out", "-o", default="build/mods",
+                   help="folder for <target>/<id>.m8x (default build/mods), or a .m8x file for a single target")
+    b.add_argument("-D", dest="defines", action="append", default=[], metavar="NAME[=VALUE]", help="a define")
+    i = sub.add_parser("info", help="check an .m8x the way core does and show its header")
+    i.add_argument("files", nargs="+")
+    sub.add_parser("targets", help="list the firmwares mods are built for")
+    args = ap.parse_args(argv)
+    try:
+        if args.cmd == "targets":
+            for k, t in TARGETS.items():
+                print(f"{k:16} {t['label']} {t['firmware']}")
+            return 0
+        if args.cmd == "info":
+            for f in args.files:
+                with open(f, "rb") as fh:
+                    print(f"{f}: " + describe(fh.read()))
+            return 0
+        targets = list(TARGETS) if not args.target or "all" in args.target else list(dict.fromkeys(args.target))
+        if args.out.endswith(".m8x") and len(targets) != 1:
+            raise CCError("--out names one file: give a single --target, or a folder")
+        defines = dict(d.split("=", 1) if "=" in d else (d, "1") for d in args.defines)
+        srcs = _sources(args.paths)
+        for t in targets:
+            blob, _info = build_target(srcs, t, defines)
+            p = parse_m8x(blob)
+            path = args.out if args.out.endswith(".m8x") else os.path.join(args.out, t, p["id"] + ".m8x")
+            os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+            with open(path, "wb") as fh:
+                fh.write(blob)
+            print(f"{t}: {path}\n  " + describe(blob))
+        return 0
+    except (CCError, OSError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

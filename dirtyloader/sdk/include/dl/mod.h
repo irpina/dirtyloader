@@ -31,6 +31,7 @@ enum {
     EV_ROW = 0x0055, EV_LIVE_NOTE = 0x0056, EV_SEQ_TICK = 0x0064, EV_MUTE = 0x0065,
     EV_INST_LOAD = 0x0072, EV_INST_SAVE = 0x0073, EV_INST_CLEAR = 0x0074, EV_INST_COPY = 0x0075, EV_INST_PASTE = 0x0076, EV_PARAM_SET = 0x0080, EV_STEP_EDIT = 0x0081,
     EV_TEMPO = 0x0060, EV_TRANSPORT = 0x0061, EV_PLAY = 0x0062, EV_STOP = 0x0063, EV_SONG_LOAD = 0x0070, EV_SONG_SAVE = 0x0071,
+    EV_INFO = 0x00F0,         /* not an event: DL_INFO's entry (core 0.7 skips it; an older core gives it a hook that never runs) */
 };
 
 struct dl_sub {
@@ -55,6 +56,16 @@ struct dl_mod {
 #endif
 
 #define DL_ON(ev, order, fn)  { (ev), (order), (void *)(fn) }
+
+/* Who made the mod and what it does, for the MOD LOADER's INFO page (SHIFT+LEFT on its card). Optional; put it
+ * with the DL_ONs. The page draws upper case, about 38 characters a line, six lines:
+ *     DL_MOD("my-mod", "0.1.0", "My mod", DL_INFO("you", "What it does, in a sentence or two."), DL_ON(...));
+ * Core reads it from the .m8x on the card, so the page shows it for a mod that is switched off too. */
+struct dl_info {
+    const char *author;
+    const char *about;
+};
+#define DL_INFO(author_, about_)     { EV_INFO, 0, (void *)&(const struct dl_info){ (author_), (about_) } }
 
 /* One per mod. The linker script puts .dl_head first, so the header sits at the image's offset 0. */
 #define DL_MOD(id_, version_, title_, ...)                                                          \

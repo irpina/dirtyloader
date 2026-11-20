@@ -200,5 +200,7 @@ static void on_boot(void)
     }
 }
 
-DL_MOD("lfo-sends", "0.2.0", "LFO SENDS: DRY, MFX, DEL and REV SEND as modulation destinations",
+DL_MOD("lfo-sends", "0.2.1", "LFO SENDS: DRY, MFX, DEL and REV SEND as modulation destinations",
+       DL_INFO("dirtyloader", "DRY, MFX, DEL and REV SEND become modulation destinations in all six sound engines, "
+                              "so an LFO or envelope can pump a track's sends. Saved with the song."),
        DL_ON(EV_BOOT, 50, on_boot), DL_ON(EV_MOD_APPLY, 50, on_mod_apply), DL_ON(EV_TRACK_AUDIO, 50, on_track_audio));

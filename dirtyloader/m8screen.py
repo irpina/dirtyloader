@@ -57,9 +57,15 @@ def render(frames: list, scale: int = 3):
     draw = ImageDraw.Draw(img)
     font = ImageFont.load_default()
     colour = (0, 0, 0)
+    def fits(f):                              # a 9-byte rectangle (x, y, w, h) that lies on the screen
+        x, y, rw, rh = struct.unpack_from("<HHHH", f, 1)
+        return x + rw <= w and y + rh <= h
+
     for f in frames:
-        if len(f) in (6, 9, 10, 13) and f[0] == 0xFE and f[1] == 0xFE:
-            f = f[1:]                         # the firmware now and then sends a rectangle's 0xFE twice (heavy drawing)
+        # the firmware now and then sends a rectangle's 0xFE twice (heavy drawing). A rectangle at x 254 or 510 starts
+        # FE FE too: 6, 10 and 13 bytes can only be the doubled kind, 9 bytes is a plain one (x, y, w, h) if it fits
+        if len(f) in (6, 9, 10, 13) and f[0] == 0xFE and f[1] == 0xFE and not (len(f) == 9 and fits(f)):
+            f = f[1:]
         t, n = f[0], len(f)
         if t == 0xFE and n in (5, 8, 9, 12):
             x, y = struct.unpack_from("<HH", f, 1)

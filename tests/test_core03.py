@@ -140,7 +140,7 @@ class TestM8x(unittest.TestCase):
 
     def test_header_and_subscriptions(self):
         m = cc.parse_m8x(self.blob)
-        self.assertEqual((m["id"], m["version"], m["abi"]), ("sd-heartbeat", "0.1.1", 1))
+        self.assertEqual((m["id"], m["version"], m["abi"]), ("sd-heartbeat", "0.1.2", 1))
         self.assertEqual(m["fw"], 0x00060604)
         self.assertEqual([(s["event"], s["order"]) for s in m["subscribe"]],
                          [(int(abi.Event.BOOT), 50), (int(abi.Event.TICK), 50), (int(abi.Event.TEMPO), 50)])
@@ -238,7 +238,7 @@ class TestM8x(unittest.TestCase):
         from dirtyloader.core.build_model02 import _alias_dir
         for kw in ({}, {"defines": {"M8_MODEL02": "1"}, "includes": [_alias_dir()]}):
             blob, info = cc.build_m8x(["examples/load-gen/load_gen.c"], **kw)
-            self.assertLess(info["image"] + info["bss"], 512)
+            self.assertLess(info["image"] + info["bss"], 640)   # 512 and its DL_INFO text
 
     def test_corruption_is_refused(self):
         bad = bytearray(self.blob)

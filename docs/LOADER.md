@@ -207,11 +207,21 @@ directions stay CHAOS CONTROL's (its own screen: headless firmware has no visual
   category pill and a small picture. The selected card has a purple frame and corner brackets, and its icon plays a
   short loop (a hop and a glint, 16 frames of 70 ms; each frame repaints the icon's box, background included, so
   nothing flickers). Arrows move.
-- **Keys:** EDIT switches the mod on or off (from the next restart, as on the MODS page); SHIFT+EDIT does too. On a
-  mod whose screen is the visualizer (CHAOS CONTROL) and that runs now, EDIT opens that screen instead: the MOD
-  LOADER closes and `core_tick` calls the firmware's input router with `0xE4` (straight to the router, so `ev_key`
-  doesn't see it); the footer then reads E OPEN, SE OFF. SHIFT+RIGHT opens its OPTIONS, SHIFT+LEFT its own page
-  (INFO), OPT goes back.
+- **Keys** (the footer: E OPEN, SE ON/OFF, S} OPTS, S{ INFO, OPT BACK):
+  - **EDIT** opens the mod, if it runs: its screen, else its settings, else its INFO page. Its screen is the
+    visualizer for a mod `lm_known` marks so (CHAOS CONTROL: the MOD LOADER closes and `core_tick` calls the
+    firmware's input router with `0xE4`, straight to the router, so `ev_key` doesn't see it), or the page it added
+    (`page_add`; OPT there comes back to the MOD LOADER).
+  - **SHIFT+EDIT** switches the mod on or off from the next restart, as on the MODS page.
+  - **SHIFT+RIGHT** opens its OPTIONS (below); a mod without settings shows its INFO page.
+  - **SHIFT+LEFT** opens its **INFO** page: the icon, name and version, who made it and what it does (the mod's
+    `DL_INFO`; without one, its `DL_MOD` title), whether it runs now and from the next restart (or why it was
+    refused), its file and size, and its hooks, settings and page. Core reads all this from the `.m8x` on the
+    card, so a mod that is off has one too. OPT or SHIFT+LEFT goes back to the cards; EDIT, SHIFT+EDIT and
+    SHIFT+RIGHT work there as on its card.
+  - **OPT** goes back. If the mods switched on differ from the ones this boot loaded, it asks first: **RESTART TO
+    APPLY?** lists them (+ on, - off); EDIT restarts (lifting the crash guard, as the MODS page's RESTART), OPT
+    leaves without restarting. The chord does the same as OPT.
 - **OPTIONS:** the mod's settings (`setting_add`) as up to eight knobs (a 270° arc of 21 dots, label, value), in two
   rows of four; the selected knob is in brackets. Arrows pick, EDIT+LEFT/RIGHT turns by 1, EDIT+UP/DOWN by 4,
   SHIFT+LEFT/RIGHT flips between mods. Values are saved in `settings.txt` as from the Mod Menu.

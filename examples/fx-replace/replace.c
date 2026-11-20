@@ -12,4 +12,7 @@ static int on_fx_audio(int stage, float *left, float *right)
     return 1;
 }
 
-DL_MOD("fx-replace", "0.1.0", "Replace the reverb (ev_fx_audio)", DL_ON(EV_FX_AUDIO, 50, on_fx_audio));
+DL_MOD("fx-replace", "0.1.1", "Replace the reverb (ev_fx_audio)",
+       DL_INFO("dirtyloader", "Replaces the reverb send effect with the mod's own: an example of ev_fx_audio, which "
+                              "hands a mod a send effect's audio block."),
+       DL_ON(EV_FX_AUDIO, 50, on_fx_audio));

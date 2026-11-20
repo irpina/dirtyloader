@@ -101,6 +101,8 @@ static int on_mod_apply(int dest, void *modulator, void *target, int engine)
 static int on_midi(uint32_t packet) { midi_in++; last_in = packet; return 0; }
 static int on_midi_out(uint32_t packet) { midi_out++; return 0; }
 
-DL_MOD("core-api-demo", "0.1.0", "Core API demo",
+DL_MOD("core-api-demo", "0.1.1", "Core API demo",
+       DL_INFO("dirtyloader", "Core's API from a mod: MIDI in and out, a page, a setting and an extra modulation "
+                              "destination (WAV DEMO)."),
        DL_ON(EV_BOOT, 50, on_boot), DL_ON(EV_MIDI, 50, on_midi), DL_ON(EV_MIDI_OUT, 50, on_midi_out),
        DL_ON(EV_MOD_APPLY, 50, on_mod_apply));

@@ -3,48 +3,71 @@
 [![tests](https://github.com/irpina/dirtyloader/actions/workflows/tests.yml/badge.svg)](https://github.com/irpina/dirtyloader/actions/workflows/tests.yml)
 [![pages](https://github.com/irpina/dirtyloader/actions/workflows/pages.yml/badge.svg)](https://github.com/irpina/dirtyloader/actions/workflows/pages.yml)
 
-An **Elekloader-style mod patcher for Dirtywave M8 firmware.** You supply the
-stock firmware `.bin` that Dirtywave publishes, pick one or more mods, and
-dirtyloader builds a custom `.bin` on your machine that you flash the normal way.
-It never redistributes Dirtywave's firmware — mods carry only the author's bytes
-plus the stock bytes each edit expects to overwrite.
+**Mods for the Dirtywave M8**, in the manner of Elekloader. dirtyloader adds a small **core** to Dirtywave's own M8
+firmware. Core loads **mods** from the SD card at boot: small C programs that hook into the M8 (keys, screens,
+notes, audio, MIDI), get pages and settings of their own, and switch on and off without reflashing.
 
-> Status: **patcher + Core dispatcher built.** The container, `.m8mod` format,
-> linker, and CLI are tested against real 6.6.2A firmware, and the Core hook
-> dispatcher / event-bus (`mods/core.m8mod`) is assembled and byte-verified
-> against it. There's a CLI and an in-browser builder; a visible on-device
-> handler is still to come, and **nothing has run on hardware yet.** See
-> [Roadmap](#roadmap) and
-> [docs/CORE.md](docs/CORE.md). **Read the warning before flashing.**
+It never redistributes Dirtywave's firmware. You bring the firmware file Dirtywave publishes, and dirtyloader adds
+core to it on your own computer, in the browser or from the command line.
 
-## Build it in your browser
+Core 0.7 runs on the **M8 Headless 6.6.4A**, the **M8 Model:02 6.6.4A** (Dirtywave's current download) and the
+**Model:02 6.6.2A**. It has been run on a Headless (a Teensy 4.1) and a Model:02. The Model:01 isn't supported yet.
+**Read the [warning](#warning) first.**
 
-The easiest path — no install. The GitHub Pages site runs the whole builder in
-your browser (the engine is CPython compiled to WebAssembly via Pyodide):
+## Get started: the mod shop
 
-**→ https://irpina.github.io/dirtyloader/**
+**→ https://irpina.github.io/dirtyloader/shop/** (Chrome, Edge or Opera on a computer: it uses Web Serial and WebHID)
 
-Pick your stock `.bin` and some mods, and it hands you a patched `.bin` to flash.
-Your firmware is read locally and **never uploaded** — exactly like the CLI, and
-the same reason a mod only ever carries hashes of the stock bytes. The site is in
-[`site/`](site/); it serves pre-built `.m8mod` files (built with `mkmod`, which
-needs the firmware once) and applies them client-side.
+1. **Get started** builds core into Dirtywave's firmware file in your browser (the file never leaves your computer)
+   and flashes it to the M8 over USB.
+2. **Mods** installs mods onto the M8's card over USB and switches them on and off.
+3. **Theme** picks the M8's colours, live on the device.
+4. **Recover** restarts the M8 without mods, or puts Dirtywave's firmware back.
 
-**The mod shop** ([`site/shop`](site/shop/), [docs/SHOP.md](docs/SHOP.md)) puts mods straight onto an M8 that
-runs dirtyloader core, over USB from the browser (Web Serial), switches them on and off, and picks the M8's theme:
-the page wears the 13 theme colours as you choose them, and the M8 repaints with them live. Its **Get started** page
-puts core on the M8 in the first place: it builds core into Dirtywave's own firmware file in the browser and flashes it
-over USB (WebHID, the Teensy's bootloader); **Recover** goes back to stock the same way.
+How the shop works: [docs/SHOP.md](docs/SHOP.md).
 
-**→ https://irpina.github.io/dirtyloader/shop/** (Chrome, Edge or Opera on a computer)
+On the M8 itself: on a **Model:02**, all four directions at once (UP+DOWN+LEFT+RIGHT) open the **MOD LOADER**, a card
+for each mod; on a **Headless**, LEFT+RIGHT opens the mods' pages. SYSTEM SETTINGS has a **MODS** row on both.
+
+## Write a mod
+
+**→ [docs/WRITING-MODS.md](docs/WRITING-MODS.md)** takes you from nothing to a mod running on your M8. The short
+version, with Python 3.10+ and `arm-none-eabi-gcc` (in WSL on Windows):
+
+```bash
+python -m dirtyloader.cc build examples/hello                      # -> build/mods/<target>/hello.m8x, every firmware
+python -m dirtyloader.unit add build/mods/m8-model02-664/hello.m8x # onto the M8's card, over USB
+python -m dirtyloader.unit restart
+python -m dirtyloader.unit status                                  # hello.m8x: loaded hello 0.1.0 ..., 4 hooks
+```
+
+A mod is one or more C files:
+
+```c
+#include "dl/mod.h"
+#include "m8-headless/fw.h"
+
+static void on_tick(void) { /* every pass of the firmware's main loop */ }
+
+DL_MOD("my-mod", "0.1.0", "My mod", DL_ON(EV_TICK, 50, on_tick));
+```
+
+- [`examples/hello`](examples/hello/): the starter: a page, a setting, a few events.
+- [`examples/`](examples/): the shop's mods, from small (`sd-heartbeat`, `track-silence`) to large (`chaos-control`:
+  audio effects, the touch screen and pixel drawing on the Model:02).
+- [docs/CORE-EVENTS.md](docs/CORE-EVENTS.md): every event, with its prototype and thread.
+- [`dl/core.h`](dirtyloader/sdk/include/dl/core.h): core's API: pages, settings, song data, files, MIDI, buffers.
+- [AGENTS.md](AGENTS.md): notes for coding agents.
+
+All the docs: **[docs/README.md](docs/README.md)**.
 
 ## Why this is possible
 
-The M8 `.bin` is a Dirtywave container (`M8FW`) wrapping a flat Teensy 4.1 flash
-image. It is **unencrypted, unsigned ARM-GCC code**, protected only by two
-ordinary CRC-32s. There is no cryptographic signature, so a patched payload with
-recomputed CRCs passes the M8's own integrity check — which is exactly what makes
-recompile-free binary modding viable.
+The M8's `.bin` is a Dirtywave container (`M8FW`) wrapping a flat Teensy 4.1 flash image. It is **unencrypted,
+unsigned ARM-GCC code**, protected only by two ordinary CRC-32s. With no cryptographic signature, a patched payload
+with recomputed CRCs passes the M8's own check. Core is added to that image as a patch: new code where the image
+has none, and short detours at the places it hooks. A mod then needs no patching at all: core copies it from the
+card into free RAM at boot and calls it.
 
 ### M8FW container format (reverse-engineered from 6.6.2 / Model02)
 
@@ -59,112 +82,77 @@ recompile-free binary modding viable.
 | `0x18`..`0x1FF` | — | zero padding | |
 | `0x200` | N | payload | flat IMXRT1062 flash image mapped at load_addr |
 
-Both CRCs are standard zlib CRC-32 (poly `0xEDB88320`). Repacking = patch payload
-→ recompute both CRCs → concatenate. `dirtyloader/m8fw.py` does exactly this and a
-no-op rebuild is byte-identical to the stock file.
+Both CRCs are standard zlib CRC-32 (poly `0xEDB88320`). Repacking means patching the payload, recomputing both
+CRCs and concatenating. `dirtyloader/m8fw.py` does exactly this, and a no-op rebuild is byte-identical to the stock
+file. The Headless firmware is a Teensy `.hex` instead.
 
-## Install / requirements
+## Building core from the command line
 
-Pure Python standard library, **no third-party deps.** Python 3.10+.
-
-## Usage
+The shop builds core in the browser from patch files (`site/shop/firmware/*.json`, no Dirtywave bytes in them). To
+build it yourself from Dirtywave's file:
 
 ```bash
-# inspect / verify a firmware .bin
-python -m dirtyloader info   M8_V6_6_2A_MODEL02.bin
-python -m dirtyloader verify M8_V6_6_2A_MODEL02.bin
-
-# build .m8mod files from their source folders (mod.json + .s)
-python -m dirtyloader mkmod mods/core        --stock M8_V6_6_2A_MODEL02.bin -o core.m8mod
-python -m dirtyloader mkmod examples/hello-tick --stock M8_V6_6_2A_MODEL02.bin -o hello-tick.m8mod
-
-# check them, and link them together against stock
-python -m dirtyloader lint core.m8mod hello-tick.m8mod --stock M8_V6_6_2A_MODEL02.bin
-
-# apply mods -> patched .bin (repeat -m for more mods; core first)
-python -m dirtyloader build M8_V6_6_2A_MODEL02.bin \
-    -m core.m8mod -m hello-tick.m8mod -o M8_patched.bin
-
-# author tool: hand-edit a copy of the firmware, then diff it into a mod
-python -m dirtyloader make-mod stock.bin my-edited.bin -o my-mod.m8mod --id my-mod --name "My mod"
+python -m dirtyloader.core.build_model02  M8_V6_6_4A_MODEL02.bin out   # Model:02 (6.6.2A or 6.6.4A, by the file's sha256)
+python -m dirtyloader.core.build_headless M8_V6_6_4A_HEADLESS.hex out  # Headless
 ```
 
-Then flash the patched `.bin` the usual way: copy it to the M8 SD card and use
-**PROJECT > SYSTEM SETTINGS > FIRMWARE UPDATE**, or flash with TyTools.
+Each writes the firmware with core in it, and an `sd/` folder with a mod to try. Flash it the usual way: copy the
+`.bin` to the M8's SD card and use SYSTEM SETTINGS > FIRMWARE UPDATE, or flash the `.hex` with TyUploader. The shop's
+Get started page does both over USB.
 
-## The `.m8mod` format
+## The older `.m8mod` patches
 
-A `.m8mod` ships only the mod author's bytes and a sha256 of the stock bytes each
-change replaces — never Dirtywave's bytes — so a mod cannot apply to firmware it
-wasn't built for, and mods are freely shareable. You write a mod as a **source
-folder** (`mod.json` + Thumb `.s` files) and `mkmod` compiles it. The full
-specification, including the source-folder layout, is **[docs/FORMAT.md](docs/FORMAT.md)**.
+Before core loaded mods from the card, dirtyloader applied **`.m8mod`** patches to the firmware file: Thumb assembly
+written into the image, each change checked against a sha256 of the stock bytes it replaces. That path still works
+(and its in-browser builder is at **https://irpina.github.io/dirtyloader/**), though new mods are written in C for
+core. The format: [docs/FORMAT.md](docs/FORMAT.md).
+
+```bash
+python -m dirtyloader info   M8_V6_6_2A_MODEL02.bin                 # inspect / verify a firmware .bin
+python -m dirtyloader verify M8_V6_6_2A_MODEL02.bin
+python -m dirtyloader mkmod  examples/hello-tick --stock M8_V6_6_2A_MODEL02.bin -o hello-tick.m8mod
+python -m dirtyloader lint   hello-tick.m8mod --stock M8_V6_6_2A_MODEL02.bin
+python -m dirtyloader build  M8_V6_6_2A_MODEL02.bin -m hello-tick.m8mod -o M8_patched.bin
+python -m dirtyloader make-mod stock.bin my-edited.bin -o my-mod.m8mod --id my-mod --name "My mod"
+```
 
 ## Project layout
 
 ```
 dirtyloader/
-  m8fw.py          M8FW container: parse / verify / patch / rebuild (+ CRCs)
-  m8mod.py         .m8mod format 2 (Mod, Site); loads format 1 too
-  registry.py      known stock firmware (sha256 -> identity)
-  linker.py        combine mods onto stock; checks; diff_payloads (make-mod)
-  mkmod.py         a mod source folder -> .m8mod (assembles with keystone)
-  lint.py          check / link .m8mod files
-  cli.py           info / verify / build / make-mod / mkmod / lint / list
-  web.py           in-browser builder glue (used by the Pages site via Pyodide)
-  core/            the hook dispatcher + event bus (builder, abi, bindings)
-mods/core/         the Core mod's source folder
-examples/hello-tick/   the smallest handler mod (mod.json + hello.s)
-site/              the GitHub Pages in-browser builder (index.html, app.js, make_site.py)
-site/shop/         the mod shop: install mods and set the theme over USB (make_shop.py builds its catalog)
-tests/             firmware-free unit tests (synthetic image; run in CI)
-docs/FORMAT.md     the .m8mod specification
-docs/CORE-EVENTS.md   the hook bus: events, prototypes, sites, core tables (Elekloader-style)
-docs/LOADER.md        mods on the SD card (TELOS for the M8): transfer, MODS page, song lists, the core API
-docs/PARITY-DN1.md    Elekloader's Digitone mk1 core and TELOS, feature by feature, against the M8 core
-docs/MODEL02-664-PORT.md  core on the Model:02 6.6.4A: every address found from two builds, and what changed
-docs/MODEL02-PORT.md  core 0.5 on the Model:02 (6.6.2A): how each site was found again, what differs
-docs/MOD-DESTS.md     LFO destinations: the 16-slot limit, every place it is enforced, the send levels (lfo-sends)
-docs/CHAOS-CONTROL.md CHAOS CONTROL, the X/Y effects pad: effects, controls, the touch screen, hardware results
-docs/PERF-MON.md      PERF MON and load-gen: audio load, mods' DSP time, the UI loop, headroom, timed on the unit
-docs/FIRMWARE-MAP.md  the whole-firmware map (memory map, layout, threads, drivers, classes)
-dirtyloader/re/    RE tools: memmap, layout, switches, vtables, params, objects, ghidra_map, fwmap
+  core/            core: c/core03.c (one C file for every firmware), bindings/*.json (its hook sites per firmware),
+                   build_model02.py / build_headless.py
+  sdk/include/     the mod SDK: dl/mod.h, dl/core.h, dl/pixui.h, and each firmware's fw.h
+  sdk/lib/         the little C library mods link with
+  cc.py            the C build: python -m dirtyloader.cc build | info | targets
+  unit.py          USB: put mods on the card, switch them, status, restart, safe boot
+  m8screen.py      screenshots of the M8 over USB
+  m8fw.py          the M8FW container: parse / verify / patch / rebuild
+  re/              reverse-engineering tools (memory map, layout, vtables, Ghidra glue, port maps)
+  m8mod.py, linker.py, mkmod.py, lint.py, cli.py, web.py    the older .m8mod path
+examples/          mods (C), and hello-tick (the older .m8mod format)
+site/shop/         the mod shop (GitHub Pages): make_shop.py builds its mods, make_firmware.py its firmware patches
+site/              the older in-browser .m8mod builder
+tests/             tests that need no firmware (CI): Python and the shop's JavaScript
+docs/              everything else: docs/README.md
 ```
 
-Tests come in two kinds. The **firmware-free** suite uses a synthetic image and
-runs in CI (no stock `.bin`):
+## Tests
 
 ```bash
-python -m unittest discover -s tests -p "test_*.py"
+python -m unittest discover -s tests -p "test_*.py"   # no firmware or compiler needed; runs in CI
+node tests/test_shop.mjs                              # the shop, against a pretend M8
+node tests/test_firmware.mjs                          # the in-browser firmware build and USB flasher
 ```
 
-The **against-real-firmware** scripts need your own stock `.bin` (never committed):
+Some tests also build from Dirtywave's firmware when they find it on your computer (never in the repository).
 
-```bash
-python -m dirtyloader.test_roundtrip  path/to/stock.bin
-python -m dirtyloader.test_pipeline   path/to/stock.bin
-python -m dirtyloader.test_tools      path/to/stock.bin
-```
+## Warning
 
-## Roadmap
-
-1. **Hardware validation** — confirm the on-device updater accepts a CRC-correct
-   custom image and enforces no further check. Test on a **spare Teensy 4.1 +
-   free M8 Headless firmware**, not a real M8.
-2. **Ghidra project** — load the payload at `0x60000000` (Cortex-M7) and start
-   mapping functions, so mods can target code, not just strings.
-3. **Code-cave injection + hook core mod** — find free flash, inject Thumb code
-   (keystone), and an event-bus "core mod" so several mods can hook one function.
-4. **Resizable patches** and a mod repository format.
-5. ~~**GUI** (pick stock + mods, build).~~ Done: the in-browser builder in [`site/`](site/).
-
-## ⚠️ Warning & scope
-
-- **Unofficial and unaffiliated with Dirtywave.** Flashing custom firmware is at
-  your own risk and may brick the device or void support.
-- The container work is proven in software, but **nothing here has been flashed to
-  real hardware yet.** Whether the M8's updater enforces anything beyond the two
-  CRCs is unconfirmed — validate on a spare Teensy first.
-- dirtyloader **does not distribute firmware.** Supply your own stock `.bin`.
-- The Teensy HalfKay bootloader is never touched; reflashing stock always recovers
-  a device that still boots.
+- **Unofficial, and not affiliated with Dirtywave.** Changed firmware is at your own risk: it may crash the M8, and
+  Dirtywave may not support a unit running it.
+- dirtyloader **does not distribute firmware.** You supply Dirtywave's file.
+- The Teensy's bootloader is never touched, so putting Dirtywave's firmware back always recovers an M8 that still
+  powers up: the shop's **Recover** page, the SD card's FIRMWARE UPDATE, or TyUploader.
+- A mod that crashes the M8 is caught by core's crash guard: the next boot loads no mods
+  ([docs/WRITING-MODS.md](docs/WRITING-MODS.md#10-installing-testing-debugging)).

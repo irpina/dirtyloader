@@ -77,7 +77,9 @@ static int on_live_note(void *player, int instrument, int note, int velocity)
 }
 static int on_audio_out(float *left, float *right, int frames) { selftest_counts.audio_out++; return 0; }
 
-DL_MOD("core-selftest", "0.1.0", "Core self-test",
+DL_MOD("core-selftest", "0.1.1", "Core self-test",
+       DL_INFO("dirtyloader", "Counts every event core fires, for checking a core build on a unit. Uses many hook "
+                              "slots: switch it off after."),
        DL_ON(EV_BOOT, 90, on_boot), DL_ON(EV_TICK, 90, on_tick), DL_ON(EV_DRAW, 90, on_draw),
        DL_ON(EV_KEY, 90, on_key), DL_ON(EV_VIEW, 90, on_view), DL_ON(EV_TEMPO, 90, on_tempo),
        DL_ON(EV_RENDER_IN, 90, on_render_in), DL_ON(EV_RENDER_OUT, 90, on_render_out),

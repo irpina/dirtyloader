@@ -1339,7 +1339,10 @@ static void on_boot(void)
 #else
 #define VIS_HOOK
 #endif
-DL_MOD("chaos-control", "0.3.0", "CHAOS CONTROL: an X/Y effects pad on the master output",
+DL_MOD("chaos-control", "0.3.1", "CHAOS CONTROL: an X/Y effects pad on the master output",
+       DL_INFO("dirtyloader", "An X/Y effects pad on the master output: twelve effects, from filter and repeat to "
+                              "tape stop, scratch and swirl. Play it on the touch screen, with the keys or MIDI CC "
+                              "12-15. EDIT on its card opens the pad."),
        DL_ON(EV_BOOT, 50, on_boot), DL_ON(EV_AUDIO_OUT, 50, on_audio_out), DL_ON(EV_SEQ_TICK, 50, on_seq_tick),
        DL_ON(EV_PLAY, 50, on_play), DL_ON(EV_MIDI, 40, on_midi), DL_ON(EV_TICK, 50, on_tick)
        TOUCH_HOOK KEY_HOOK VIS_HOOK);

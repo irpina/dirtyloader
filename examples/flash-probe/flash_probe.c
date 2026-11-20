@@ -40,5 +40,7 @@ static void on_boot(void)
 }
 static void on_tick(void) { bss_counter++; if (!(bss_counter & 0xFFF)) probe.ticks = bss_counter; }
 
-DL_MOD("flash-probe", "0.1.0", "flash-probe: a mod that only fits in flash",
+DL_MOD("flash-probe", "0.1.1", "flash-probe: a mod that only fits in flash",
+       DL_INFO("dirtyloader", "A mod too big for ITCM on purpose: core installs it from the card into flash. Shows "
+                              "that the flash path works."),
        DL_ON(EV_BOOT, 50, on_boot), DL_ON(EV_TICK, 50, on_tick));

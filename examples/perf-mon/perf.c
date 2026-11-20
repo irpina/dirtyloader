@@ -154,7 +154,9 @@ static void boot(void)
 #else
 #define VIS_SUBS
 #endif
-DL_MOD("perf-mon", "0.1.1", "PERF MON: timings",
+DL_MOD("perf-mon", "0.1.2", "PERF MON: timings",
+       DL_INFO("dirtyloader", "How busy your M8 is: the audio block's time, the frame's and the screen's, measured "
+                              "with the CPU's cycle counter. EDIT on its card shows them."),
        DL_ON(EV_BOOT, 50, boot), DL_ON(EV_TICK, 0, tick), DL_ON(EV_RENDER_IN, 0, render_in),
        DL_ON(EV_RENDER_OUT, 255, render_out), DL_ON(EV_AUDIO_OUT, 0, fx_first), DL_ON(EV_AUDIO_OUT, 255, fx_last)
        VIS_SUBS);

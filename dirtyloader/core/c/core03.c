@@ -115,8 +115,9 @@ struct core_ram {
     uint8_t xt_rgb[45], xt_flags, xt_on, xt_rsv[2];
 #ifdef fw_rect
     /* the MOD LOADER's selected icon: its animation frame and when it last moved; core_tick opens the visualizer
-       for a card that asked (EDIT on CHAOS CONTROL); the footer as drawn (1: the selected mod opens a screen) */
+       for a card that asked (EDIT on CHAOS CONTROL); the footer as drawn (the selected mod's ON / OFF) */
     uint32_t lm_anim, lm_anim_at, lm_vis, lm_foot_open;
+    uint32_t lm_mode;              /* LM_CARDS, LM_INFO (a mod's INFO page), LM_ASK (RESTART TO APPLY?) */
 #endif
 };
 _Static_assert(__builtin_offsetof(struct core_ram, api) == 0x208, "dl/core.h: DL_CORE_PTR is the RAM + 0x208");
@@ -394,8 +395,8 @@ static int load_one(const char *name, uint16_t *orders, const struct dl_mod **ou
         if (seq(ram->mods[i]->id, m->id)) { err = E_DUPLICATE; goto done; }
     if (ram->nmods >= MAX_MODS) { err = E_COUNT; goto done; }
     if (ram->count + m->nsubs > SLOTS) { err = E_TABLE; goto done; }
-    for (uint32_t i = 0; i < m->nsubs; i++)
-        add_hook(m->subs[i].event, m->subs[i].order, m->subs[i].fn, orders);
+    for (uint32_t i = 0; i < m->nsubs; i++)         /* DL_INFO's entry is for the MOD LOADER, not a hook */
+        if (m->subs[i].event != EV_INFO) add_hook(m->subs[i].event, m->subs[i].order, m->subs[i].fn, orders);
     ram->mod_lo[ram->nmods] = ram->last_flash ? ram->last_flash : base;
     ram->mod_hi[ram->nmods] = ram->last_flash ? ram->last_flash + ram->last_flash_n : base + h.image;
     ram->mods[ram->nmods++] = m;
@@ -1080,6 +1081,7 @@ static void lm_input(int action);
 static void lm_draw(void);
 static void lm_show(void);
 static void lm_close(void);
+static void lm_leave(void);
 #endif
 
 static void page_input(void *view, int action)
@@ -1210,7 +1212,7 @@ int core_key(void *ui, int action)
 #endif
         int in_core = ((uint8_t *)ui)[FW_UI_VIEW] == FW_VIEW_FREE;
         if (in_core && ram->page_mode == 4) mp_close();
-        else if (in_core && ram->page_mode == 5) lm_close();
+        else if (in_core && ram->page_mode == 5) lm_leave();
         else lm_show();
         return 1;
     }
@@ -2121,20 +2123,20 @@ static void mp_input(int action)
  * dl/pixui.h in the left 34 columns (the firmware keeps its own column at the right on core's screen), one piece a
  * frame, each piece only again when it changes: moving the selection redraws two cards' frames.
  *   arrows       move
- *   EDIT         a mod on / off (from the next RESTART, as on the MODS page); on a running mod whose screen is the
- *                visualizer (CHAOS CONTROL): open it
- *   SHIFT+EDIT   a mod on / off
+ *   EDIT         open the mod: its screen (the visualizer for CHAOS CONTROL, or the page it added), else its
+ *                settings, else its INFO page
+ *   SHIFT+EDIT   the mod on / off (from the next RESTART, as on the MODS page)
  *   SHIFT+RIGHT  OPTIONS: its settings as knobs (the machine pages)
- *   SHIFT+LEFT   INFO: its own page
+ *   SHIFT+LEFT   INFO: who made it, what it does (DL_INFO, read from its .m8x), whether it runs, its file
  *   SHIFT+UP/DOWN the tab
- *   OPT          back */
+ *   OPT          back; if mods were switched since the boot, RESTART TO APPLY? first (EDIT restarts, OPT later) */
 #ifdef fw_rect
 #include "dl/pixui.h"
 enum { LM_ALL, LM_INST, LM_FX, LM_SEQ, LM_UTIL, LM_TABS };
 static const char *const lm_tab_names[LM_TABS] = { "ALL", "INST", "FX", "SEQ", "UTIL" };
 /* vis: the mod's screen is the firmware's visualizer (EDIT opens it while the mod runs) */
 static const struct { const char *stem, *name; uint8_t cat, icon, vis; } lm_known[] = {
-    { "chaos-control", "CHAOS PAD", LM_FX, PUI_H_GEM, 1 },    { "lfo-sends", "LFO SENDS", LM_INST, PUI_H_WAVE, 0 },
+    { "chaos-control", "CHAOS CONTROL", LM_FX, PUI_H_GEM, 1 },    { "lfo-sends", "LFO SENDS", LM_INST, PUI_H_WAVE, 0 },
     { "perf-mon", "PERF MON", LM_UTIL, PUI_H_BARS, 0 },       { "load-gen", "LOAD GEN", LM_UTIL, PUI_H_CUBE, 0 },
     { "flash-probe", "FLASH TEST", LM_UTIL, PUI_H_CUBE, 0 },  { "core-api-demo", "API DEMO", LM_UTIL, PUI_H_GEAR, 0 },
     { "core-selftest", "SELFTEST", LM_UTIL, PUI_H_GEAR, 0 },  { "sd-heartbeat", "HEARTBEAT", LM_UTIL, PUI_H_HEART, 0 },
@@ -2142,12 +2144,15 @@ static const struct { const char *stem, *name; uint8_t cat, icon, vis; } lm_know
     { "fx-replace", "FX REPLACE", LM_FX, PUI_H_DOTS, 0 },
 };
 #define LM_ANIM_MS 70u
+enum { LM_CARDS, LM_INFO, LM_ASK };
 #define LM_PER  8
 #define LM_D_HEAD 1u
 #define LM_D_TABS 2u
 #define LM_D_FOOT 4u
 #define LM_D_CARD(i) (8u << (i))
 #define LM_D_ALL  0x7FFu
+#define LM_D_BODY LM_D_TABS                         /* LM_INFO: the tabs and cards are one piece, the page */
+#define LM_D_ASK  0x800u                            /* LM_ASK: the box, over the cards */
 static void lm_rect(int x, int y, int w, int h, uint16_t c)
 {
     if (w > 0 && h > 0) fw_rect(fw_grid, x, y, w, h, c);
@@ -2176,7 +2181,7 @@ static void lm_name(char *b, uint32_t i)
     int k = lm_known_of(ram->page[i].name);
     const char *s = k >= 0 ? lm_known[k].name : ram->page[i].name;
     uint32_t n = 0;
-    for (; s[n] && s[n] != '.' && n < 11; n++) b[n] = s[n] == '-' ? ' ' : s[n];
+    for (; s[n] && s[n] != '.' && n < 13; n++) b[n] = s[n] == '-' ? ' ' : s[n];   /* 13 fit a card */
     b[n] = 0;
 }
 #define LM_CX(c)  (4 + (c) * 238)
@@ -2261,27 +2266,40 @@ static int lm_opens(uint32_t file)
     (void)k; return 0;
 #endif
 }
-static int lm_sel_opens(void)
+static int lm_sel_file(void)                        /* the selected mod's index in ram->page, or -1 */
 {
     uint32_t list[MAX_MODS], n = lm_list(list);
-    return n && ram->lm_sel < n && lm_opens(list[ram->lm_sel]);
+    return n && ram->lm_sel < n ? (int)list[ram->lm_sel] : -1;
+}
+/* a running mod's settings: how many, and the first machine page that holds them */
+static uint32_t lm_knobs(const struct dl_mod *m, uint32_t *first)
+{
+    const struct dl_setting *s[MP_MAX];
+    const struct dl_mod *pm;
+    uint32_t k, cnt = 0, pages = m ? mp_page_of(0, s, &k, &pm) : 0;
+    for (uint32_t p = 0; p < pages; p++) {
+        mp_page_of(p, s, &k, &pm);
+        if (pm != m) continue;
+        if (!cnt && first) *first = p;
+        cnt += k;
+    }
+    return cnt;
 }
 static void lm_foot(void)
 {
     lm_rect(4, 288, 472, 31, PUI_BG);
     pui_box(lm_rect, 4, 289, 472, 30, 2, PUI_PURPLE);
-    /* a mod whose screen is the visualizer: EDIT opens it and SHIFT+EDIT switches the mod (the row is full: OPTS) */
-    static const char *const key4[4] = { "E", "S}", "S{", "OPT" },
-                             *const what4[4] = { "ENABLE", "OPTIONS", "INFO", "BACK" },
-                             *const key5[5] = { "E", "SE", "S}", "S{", "OPT" };
-    const char *what5[5] = { "OPEN", "OFF", "OPTS", "INFO", "BACK" };
-    int open = lm_sel_opens(), cnt = open ? 5 : 4;
-    ram->lm_foot_open = (uint32_t)open;
-    if (open) {
-        uint32_t list[MAX_MODS], n = lm_list(list);
-        if (n && !ram->page[list[ram->lm_sel]].on) what5[1] = "ON";
-    }
-    const char *const *key = open ? key5 : key4, *const *what = open ? what5 : what4;
+    static const char *const kc[5] = { "E", "SE", "S}", "S{", "OPT" }, *const ki[4] = { "E", "SE", "S}", "OPT" },
+                             *const ka[2] = { "E", "OPT" };
+    const char *wc[5] = { "OPEN", "OFF", "OPTS", "INFO", "BACK" }, *wi[4] = { "OPEN", "OFF", "OPTIONS", "BACK" },
+               *const wa[2] = { "RESTART NOW", "LATER" };
+    int f = lm_sel_file(), cnt;
+    if (f >= 0 && !ram->page[f].on) wc[1] = wi[1] = "ON";
+    const char *const *key, *const *what;
+    if (ram->lm_mode == LM_ASK) { key = ka; what = wa; cnt = 2; }
+    else if (ram->lm_mode == LM_INFO) { key = ki; what = wi; cnt = 4; }
+    else { key = kc; what = wc; cnt = 5; }
+    ram->lm_foot_open = f >= 0 ? ram->page[f].on : 0u;   /* the ON / OFF it shows */
     int x = 10;
     for (int i = 0; i < cnt; i++) {
         int kw = pui_width(key[i], 2);
@@ -2290,22 +2308,177 @@ static void lm_foot(void)
         x = pui_text(lm_rect, x + kw + 16, 297, what[i], 2, PUI_CREAM) + 8;
     }
 }
-/* the selected card's icon plays its animation (a frame each LM_ANIM_MS), when nothing else is waiting to draw */
+
+/* ---- INFO: read from the mod's .m8x on the card (so a mod that is off has one too). The image is linked at 0, so
+   its pointers are offsets into the image, which starts right after the .m8x header. */
+struct lm_about {
+    char version[12], author[28], about[232];
+    uint32_t size, hooks, found;
+};
+static void lm_fstr(struct fw_file *f, uint32_t base, uint32_t image, uint32_t at, char *out, uint32_t n)
+{
+    out[0] = 0;
+    if (!at || at >= image || !f_seek(f, base + at)) return;
+    int k = f_read(f, out, n - 1);
+    out[k > 0 ? k : 0] = 0;
+}
+static void lm_about_read(const char *name, struct lm_about *a)
+{
+    zero(a, sizeof *a);
+    char path[96];
+    char *o = put(path, "/dirtyloader/mods/");
+    for (uint32_t i = 0; name[i] && o < path + sizeof path - 1; i++) *o++ = name[i];
+    *o = 0;
+    struct fw_file f;
+    struct m8x h;
+    struct dl_mod m;
+    if (!f_open(&f, path, FW_O_READ)) return;
+    uint32_t base = 0;
+    if (read_header(&f, &h) && h.image >= sizeof m && read_exact(&f, &m, sizeof m) && m.magic == DL_MOD_MAGIC) {
+        base = h.magic == M8X_MAGIC2 ? M8X_HEAD1 + 4u : M8X_HEAD1;
+        a->found = 1;
+        a->size = h.image + h.bss;
+        uint32_t subs = (uint32_t)m.subs, info = 0;
+        for (uint32_t i = 0; i < m.nsubs && i < 64u; i++) {
+            struct dl_sub s;
+            if (subs + 8u * i + 8u > h.image || !f_seek(&f, base + subs + 8u * i) || !read_exact(&f, &s, sizeof s)) break;
+            if (s.event == EV_INFO) info = (uint32_t)s.fn;
+            else a->hooks++;
+        }
+        lm_fstr(&f, base, h.image, (uint32_t)m.version, a->version, sizeof a->version);
+        struct dl_info in = { 0, 0 };
+        if (info && info + sizeof in <= h.image && f_seek(&f, base + info) && read_exact(&f, &in, sizeof in)) {
+            lm_fstr(&f, base, h.image, (uint32_t)in.author, a->author, sizeof a->author);
+            lm_fstr(&f, base, h.image, (uint32_t)in.about, a->about, sizeof a->about);
+        }
+        if (!a->about[0]) lm_fstr(&f, base, h.image, (uint32_t)m.title, a->about, sizeof a->about);   /* no DL_INFO */
+    }
+    fw_file_close(&f);
+}
+/* text in lines of up to cols characters, broken at spaces; returns the lines drawn */
+static int lm_wrap(const char *s, int x, int y, int cols, int lines, uint16_t c)
+{
+    char ln[48];
+    int r = 0;
+    if (cols > 47) cols = 47;
+    while (*s && r < lines) {
+        while (*s == ' ') s++;
+        int n = 0, cut = 0;
+        while (s[n] && s[n] != '\n' && n < cols) { if (s[n] == ' ') cut = n; n++; }
+        if (s[n] && s[n] != ' ' && s[n] != '\n' && cut) n = cut;
+        for (int i = 0; i < n; i++) ln[i] = s[i];
+        ln[n] = 0;
+        pui_text(lm_rect, x, y + r * 18, ln, 2, c);
+        s += n;
+        if (*s == '\n') s++;
+        r++;
+    }
+    return r;
+}
+static void lm_info_draw(void)
+{
+    lm_rect(4, 40, 472, 246, PUI_BG);
+    int f = lm_sel_file();
+    if (f < 0) return;
+    const char *nm = ram->page[f].name;
+    struct lm_about a;
+    lm_about_read(nm, &a);
+    int k = lm_known_of(nm);
+    uint8_t cat = k < 0 ? LM_UTIL : lm_known[k].cat;
+    pui_hicon(lm_rect, 12, 44, k < 0 ? PUI_H_CUBE : lm_known[k].icon, 2, 0, PUI_BG);
+    char b[64], *o;
+    lm_name(b, (uint32_t)f);
+    pui_text(lm_rect, 62, 46, b, 3, PUI_CREAM);
+    const char *t = lm_tab_names[cat];
+    int tw = pui_width(t, 2);
+    pui_fill(lm_rect, 470 - tw - 10, 46, tw + 10, 18, PUI_PURPLE);
+    pui_text(lm_rect, 470 - tw - 5, 48, t, 2, PUI_BG);
+    o = b;
+    if (a.version[0]) { o = put(o, "V"); o = put(o, a.version); }
+    if (a.author[0]) { o = put(o, o > b ? "  BY " : "BY "); o = put(o, a.author); }
+    *o = 0;
+    pui_text(lm_rect, 62, 74, b, 2, PUI_DIM);
+    pui_fill(lm_rect, 8, 96, 464, 2, PUI_DPURPLE);
+    if (a.found) lm_wrap(a.about, 10, 104, 38, 6, PUI_CREAM);
+    else pui_text(lm_rect, 10, 104, "CAN'T READ THIS MOD'S FILE", 2, PUI_MAGENTA);
+    pui_fill(lm_rect, 8, 214, 464, 2, PUI_DPURPLE);
+
+    /* whether it runs: now, and from the next RESTART */
+    int e = boot_err(nm), on = ram->page[f].on;
+    uint16_t c = PUI_CREAM;
+    o = b;                                          /* each line at most 38 characters: the screen's width */
+    if (ram->page[f].check) { o = put(o, "WON'T LOAD: "); o = put(o, ERRORS[ram->page[f].check]); c = PUI_MAGENTA; }
+    else if (e > 0) { o = put(o, "REFUSED: "); o = put(o, ERRORS[e]); c = PUI_MAGENTA; }
+    else if (e < 0 && on && ram->skipped) { o = put(o, "STATUS  SKIPPED (CRASH GUARD)"); c = PUI_MAGENTA; }
+    else if (!e) { o = put(o, on ? "STATUS  ON" : "STATUS  ON, OFF FROM RESTART"); c = on ? PUI_CYAN : PUI_ORANGE; }
+    else { o = put(o, on ? "STATUS  OFF, ON FROM RESTART" : "STATUS  OFF"); c = on ? PUI_ORANGE : PUI_DIM; }
+    *o = 0;
+    b[38] = 0;
+    pui_text(lm_rect, 10, 224, b, 2, c);
+    o = put(b, "FILE    ");
+    for (uint32_t i = 0; nm[i] && i < 22; i++) *o++ = nm[i];
+    if (a.found) { o = put(o, "  "); o = put_dec(o, (a.size + 1023u) / 1024u); o = put(o, " KB"); }
+    *o = 0;
+    pui_text(lm_rect, 10, 244, b, 2, PUI_DIM);
+    const struct dl_mod *m = mod_of_file(nm);
+    o = put(b, "HOOKS   ");
+    o = put_dec(o, a.hooks);
+    if (m) {
+        o = put(o, "  SETTINGS ");
+        o = put_dec(o, lm_knobs(m, 0));
+        o = put(o, page_of_file(nm) ? "  PAGE YES" : "  PAGE NO");
+    }
+    *o = 0;
+    pui_text(lm_rect, 10, 264, b, 2, PUI_DIM);
+}
+/* RESTART TO APPLY?: the mods switched since the boot, over the cards */
+static void lm_ask_draw(void)
+{
+    lm_rect(40, 92, 400, 180, PUI_BG);
+    pui_box(lm_rect, 40, 92, 400, 180, 2, PUI_PURPLE);
+    pui_fill(lm_rect, 40, 92, 400, 28, PUI_PURPLE);
+    const char *q = "RESTART TO APPLY?";
+    pui_text(lm_rect, 40 + (400 - pui_width(q, 2)) / 2, 99, q, 2, PUI_BG);
+    int y = 132, shown = 0, more = 0;
+    for (uint32_t i = 0; i < ram->page_n; i++) {
+        int e = boot_err(ram->page[i].name);
+        if (ram->page[i].on == (e >= 0)) continue;
+        if (shown == 6) { more++; continue; }
+        char b[24];
+        b[0] = ram->page[i].on ? '+' : '-';
+        b[1] = ' ';
+        lm_name(b + 2, i);
+        pui_text(lm_rect, 60, y, b, 2, ram->page[i].on ? PUI_CYAN : PUI_ORANGE);
+        y += 20;
+        shown++;
+    }
+    if (more) {
+        char b[16], *o = put(b, "AND ");
+        o = put_dec(o, (uint32_t)more);
+        o = put(o, " MORE");
+        *o = 0;
+        pui_text(lm_rect, 60, y, b, 2, PUI_DIM);
+    }
+}
+
+/* the selected card's icon (or the INFO page's) plays its animation (a frame each LM_ANIM_MS), when nothing else is
+   waiting to draw */
 static void lm_icon_at(uint32_t at, uint32_t frame)
 {
     uint32_t list[MAX_MODS], n = lm_list(list);
-    if (at >= n || at / LM_PER != ram->lm_page) return;
+    if (at >= n || (ram->lm_mode == LM_CARDS && at / LM_PER != ram->lm_page)) return;
     int slot = (int)(at % LM_PER), k = lm_known_of(ram->page[list[at]].name);
     volatile uint16_t *clip = (volatile uint16_t *)(fw_grid + 0x12EA);
     uint16_t was = *clip;
     *clip = 0;
-    pui_hicon(lm_rect, LM_CX(slot % 2) + 12, LM_CY(slot / 2) + 4, k < 0 ? PUI_H_CUBE : lm_known[k].icon, 2, (int)frame, PUI_BG);
+    if (ram->lm_mode == LM_INFO) pui_hicon(lm_rect, 12, 44, k < 0 ? PUI_H_CUBE : lm_known[k].icon, 2, (int)frame, PUI_BG);
+    else pui_hicon(lm_rect, LM_CX(slot % 2) + 12, LM_CY(slot / 2) + 4, k < 0 ? PUI_H_CUBE : lm_known[k].icon, 2, (int)frame, PUI_BG);
     *clip = was;
 }
 static void lm_animate(void)
 {
     uint32_t now = fw_millis;
-    if (now - ram->lm_anim_at < LM_ANIM_MS) return;
+    if (ram->lm_mode == LM_ASK || now - ram->lm_anim_at < LM_ANIM_MS) return;
     ram->lm_anim_at = now;
     ram->lm_anim = (ram->lm_anim + 1) % PUI_HFRAMES;
     lm_icon_at(ram->lm_sel, ram->lm_anim);
@@ -2316,7 +2489,7 @@ static void lm_draw(void)
         ram->page_dirty = 0;
         for (int r = 0; r < 23; r++) row(r, "");
         ram->lm_wait = 2;                           /* draw after the grid's own repaint */
-        ram->lm_dirty = LM_D_ALL;
+        ram->lm_dirty = LM_D_ALL | (ram->lm_mode == LM_ASK ? LM_D_ASK : 0u);
         return;
     }
     if (ram->lm_wait && --ram->lm_wait) return;
@@ -2324,15 +2497,19 @@ static void lm_draw(void)
     volatile uint16_t *clip = (volatile uint16_t *)(fw_grid + 0x12EA);
     uint16_t clip_was = *clip;
     *clip = 0;
-    if (ram->lm_dirty == LM_D_ALL) lm_rect(0, 30, FW_SCREEN_W, 290, PUI_BG);
+    if ((ram->lm_dirty & LM_D_ALL) == LM_D_ALL) lm_rect(0, 30, FW_SCREEN_W, 290, PUI_BG);
+    if (ram->lm_mode == LM_INFO && (ram->lm_dirty & ~(LM_D_HEAD | LM_D_FOOT | LM_D_ASK)))
+        ram->lm_dirty = (ram->lm_dirty & (LM_D_HEAD | LM_D_FOOT)) | LM_D_BODY;   /* the page instead of the cards */
     uint32_t list[MAX_MODS], n = lm_list(list), page = ram->lm_sel / LM_PER;
-    for (uint32_t bit = 0; bit < 11; bit++) {
+    for (uint32_t bit = 0; bit < 12; bit++) {
         uint32_t m = 1u << bit;
         if (!(ram->lm_dirty & m)) continue;
+        if (m == LM_D_ASK && (ram->lm_dirty & LM_D_ALL)) continue;   /* the box goes over the cards, last */
         ram->lm_dirty &= ~m;
         if (m == LM_D_HEAD) lm_head();
-        else if (m == LM_D_TABS) lm_tabs();
+        else if (m == LM_D_TABS) ram->lm_mode == LM_INFO ? lm_info_draw() : lm_tabs();
         else if (m == LM_D_FOOT) lm_foot();
+        else if (m == LM_D_ASK) lm_ask_draw();
         else {
             int slot = (int)bit - 3;
             uint32_t at = page * LM_PER + (uint32_t)slot;
@@ -2363,6 +2540,7 @@ static void lm_show(void)
     if (ram->lm_tab >= LM_TABS) ram->lm_tab = LM_ALL;
     if (ram->lm_sel >= ram->page_n) ram->lm_sel = 0;
     ram->lm_anim = 0;
+    ram->lm_mode = LM_CARDS;
     ram->page_mode = 5;
     ram->page_dirty = 1;
     if (here != FW_VIEW_FREE) fw_set_view(fw_ui, FW_VIEW_FREE);
@@ -2371,6 +2549,7 @@ static void lm_show(void)
 static void lm_close(void)
 {
     lm_clear();
+    ram->lm_mode = LM_CARDS;
     if (ram->lm_prev != 0xFFu && ram->lm_prev != 5u) {
         ram->page_mode = ram->lm_prev;
         if (!ram->page_mode && FW_SD_MOUNTED()) page_read();
@@ -2380,46 +2559,77 @@ static void lm_close(void)
         fw_set_view(fw_ui, (int)(ram->lm_back == FW_VIEW_FREE ? FW_VIEW_SETTINGS : ram->lm_back));
     }
 }
+/* back out of the MOD LOADER: if the mods on differ from the ones the boot loaded, ask to restart first */
+static void lm_leave(void)
+{
+    if (ram->lm_mode != LM_ASK && page_changed()) {
+        ram->lm_mode = LM_ASK;
+        ram->lm_dirty |= LM_D_ASK | LM_D_FOOT;
+        return;
+    }
+    lm_close();
+}
+static void lm_mode_set(uint32_t mode)              /* the cards <-> a mod's INFO page */
+{
+    ram->lm_mode = mode;
+    ram->lm_anim = 0;
+    ram->lm_anim_at = fw_millis;
+    lm_rect(4, 40, 472, 246, PUI_BG);
+    ram->lm_dirty = mode == LM_INFO ? (LM_D_BODY | LM_D_FOOT) : (LM_D_ALL & ~LM_D_HEAD);
+}
+/* EDIT: the mod's own screen (the visualizer, or its page), else its settings, else its INFO page; SHIFT+RIGHT:
+   its settings, else INFO */
+static void lm_open(uint32_t file, int settings_only)
+{
+    const char *nm = ram->page[file].name;
+    const struct dl_mod *m = mod_of_file(nm);
+    if (!settings_only && lm_opens(file)) {         /* its screen: the visualizer, once the MOD LOADER is gone */
+        lm_close();
+        ram->lm_vis = 1;
+        return;
+    }
+    const struct dl_page *pg = settings_only ? 0 : page_of_file(nm);
+    if (pg) { lm_clear(); api_page_open(pg); return; }   /* its page; OPT there comes back here */
+    uint32_t first = 0;
+    if (lm_knobs(m, &first)) { ram->mp_page = first; mp_show(); return; }
+    if (ram->lm_mode != LM_INFO) lm_mode_set(LM_INFO);
+}
 static void lm_input(int action)
 {
     uint32_t list[MAX_MODS], n = lm_list(list), sel = ram->lm_sel, was = sel;
-    if (action == FW_KEY_OPT) { lm_close(); return; }
-    if (action == (FW_KEY_SHIFT | FW_KEY_UP) || action == (FW_KEY_SHIFT | FW_KEY_DOWN)) {
+    if (ram->lm_mode == LM_ASK) {                   /* RESTART TO APPLY? */
+        if (action == FW_KEY_EDIT) {
+            write_file(GUARD_PATH, "GOOD", 4);      /* as the MODS page's RESTART: the crash guard lifted */
+            restart_now();
+        }
+        if (action == FW_KEY_OPT) lm_close();
+        return;
+    }
+    if (action == FW_KEY_OPT && ram->lm_mode == LM_INFO) { lm_mode_set(LM_CARDS); return; }
+    if (action == FW_KEY_OPT) { lm_leave(); return; }
+    if (ram->lm_mode == LM_CARDS && (action == (FW_KEY_SHIFT | FW_KEY_UP) || action == (FW_KEY_SHIFT | FW_KEY_DOWN))) {
         ram->lm_tab = (ram->lm_tab + (action & FW_KEY_DOWN ? 1 : LM_TABS - 1)) % LM_TABS;
         ram->lm_sel = 0;
         ram->lm_anim = 0;
-        ram->lm_dirty = LM_D_ALL & ~LM_D_FOOT & ~LM_D_HEAD;
+        ram->lm_dirty = LM_D_ALL & ~LM_D_HEAD;
         lm_rect(4, 70, 472, 216, PUI_BG);
         return;
     }
     if (!n) return;
     if (sel >= n) sel = 0;
     uint32_t file = list[sel];
-    if (action == FW_KEY_EDIT && lm_opens(file)) {  /* its screen: the visualizer, once the MOD LOADER is gone */
-        lm_close();
-        ram->lm_vis = 1;
-        return;
-    }
-    if (action == FW_KEY_EDIT || action == (FW_KEY_SHIFT | FW_KEY_EDIT)) {   /* on / off from the next RESTART */
+    if (action == FW_KEY_EDIT) { lm_open(file, 0); return; }
+    if (action == (FW_KEY_SHIFT | FW_KEY_RIGHT)) { lm_open(file, 1); return; }
+    if (action == (FW_KEY_SHIFT | FW_KEY_EDIT)) {   /* on / off from the next RESTART */
         page_set(file, !ram->page[file].on);
-        ram->lm_dirty |= LM_D_CARD(sel % LM_PER) | LM_D_HEAD | (ram->lm_foot_open ? LM_D_FOOT : 0u);
+        ram->lm_dirty |= LM_D_HEAD | LM_D_FOOT | (ram->lm_mode == LM_INFO ? LM_D_BODY : LM_D_CARD(sel % LM_PER));
         return;
     }
-    if (action == (FW_KEY_SHIFT | FW_KEY_RIGHT) || action == (FW_KEY_SHIFT | FW_KEY_LEFT)) {
-        const struct dl_mod *m = mod_of_file(ram->page[file].name);
-        const struct dl_page *pg = page_of_file(ram->page[file].name);
-        if (action & FW_KEY_RIGHT && m) {           /* OPTIONS: its knobs, if it has settings */
-            const struct dl_setting *s[MP_MAX];
-            const struct dl_mod *pm;
-            uint32_t k, pages = mp_page_of(0, s, &k, &pm);
-            for (uint32_t p = 0; p < pages; p++) {
-                mp_page_of(p, s, &k, &pm);
-                if (pm == m) { ram->mp_page = p; mp_show(); return; }
-            }
-        }
-        if (pg) { lm_clear(); api_page_open(pg); }  /* INFO, or OPTIONS of a mod without settings: its page */
+    if (action == (FW_KEY_SHIFT | FW_KEY_LEFT)) {
+        lm_mode_set(ram->lm_mode == LM_INFO ? LM_CARDS : LM_INFO);
         return;
     }
+    if (ram->lm_mode != LM_CARDS) return;
     if (action == FW_KEY_LEFT && sel % 2) sel--;
     else if (action == FW_KEY_RIGHT && !(sel % 2) && sel + 1 < n) sel++;
     else if (action == FW_KEY_UP && sel >= 2) sel -= 2;
@@ -2437,7 +2647,7 @@ static void lm_input(int action)
         lm_card_frame((int)(was % LM_PER), 0);
         lm_card_frame((int)(sel % LM_PER), 1);
     }
-    if ((uint32_t)lm_opens(list[sel]) != ram->lm_foot_open) ram->lm_dirty |= LM_D_FOOT;
+    if (ram->page[list[sel]].on != ram->lm_foot_open) ram->lm_dirty |= LM_D_FOOT;   /* ON / OFF */
 }
 #endif
 
@@ -2974,7 +3184,9 @@ void core_load(void)
                     o = put_dec(o, ram->last_flash_n);
                     o = put(o, ram->last_written ? " bytes (written), " : " bytes, ");
                 }
-                o = put_dec(o, m->nsubs);
+                uint32_t nh = 0;
+                for (uint32_t k = 0; k < m->nsubs; k++) nh += m->subs[k].event != EV_INFO;
+                o = put_dec(o, nh);
                 o = put(o, " hooks");
             }
             o = put(o, "\n");

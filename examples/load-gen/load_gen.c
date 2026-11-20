@@ -44,5 +44,7 @@ static int on_midi(uint32_t p)
     else return 0;
     return 1;
 }
-DL_MOD("load-gen", "0.1.1", "load-gen: a CPU load for headroom tests (CC 20 audio, CC 21 UI)",
+DL_MOD("load-gen", "0.1.2", "load-gen: a CPU load for headroom tests (CC 20 audio, CC 21 UI)",
+       DL_INFO("dirtyloader", "A CPU load you dial in with MIDI CC 20 (audio thread) and CC 21 (UI), for headroom "
+                              "tests with PERF MON."),
        DL_ON(EV_AUDIO_OUT, 10, on_audio), DL_ON(EV_TICK, 60, on_tick), DL_ON(EV_MIDI, 30, on_midi));
