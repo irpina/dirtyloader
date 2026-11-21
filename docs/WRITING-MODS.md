@@ -17,7 +17,7 @@ This page takes you from nothing to a mod running on your M8. It starts from [`e
 4. [How a mod is put together](#4-how-a-mod-is-put-together)
 5. [Core's API](#5-cores-api)
 6. [Drawing](#6-drawing)
-7. [One source, three firmwares](#7-one-source-three-firmwares)
+7. [One source, four firmware targets](#7-one-source-four-firmware-targets)
 8. [Memory, and where your code runs](#8-memory-and-where-your-code-runs)
 9. [Rules](#9-rules)
 10. [Installing, testing, debugging](#10-installing-testing-debugging)
@@ -59,6 +59,7 @@ m8-headless: build/mods/m8-headless/hello.m8x
   hooks: ev_boot@50, ev_tick@50, ev_play@50, ev_stop@50
 m8-model02: ...
 m8-model02-664: ...
+m8-model01: ...
 ```
 
 Pick the file for your M8 (`python -m dirtyloader.unit info` says which firmware it runs: `0x00060604` is the
@@ -193,7 +194,7 @@ exception). Check `core->version` before using anything added after 0.4: `0x500`
 - **m8c and screenshots:** what the M8 draws also goes to m8c over USB. `python -m dirtyloader.m8screen shot.png`
   saves a screenshot of the M8 (needs Pillow: `pip install pillow`); `--keys "SHIFT+UP,DOWN"` presses keys first.
 
-## 7. One source, three firmwares
+## 7. One source, four firmware targets
 
 A mod is built once per firmware, because the firmware's addresses differ between versions. Every `.m8x` records
 the firmware it was built for (`DL_FW`), and core refuses one built for another firmware ("built for other
@@ -207,6 +208,19 @@ firmware" in `status`).
 - Everything you use from the firmware has to be in `fw.h`. Something that isn't (a new address) has to be found
   in every firmware first: [FIRMWARE-MAP.md](FIRMWARE-MAP.md) is the map, and
   [MODEL02-664-PORT.md](MODEL02-664-PORT.md) shows how addresses were found again for a new version.
+
+The `m8-model01` target builds for Model:01 6.6.4A and defines
+`M8_MODEL01`. The alias `m8-headless/fw.h` selects the Model:01 SDK
+header for that target. Running its output requires the matching
+Model:01 Dirtyloader core and manual SD installation. The existing
+Get started page covers Model:02 and Headless.
+
+From one source directory, the default build writes separate `.m8x`
+files into `build/mods/<target>/`. If a Model:01 build is skipped, the
+CLI prints the reason and keeps the other outputs. Requesting
+`--target m8-model01` explicitly makes that failure an error. The
+Model:01 target accepts BOOT, TICK, KEY, TOUCH, TRACK_AUDIO, and
+AUDIO_OUT subscriptions.
 
 ## 8. Memory, and where your code runs
 

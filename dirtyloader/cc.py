@@ -214,13 +214,15 @@ def parse_m8x(blob: bytes) -> dict:
 
 # ---- the command line: build a mod for one firmware or all of them -------------------------------------------------
 # The targets the SDK builds for (the shop's site/shop/meta.json lists the same; tests/test_cc_cli.py checks they
-# agree). A mod includes "m8-headless/fw.h" whatever it targets: for the Model:02 the build puts that firmware's header
-# under that name (alias), and defines M8_MODEL02.
+# agree). A mod can include "m8-headless/fw.h" for the selected device header.
+# Model:01 lists the hooks provided by its limited core.
 TARGETS = {
     "m8-headless": {"label": "M8 Headless", "firmware": "6.6.4A", "defines": {}, "alias": None},
     "m8-model02": {"label": "M8 Model:02", "firmware": "6.6.2A", "defines": {"M8_MODEL02": "1"}, "alias": "6.6.2A"},
     "m8-model02-664": {"label": "M8 Model:02", "firmware": "6.6.4A", "defines": {"M8_MODEL02": "1"},
                        "alias": "6.6.4A"},
+    "m8-model01": {"label": "M8 Model:01", "firmware": "6.6.4A", "defines": {"M8_MODEL01": "1"},
+                   "alias": "m8-model01-6.6.4A", "events": [0x0001, 0x0010, 0x0032, 0x0033, 0x0040, 0x0042]},
 }
 
 
@@ -229,11 +231,29 @@ def build_target(sources: Sequence[str], target: str, defines: Optional[Dict[str
     if target not in TARGETS:
         raise CCError(f"unknown target {target!r}: one of {', '.join(TARGETS)}")
     t = TARGETS[target]
+    target_defines = {**t["defines"], **(defines or {})} or None
+    if target == "m8-model01":
+        with tempfile.TemporaryDirectory() as tmp:
+            alias = os.path.join(tmp, "m8-headless")
+            os.mkdir(alias)
+            shutil.copyfile(os.path.join(SDK_INCLUDE, t["alias"], "fw.h"), os.path.join(alias, "fw.h"))
+            blob, info = build_m8x(sources, defines=target_defines, includes=[tmp])
+        parsed = parse_m8x(blob)
+        supported = set(t["events"])
+        unsupported = {sub["event"] for sub in parsed["subscribe"]} - supported
+        if unsupported:
+            names = _event_names()
+            hooks = ", ".join(names.get(event, hex(event)) for event in sorted(unsupported))
+            raise CCError(f"{target} core does not provide {hooks}")
+        if parsed["fw"] not in (0, 0x01060604):
+            raise CCError(f"{target} build has firmware ID {parsed['fw']:#010x}")
+        return blob, info
+
     includes: List[str] = []
     if t["alias"]:
-        from dirtyloader.core.build_model02 import _alias_dir   # (imports this module: not at the top)
+        from dirtyloader.core.build_model02 import _alias_dir
         includes.append(_alias_dir(t["alias"]))
-    return build_m8x(sources, defines={**t["defines"], **(defines or {})} or None, includes=includes)
+    return build_m8x(sources, defines=target_defines, includes=includes)
 
 
 def _sources(paths: Sequence[str]) -> List[str]:
@@ -278,7 +298,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     b = sub.add_parser("build", help="compile a mod's .c files (or its folder) into an .m8x per target")
     b.add_argument("paths", nargs="+", help="the mod's folder, or its .c files")
     b.add_argument("--target", "-t", action="append", choices=list(TARGETS) + ["all"],
-                   help="firmware to build for (repeat it; default all)")
+                   help="firmware to build for (repeat it; default all compatible targets)")
     b.add_argument("--out", "-o", default="build/mods",
                    help="folder for <target>/<id>.m8x (default build/mods), or a .m8x file for a single target")
     b.add_argument("-D", dest="defines", action="append", default=[], metavar="NAME[=VALUE]", help="a define")
@@ -302,7 +322,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         defines = dict(d.split("=", 1) if "=" in d else (d, "1") for d in args.defines)
         srcs = _sources(args.paths)
         for t in targets:
-            blob, _info = build_target(srcs, t, defines)
+            try:
+                blob, _info = build_target(srcs, t, defines)
+            except CCError as exc:
+                if args.target or "events" not in TARGETS[t]:
+                    raise
+                print(f"skipping {t}: {exc}", file=sys.stderr)
+                continue
             p = parse_m8x(blob)
             path = args.out if args.out.endswith(".m8x") else os.path.join(args.out, t, p["id"] + ".m8x")
             os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)

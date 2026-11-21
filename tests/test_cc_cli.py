@@ -1,4 +1,4 @@
-"""The mod build command (python -m dirtyloader.cc): its targets match the shop's, info reads the shop's files, and,
+"""The mod build command (python -m dirtyloader.cc): it supports the shop's targets, info reads the shop's files, and,
 where the ARM compiler is installed (not in CI), examples/hello builds for every target."""
 import contextlib
 import io
@@ -24,10 +24,9 @@ class TestCcCli(unittest.TestCase):
     def test_targets_match_the_shop(self):
         with open(os.path.join(SHOP, "meta.json"), encoding="utf-8") as f:
             shop = json.load(f)["targets"]
-        self.assertEqual(set(shop), set(cc.TARGETS))
-        for k, t in cc.TARGETS.items():
-            for field in ("label", "firmware", "defines", "alias"):
-                self.assertEqual(t[field], shop[k][field], f"{k}.{field}")
+        self.assertLessEqual(set(shop), set(cc.TARGETS))
+        for k, t in shop.items():
+            self.assertEqual(t, cc.TARGETS[k], k)
 
     def test_targets_command(self):
         code, out, _ = run("targets")
@@ -46,7 +45,9 @@ class TestCcCli(unittest.TestCase):
 
     def test_info_is_not_a_hook(self):
         """DL_INFO's entry is read as the mod's author and description, not counted as a subscription."""
-        for t in cc.TARGETS:
+        with open(os.path.join(SHOP, "meta.json"), encoding="utf-8") as f:
+            targets = json.load(f)["targets"]
+        for t in targets:
             with open(os.path.join(SHOP, "mods", t, "chaos-control.m8x"), "rb") as f:
                 p = cc.parse_m8x(f.read())
             self.assertEqual(p["info"]["author"], "dirtyloader", t)
@@ -76,13 +77,54 @@ class TestCcCli(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             code, out, err = run("build", os.path.join(ROOT, "examples", "hello"), "-o", d)
             self.assertEqual(code, 0, err)
-            fws = {"m8-headless": 0x00060604, "m8-model02": 0x02060602, "m8-model02-664": 0x02060604}
+            fws = {"m8-headless": 0x00060604, "m8-model02": 0x02060602, "m8-model02-664": 0x02060604,
+                   "m8-model01": 0x01060604}
             for t, fw in fws.items():
                 with open(os.path.join(d, t, "hello.m8x"), "rb") as f:
                     p = cc.parse_m8x(f.read())
                 self.assertEqual((p["id"], p["fw"]), ("hello", fw), t)
-                self.assertEqual(len(p["subscribe"]), 4)
+                self.assertEqual(len(p["subscribe"]), 1 if t == "m8-model01" else 4)
                 self.assertEqual(p["info"]["author"], "dirtyloader")
+
+    @unittest.skipUnless(cc.available(), "arm-none-eabi-gcc not installed")
+    def test_track_silence_builds_for_every_target(self):
+        with tempfile.TemporaryDirectory() as d:
+            code, _, err = run("build", os.path.join(ROOT, "examples", "track-silence"), "-o", d)
+            self.assertEqual(code, 0, err)
+            for target in cc.TARGETS:
+                with open(os.path.join(d, target, "track-silence.m8x"), "rb") as f:
+                    mod = cc.parse_m8x(f.read())
+                self.assertEqual([sub["event"] for sub in mod["subscribe"]], [0x0033], target)
+
+    @unittest.skipUnless(cc.available(), "arm-none-eabi-gcc not installed")
+    def test_portable_tick_has_one_binary_for_all_targets(self):
+        source_text = (
+            '#include "dl/mod.h"\n'
+            'static volatile uint32_t count;\n'
+            'static void tick(void) { count++; }\n'
+            'DL_MOD("portable", "1", "Portable", DL_ON(EV_TICK, 0, tick));\n'
+        )
+        with tempfile.TemporaryDirectory() as d:
+            source = os.path.join(d, "tick.c")
+            with open(source, "w", encoding="utf-8") as f:
+                f.write(source_text)
+            builds = [cc.build_target([source], target)[0] for target in cc.TARGETS]
+            self.assertTrue(all(blob == builds[0] for blob in builds))
+            self.assertEqual(cc.parse_m8x(builds[0])["fw"], 0)
+
+            with open(source, "w", encoding="utf-8") as f:
+                f.write(source_text.replace("EV_TICK", "EV_DRAW"))
+            with self.assertRaisesRegex(cc.CCError, "does not provide ev_draw"):
+                cc.build_target([source], "m8-model01")
+
+            out_dir = os.path.join(d, "mods")
+            code, _, err = run("build", source, "-o", out_dir)
+            self.assertEqual(code, 0, err)
+            self.assertIn("skipping m8-model01: m8-model01 core does not provide ev_draw", err)
+            self.assertEqual(set(os.listdir(out_dir)), set(cc.TARGETS) - {"m8-model01"})
+            code, _, err = run("build", source, "--target", "m8-model01", "-o", out_dir)
+            self.assertEqual(code, 1)
+            self.assertIn("m8-model01 core does not provide ev_draw", err)
 
 
 if __name__ == "__main__":
