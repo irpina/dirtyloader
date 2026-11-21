@@ -17,6 +17,15 @@
 #include "m8-headless/fw.h"
 #include "dl/core.h"
 
+#ifdef M8_MODEL01
+static volatile uint32_t ticks;
+static void on_tick(void) { ticks++; }
+
+DL_MOD("hello", "0.1.0", "Hello",
+       DL_INFO("dirtyloader", "The starter mod in tick-only mode on Model:01."),
+       DL_ON(EV_TICK, 50, on_tick));
+#else
+
 static const struct dl_core *core;                  /* core's API; 0 under a core without one */
 static uint32_t ticks, plays, stops, count;         /* .bss: core zeroes it before ev_boot */
 
@@ -93,3 +102,5 @@ DL_MOD("hello", "0.1.0", "Hello",
        DL_ON(EV_TICK, 50, on_tick),
        DL_ON(EV_PLAY, 50, on_play),
        DL_ON(EV_STOP, 50, on_stop));
+
+#endif
